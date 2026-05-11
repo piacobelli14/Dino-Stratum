@@ -3,16 +3,13 @@ const router = express.Router();
 const crypto = require("crypto");
 const { pool } = require("../../config/db");
 
-
 const LOG_LEVELS = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
 const CURRENT_LOG_LEVEL = LOG_LEVELS[process.env.INTEL_LOG_LEVEL || "DEBUG"] ?? LOG_LEVELS.DEBUG;
-
 
 const SEARCH_TIMEOUT_MS = 15000;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const RELEVANCE_THRESHOLD = 5;
 const IMAGE_RELEVANCE_THRESHOLD = 3;
-
 
 const MAX_ARTICLES = 20;
 const MAX_VIDEOS = 15;
@@ -20,19 +17,43 @@ const MAX_IMAGES = 12;
 const MAX_ACADEMIC = 10;
 const MAX_SOCIAL = 10;
 
-
 const GEMINI_MODEL = "gemini-2.0-flash";
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models";
-
-
-const BRIEFING_CACHE = new Map();
-const SEARCH_CACHE = new Map();
-const RISK_OBJECT_CACHE = new Map();
-
 
 const TIER_ONE_SOURCES = ["reuters", "associated press", "ap news", "bbc", "nytimes", "washington post", "guardian", "al jazeera", "afp"];
 const TIER_TWO_SOURCES = ["cnn", "nbc", "abc", "cbs", "npr", "pbs", "dw", "france24"];
 const VERIFIED_VIDEO_CHANNELS = ["bbc", "cnn", "reuters", "al jazeera", "associated press", "guardian", "nbc", "abc", "cbs"];
+
+const ALL_SOURCE_KEYS = [
+    "gdelt",
+    "gnews",
+    "google_cse",
+    "youtube",
+    "google_images",
+    "wikimedia_images",
+    "article_images",
+    "semantic_scholar",
+    "reddit",
+    "reliefweb",
+    "wikipedia"
+];
+
+const DEFAULT_USER_SETTINGS = {
+    sources_enabled: {
+        gdelt: true,
+        gnews: true,
+        google_cse: true,
+        youtube: true,
+        google_images: true,
+        wikimedia_images: true,
+        article_images: true,
+        semantic_scholar: true,
+        reddit: true,
+        reliefweb: true,
+        wikipedia: true
+    },
+    default_scope: "viewport"
+};
 
 const ACADEMIC_TERM_MAP = {
     "seismic": "seismology earthquake engineering",
@@ -48,49 +69,14 @@ const ACADEMIC_TERM_MAP = {
     "space": "space weather geomagnetic"
 };
 
+const BRIEFING_CACHE = new Map();
+const SEARCH_CACHE = new Map();
+const RISK_OBJECT_CACHE = new Map();
+const SOURCE_BUNDLE_CACHE = new Map();
+const USER_SETTINGS_CACHE = new Map();
 
-const generateId = (prefix) => `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
-
-const log = (level, context, message, meta = {}) => {
-    if (LOG_LEVELS[level] < CURRENT_LOG_LEVEL) return;
-    const prefix = `[INTEL ${level}]`;
-    const metaOutput = Object.keys(meta).length ? meta : "";
-    const formatted = `${prefix} [${context}] ${message}`;
-    if (level === "ERROR") {
-        process.stderr.write(formatted + (metaOutput ? " " + JSON.stringify(metaOutput) : "") + "\n");
-    } else if (level === "WARN") {
-        process.stderr.write(formatted + (metaOutput ? " " + JSON.stringify(metaOutput) : "") + "\n");
-    } else {
-        process.stdout.write(formatted + (metaOutput ? " " + JSON.stringify(metaOutput) : "") + "\n");
-    }
-};
-
-const logError = (context, error) => {
-    log("ERROR", context, error.message, {
-        stack: error.stack?.split("\n").slice(0, 3).join(" | "),
-        cause_code: error.cause?.code,
-        cause_msg: error.cause?.message,
-        name: error.name
-    });
-};
-
-const timer = (label) => {
-    const start = Date.now();
-    return {
-        elapsed: () => Date.now() - start,
-        done: (meta = {}) => {
-            const ms = Date.now() - start;
-            log("DEBUG", "TIMER", `${label} completed in ${ms}ms.`, { duration_ms: ms, ...meta });
-            return ms;
-        },
-        warn: (thresholdMs, meta = {}) => {
-            const ms = Date.now() - start;
-            if (ms > thresholdMs) {
-                log("WARN", "SLOW", `${label} took ${ms}ms (threshold: ${thresholdMs}ms).`, { duration_ms: ms, threshold_ms: thresholdMs, ...meta });
-            }
-            return ms;
-        }
-    };
+const generateId = (prefix) => {
+    return `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
 };
 
 const sanitize = (s, maxLen) => {
@@ -107,28 +93,42 @@ const cleanQueryText = (text) => {
         .trim();
 };
 
+const truncatePlain = (s, n) => {
+    if (!s) return "";
+    return s.length > n ? s.substring(0, n) + "..." : s;
+};
+
+const timer = (label) => {
+    const start = Date.now();
+    return {
+        elapsed: () => Date.now() - start,
+        done: (meta = {}) => {
+            const ms = Date.now() - start;
+            return ms;
+        },
+        warn: (thresholdMs, meta = {}) => {
+            const ms = Date.now() - start;
+            return ms;
+        }
+    };
+};
 
 const getCached = (store, key, ttl) => {
     const entry = store.get(key);
     if (!entry) {
-        log("DEBUG", "CACHE", `Miss: ${key.substring(0, 80)}.`);
         return null;
     }
     const age = Date.now() - entry.ts;
     if (age < (ttl || CACHE_TTL_MS)) {
-        log("DEBUG", "CACHE", `Hit: ${key.substring(0, 80)} (age: ${Math.round(age / 1000)}s).`);
         return entry.data;
     }
-    log("DEBUG", "CACHE", `Expired: ${key.substring(0, 80)} (age: ${Math.round(age / 1000)}s, ttl: ${Math.round((ttl || CACHE_TTL_MS) / 1000)}s).`);
     store.delete(key);
     return null;
 };
 
 const setCache = (store, key, data) => {
     store.set(key, { data: data, ts: Date.now() });
-    log("DEBUG", "CACHE", `Set: ${key.substring(0, 80)} (store size: ${store.size}).`);
 };
-
 
 const fetchWithTimeout = async (url, opts = {}, ms = SEARCH_TIMEOUT_MS) => {
     const startTime = Date.now();
@@ -137,28 +137,16 @@ const fetchWithTimeout = async (url, opts = {}, ms = SEARCH_TIMEOUT_MS) => {
     const path = parsedUrl.pathname.substring(0, 60);
     const abortController = new AbortController();
     const timeoutHandle = setTimeout(() => {
-        log("WARN", "FETCH_TIMEOUT", `Request to ${host}${path} aborted after ${ms}ms.`, { url: url.substring(0, 200), timeout_ms: ms });
         abortController.abort();
     }, ms);
     try {
-        log("DEBUG", "FETCH", `→ ${opts.method || "GET"} ${host}${path}.`, { timeout_ms: ms });
         const response = await fetch(url, { ...opts, signal: abortController.signal });
         clearTimeout(timeoutHandle);
         const elapsed = Date.now() - startTime;
-        log("DEBUG", "FETCH", `← ${response.status} ${host}${path} in ${elapsed}ms.`, { status: response.status, duration_ms: elapsed });
-        if (elapsed > 5000) {
-            log("WARN", "SLOW_FETCH", `${host}${path} took ${elapsed}ms.`, { status: response.status, duration_ms: elapsed });
-        }
         return response;
     } catch (error) {
         clearTimeout(timeoutHandle);
         const elapsed = Date.now() - startTime;
-        log("ERROR", "FETCH_FAIL", `${host}${path} failed after ${elapsed}ms: ${error.name} - ${error.message}.`, {
-            duration_ms: elapsed,
-            error_name: error.name,
-            is_abort: error.name === "AbortError",
-            url: url.substring(0, 200)
-        });
         throw error;
     }
 };
@@ -171,7 +159,6 @@ const fetchWithRetry = async (url, opts = {}, timeoutMs = SEARCH_TIMEOUT_MS, max
             if (response.status === 429 && attempt < maxRetries) {
                 const retryAfter = parseInt(response.headers.get("retry-after") || "0", 10);
                 const backoffMs = Math.max(retryAfter * 1000, (attempt + 1) * 1500);
-                log("WARN", "RETRY", `Received 429 from ${new URL(url).hostname}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries}).`, { url: url.substring(0, 120) });
                 await new Promise(resolve => setTimeout(resolve, backoffMs));
                 continue;
             }
@@ -183,7 +170,6 @@ const fetchWithRetry = async (url, opts = {}, timeoutMs = SEARCH_TIMEOUT_MS, max
             }
             if (attempt < maxRetries) {
                 const backoffMs = (attempt + 1) * 2000;
-                log("WARN", "RETRY", `Error from ${new URL(url).hostname}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries}).`, { url: url.substring(0, 120) });
                 await new Promise(resolve => setTimeout(resolve, backoffMs));
                 continue;
             }
@@ -192,7 +178,6 @@ const fetchWithRetry = async (url, opts = {}, timeoutMs = SEARCH_TIMEOUT_MS, max
     }
     throw lastError;
 };
-
 
 const isDateRelevant = (itemDateStr, risk, maxDaysBefore = 14, maxDaysAfter = 7) => {
     if (!itemDateStr) return true;
@@ -223,7 +208,6 @@ const extractDateRange = (risk) => {
         event_date: eventTime.toISOString().split("T")[0]
     };
 };
-
 
 const extractLocation = (risk) => {
     if (risk._resolved_location) return risk._resolved_location;
@@ -272,14 +256,11 @@ const reverseGeocode = async (lat, lng) => {
         const parts = [city, state, country].filter(Boolean);
         const location = parts.join(", ");
         if (location) setCache(SEARCH_CACHE, cacheKey, location);
-        log("INFO", "GEOCODE", `Resolved ${lat},${lng} to "${location}".`);
         return location || null;
     } catch (error) {
-        logError("GEOCODE", error);
         return null;
     }
 };
-
 
 const buildSearchQuery = (risk, variant) => {
     const cat = risk.risk_category || "";
@@ -303,10 +284,8 @@ const buildSearchQuery = (risk, variant) => {
     };
     const query = queryVariants[variant] || queryVariants.news;
     const cleaned = cleanQueryText(query).substring(0, 60);
-    log("DEBUG", "QUERY", `Built ${variant} query: "${cleaned}".`, { variant, category: cat, location: loc ? loc.substring(0, 40) : "" });
     return cleaned;
 };
-
 
 const scoreArticle = (article, risk) => {
     let score = 0;
@@ -365,23 +344,80 @@ const dedupeArticles = (articles) => {
         seen.add(key);
         return true;
     });
-    const removed = before - result.length;
-    if (removed > 0) log("DEBUG", "DEDUP", `Removed ${removed} duplicate articles (${before} → ${result.length}).`);
     return result;
 };
 
+const computeConfidenceMetrics = (collected) => {
+    const tierOneCount = (collected.articles || []).filter(a => {
+        const src = (a.source?.name || "").toLowerCase();
+        return TIER_ONE_SOURCES.some(t => src.includes(t));
+    }).length;
+    const tierTwoCount = (collected.articles || []).filter(a => {
+        const src = (a.source?.name || "").toLowerCase();
+        return TIER_TWO_SOURCES.some(t => src.includes(t));
+    }).length;
+    const verifiedVideoCount = (collected.videos || []).filter(v => {
+        const ch = (v.channelTitle || "").toLowerCase();
+        return VERIFIED_VIDEO_CHANNELS.some(t => ch.includes(t));
+    }).length;
+    const academicCount = (collected.academic || []).length;
+    const reliefWebCount = (collected.reliefweb || []).length;
+    const totalArticles = (collected.articles || []).length;
+    const totalVideos = (collected.videos || []).length;
+    const distinctSources = new Set();
+    (collected.articles || []).forEach(a => {
+        const s = (a.source?.name || a.provider || "").toLowerCase();
+        if (s) distinctSources.add(s);
+    });
+    const distinctSourceCount = distinctSources.size;
+    let level = "LOW";
+    let score = 0;
+    score += Math.min(tierOneCount * 12, 36);
+    score += Math.min(tierTwoCount * 6, 18);
+    score += Math.min(verifiedVideoCount * 4, 12);
+    score += Math.min(academicCount * 3, 12);
+    score += Math.min(reliefWebCount * 5, 10);
+    score += Math.min(distinctSourceCount * 2, 12);
+    if (score >= 60) level = "HIGH";
+    else if (score >= 30) level = "MEDIUM";
+    const indicators = [];
+    if (tierOneCount >= 2) indicators.push(`${tierOneCount} tier-one news outlets corroborate.`);
+    else if (tierOneCount === 1) indicators.push("One tier-one outlet covers this event.");
+    if (tierTwoCount >= 2) indicators.push(`${tierTwoCount} tier-two outlets cover this event.`);
+    if (verifiedVideoCount >= 1) indicators.push(`${verifiedVideoCount} verified video sources.`);
+    if (academicCount >= 1) indicators.push(`${academicCount} academic references.`);
+    if (reliefWebCount >= 1) indicators.push(`${reliefWebCount} humanitarian reports on file.`);
+    if (distinctSourceCount >= 5) indicators.push(`${distinctSourceCount} distinct outlets report on this.`);
+    else if (distinctSourceCount <= 1) indicators.push("Single-source claim - corroboration limited.");
+    if (totalArticles === 0 && totalVideos === 0 && academicCount === 0) {
+        indicators.push("No external corroboration available.");
+        level = "LOW";
+        score = 0;
+    }
+    return {
+        level,
+        score,
+        tier_one_count: tierOneCount,
+        tier_two_count: tierTwoCount,
+        verified_video_count: verifiedVideoCount,
+        academic_count: academicCount,
+        reliefweb_count: reliefWebCount,
+        distinct_source_count: distinctSourceCount,
+        total_articles: totalArticles,
+        total_videos: totalVideos,
+        indicators
+    };
+};
 
 const callGemini = async (prompt, opts = {}) => {
     const t = timer("Gemini API call");
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey || apiKey.trim() === "") {
-        log("WARN", "GEMINI", "Skipped: GEMINI_API_KEY not configured or empty.");
         t.done({ skipped: true, reason: "no_api_key" });
         return null;
     }
     const model = opts.model || GEMINI_MODEL;
     const url = `${GEMINI_BASE_URL}/${model}:generateContent?key=${apiKey}`;
-    log("INFO", "GEMINI", `Calling ${model}.`, { prompt_length: prompt.length, max_tokens: opts.maxTokens || 4096 });
     try {
         const body = {
             contents: [{ parts: [{ text: prompt }] }],
@@ -398,32 +434,26 @@ const callGemini = async (prompt, opts = {}) => {
         }, opts.timeout || 30000);
         if (!response.ok) {
             const errorBody = await response.text().catch(() => "");
-            log("ERROR", "GEMINI", `Non-OK response: ${response.status}.`, { status: response.status, body: errorBody.substring(0, 500) });
             t.done({ status: response.status, error: true });
             return null;
         }
         const data = await response.json();
         const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!textContent) {
-            log("WARN", "GEMINI", "Received empty response from Gemini.", { candidates: data.candidates?.length || 0, finish_reason: data.candidates?.[0]?.finishReason });
             t.done({ error: "empty_response" });
             return null;
         }
-        log("DEBUG", "GEMINI", `Raw response length: ${textContent.length} chars.`);
         let parsed;
         try {
             const cleaned = textContent.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
             parsed = JSON.parse(cleaned);
-        } catch (parseError) {
-            log("WARN", "GEMINI", "Failed to parse JSON response.", { preview: textContent.substring(0, 300), error: parseError.message });
+        } catch (error) {
             t.done({ error: "json_parse_fail" });
             return { _raw: textContent };
         }
         const ms = t.done({ success: true });
-        log("INFO", "GEMINI", `Response parsed successfully in ${ms}ms.`);
         return parsed;
     } catch (error) {
-        logError("GEMINI", error);
         t.done({ error: error.message });
         return null;
     }
@@ -465,7 +495,6 @@ const keywordFallbackFilter = (risk, items, itemType) => {
         .filter(item => item._relevance_score >= 5)
         .sort((a, b) => (b._relevance_score || 0) - (a._relevance_score || 0));
     const ms = t.done({ total: items.length, kept: filtered.length });
-    log("INFO", "KEYWORD_FILTER", `${itemType}: ${filtered.length}/${items.length} kept by keyword fallback in ${ms}ms.`);
     return { items: filtered, checked: items.length, relevant: filtered.length };
 };
 
@@ -476,7 +505,6 @@ const geminiFilterRelevance = async (risk, items, itemType) => {
         return { items: [], checked: 0, relevant: 0 };
     }
     if (!process.env.GEMINI_API_KEY) {
-        log("DEBUG", "GEMINI_FILTER", `Skipped ${itemType} AI filtering: no API key, using keyword fallback.`);
         t.done({ skipped: true, fallback: "keyword" });
         return keywordFallbackFilter(risk, items, itemType);
     }
@@ -527,7 +555,6 @@ Only include items you evaluated. Be strict but fair.`;
     try {
         const result = await callGemini(prompt, { temperature: 0.1, maxTokens: 2048, timeout: 20000 });
         if (!result || !result.scores) {
-            log("WARN", "GEMINI_FILTER", `No valid scores returned for ${itemType}, using keyword fallback.`);
             t.done({ error: "no_scores", fallback: "keyword" });
             return keywordFallbackFilter(risk, items, itemType);
         }
@@ -553,10 +580,8 @@ Only include items you evaluated. Be strict but fair.`;
             .sort((a, b) => (b._relevance_score || 0) - (a._relevance_score || 0));
         const relevant = scoredItems.filter(item => item._relevance_score >= RELEVANCE_THRESHOLD).length;
         const ms = t.done({ checked: maxCheck, relevant, filtered: filtered.length, total: items.length });
-        log("INFO", "GEMINI_FILTER", `${itemType}: ${relevant}/${maxCheck} relevant, ${items.length - filtered.length} removed in ${ms}ms.`);
         return { items: filtered, checked: maxCheck, relevant };
     } catch (error) {
-        logError("GEMINI_FILTER", error);
         t.done({ error: error.message, fallback: "keyword" });
         return keywordFallbackFilter(risk, items, itemType);
     }
@@ -627,29 +652,819 @@ Return JSON: {"scores": [{"index": 0, "score": 8, "reason": "brief reason"}, ...
             .filter(img => img._relevance_score >= IMAGE_RELEVANCE_THRESHOLD)
             .sort((a, b) => (b._relevance_score || 0) - (a._relevance_score || 0));
         const ms = t.done({ checked: maxCheck, kept: filtered.length, removed: images.length - filtered.length });
-        log("INFO", "GEMINI_FILTER", `Images: ${filtered.length}/${maxCheck} relevant, ${images.length - filtered.length} removed in ${ms}ms.`);
         return filtered;
     } catch (error) {
-        logError("GEMINI_FILTER_IMAGES", error);
         t.done({ error: error.message });
         return images;
     }
 };
 
+const fetchGDELT = async (query, dateRange, limit) => {
+    const t = timer(`GDELT "${query.substring(0, 40)}"`);
+    const cacheKey = `gdelt_${query}_${dateRange.from}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const fromDt = dateRange.from.replace(/-/g, "") + "000000";
+        const toDt = dateRange.to.replace(/-/g, "") + "235959";
+        const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=ArtList&maxrecords=${limit || MAX_ARTICLES}&format=json&startdatetime=${fromDt}&enddatetime=${toDt}&sort=DateDesc`;
+        const response = await fetchWithRetry(url, {}, 15000, 1);
+        if (!response.ok) {
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const text = await response.text();
+        if (!text || !text.trim().startsWith("{") && !text.trim().startsWith("[")) {
+            t.done({ error: "non_json_body", count: 0 });
+            return [];
+        }
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (error) {
+            t.done({ error: "json_parse", count: 0 });
+            return [];
+        }
+        const articles = (data.articles || []).map(a => {
+            let pubDate = null;
+            if (a.seendate) {
+                try {
+                    const sd = a.seendate.trim();
+                    if (/^\d{14}$/.test(sd.replace(/T|Z/g, ""))) {
+                        const cleaned = sd.replace(/(\d{4})(\d{2})(\d{2})T?(\d{2})(\d{2})(\d{2})Z?/, "$1-$2-$3T$4:$5:$6Z");
+                        pubDate = new Date(cleaned).toISOString();
+                    } else {
+                        pubDate = new Date(sd).toISOString();
+                    }
+                } catch (error) {
+                    pubDate = null;
+                }
+            }
+            return {
+                title: a.title,
+                description: a.seendate ? `Published ${a.seendate}. Source: ${a.domain || "Unknown"}.` : null,
+                content: null,
+                url: a.url,
+                image_url: a.socialimage || null,
+                publishedAt: pubDate,
+                source: { name: a.domain || "Unknown" },
+                author: null,
+                language: a.language,
+                sentiment: a.tone ? parseFloat(a.tone) : null,
+                provider: "gdelt"
+            };
+        });
+        setCache(SEARCH_CACHE, cacheKey, articles);
+        const ms = t.done({ count: articles.length });
+        t.warn(10000, { count: articles.length });
+        return articles;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
 
-const generateAISummary = async (risk, collectedData) => {
-    const t = timer("Gemini AI Summary");
-    log("INFO", "GEMINI_SUMMARY", "Starting AI summary generation.", {
-        has_api_key: !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()),
-        articles: (collectedData.articles || []).length,
-        reddit: (collectedData.reddit || []).length,
-        academic: (collectedData.academic || []).length,
-        related: (collectedData.related || []).length
+const fetchGNews = async (query, limit) => {
+    const t = timer(`GNews "${query.substring(0, 40)}"`);
+    const key = process.env.GNEWS_API_KEY;
+    if (!key) {
+        return [];
+    }
+    const cacheKey = `gnews_${query}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&max=${Math.min(limit || 10, 10)}&apikey=${key}`;
+        const response = await fetchWithTimeout(url);
+        if (!response.ok) {
+            const body = await response.text().catch(() => "");
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const data = await response.json();
+        const articles = (data.articles || []).map(a => ({
+            title: a.title,
+            description: a.description,
+            content: a.content,
+            url: a.url,
+            image_url: a.image,
+            publishedAt: a.publishedAt,
+            source: { name: a.source?.name || "Unknown" },
+            author: null,
+            provider: "gnews"
+        }));
+        setCache(SEARCH_CACHE, cacheKey, articles);
+        const ms = t.done({ count: articles.length });
+        t.warn(8000, { count: articles.length });
+        return articles;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const fetchGoogleSearch = async (query, limit) => {
+    const t = timer(`GoogleCSE "${query.substring(0, 40)}"`);
+    const key = process.env.GOOGLE_CUSTOM_SEARCH_KEY;
+    const cx = process.env.GOOGLE_CUSTOM_SEARCH_CX;
+    if (!key || !cx) {
+        return [];
+    }
+    const cacheKey = `gcs_${query}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const url = `https://www.googleapis.com/customsearch/v1?key=${key}&cx=${cx}&q=${encodeURIComponent(query)}&num=${Math.min(limit || 10, 10)}`;
+        const response = await fetchWithTimeout(url);
+        if (!response.ok) {
+            const body = await response.text().catch(() => "");
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const data = await response.json();
+        const results = (data.items || []).map(i => ({
+            title: i.title,
+            description: i.snippet,
+            url: i.link,
+            image_url: i.pagemap?.cse_image?.[0]?.src || null,
+            source: { name: i.displayLink },
+            provider: "google"
+        }));
+        setCache(SEARCH_CACHE, cacheKey, results);
+        const ms = t.done({ count: results.length });
+        t.warn(8000, { count: results.length });
+        return results;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const fetchReliefWebReport = async (query) => {
+    const t = timer(`ReliefWeb "${query.substring(0, 40)}"`);
+    const cacheKey = `reliefweb_report_${query}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const body = JSON.stringify({
+            appname: "risk-intel",
+            query: { value: query },
+            limit: 10,
+            fields: {
+                include: ["title", "url", "date", "source", "primary_country", "disaster"]
+            },
+            sort: ["date:desc"]
+        });
+        const response = await fetchWithTimeout("https://api.reliefweb.int/v1/reports?appname=risk-intel", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "RiskIntelligence/2.0 (risk-intel)"
+            },
+            body
+        }, 20000);
+        if (!response.ok) {
+            if (response.status === 403) {
+                const getUrl = `https://api.reliefweb.int/v1/reports?appname=risk-intel&query[value]=${encodeURIComponent(query)}&limit=10&sort[]=date:desc&fields[include][]=title&fields[include][]=url&fields[include][]=date&fields[include][]=source&fields[include][]=primary_country&fields[include][]=disaster`;
+                const getResponse = await fetchWithTimeout(getUrl, {
+                    method: "GET",
+                    headers: {
+                        "Accept": "application/json",
+                        "User-Agent": "RiskIntelligence/2.0 (risk-intel)"
+                    }
+                }, 15000);
+                if (!getResponse.ok) {
+                    t.done({ status: getResponse.status, count: 0 });
+                    return [];
+                }
+                const getData = await getResponse.json();
+                const getReports = (getData.data || []).map(item => {
+                    const f = item.fields || {};
+                    return {
+                        title: f.title,
+                        url: f.url,
+                        date: f.date?.created,
+                        source: f.source?.[0]?.name,
+                        country: f.primary_country?.name,
+                        disaster: f.disaster?.[0]?.name,
+                        body_excerpt: null,
+                        provider: "reliefweb"
+                    };
+                });
+                setCache(SEARCH_CACHE, cacheKey, getReports);
+                const ms = t.done({ count: getReports.length, method: "get_fallback" });
+                return getReports;
+            }
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const data = await response.json();
+        const reports = (data.data || []).map(item => {
+            const f = item.fields || {};
+            return {
+                title: f.title,
+                url: f.url,
+                date: f.date?.created,
+                source: f.source?.[0]?.name,
+                country: f.primary_country?.name,
+                disaster: f.disaster?.[0]?.name,
+                body_excerpt: null,
+                provider: "reliefweb"
+            };
+        });
+        setCache(SEARCH_CACHE, cacheKey, reports);
+        const ms = t.done({ count: reports.length });
+        return reports;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const fetchWikipedia = async (query) => {
+    const t = timer(`Wikipedia "${query.substring(0, 40)}"`);
+    const cacheKey = `wiki_${query}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=5&format=json&origin=*`;
+        const response = await fetchWithTimeout(url);
+        if (!response.ok) {
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const data = await response.json();
+        const results = (data.query?.search || []).map(s => ({
+            title: s.title,
+            snippet: s.snippet?.replace(/<[^>]+>/g, ""),
+            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, "_"))}`,
+            wordcount: s.wordcount,
+            provider: "wikipedia"
+        }));
+        setCache(SEARCH_CACHE, cacheKey, results);
+        const ms = t.done({ count: results.length });
+        return results;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const fetchSemanticScholar = async (query, limit) => {
+    const t = timer(`SemanticScholar "${query.substring(0, 40)}"`);
+    const cacheKey = `scholar_${query}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const headers = {};
+        if (process.env.SEMANTIC_SCHOLAR_API_KEY) {
+            headers["x-api-key"] = process.env.SEMANTIC_SCHOLAR_API_KEY;
+        }
+        const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${limit || MAX_ACADEMIC}&fields=title,abstract,url,year,citationCount,authors,externalIds,publicationDate`;
+        const response = await fetchWithRetry(url, { headers }, 20000, 2);
+        if (!response.ok) {
+            const body = await response.text().catch(() => "");
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const data = await response.json();
+        const papers = (data.data || []).map(p => ({
+            title: p.title,
+            abstract: p.abstract,
+            url: p.url || (p.externalIds?.DOI ? `https://doi.org/${p.externalIds.DOI}` : null),
+            year: p.year,
+            citationCount: p.citationCount,
+            authors: p.authors?.map(a => a.name).slice(0, 5),
+            doi: p.externalIds?.DOI || null,
+            publicationDate: p.publicationDate,
+            provider: "semantic_scholar"
+        }));
+        setCache(SEARCH_CACHE, cacheKey, papers);
+        const ms = t.done({ count: papers.length });
+        t.warn(15000, { count: papers.length });
+        return papers;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const fetchYouTube = async (query, dateRange, limit) => {
+    const t = timer(`YouTube "${query.substring(0, 40)}"`);
+    const key = process.env.YOUTUBE_DATA_API_KEY;
+    if (!key) {
+        return [];
+    }
+    const cacheKey = `yt_${query}_${dateRange.from}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const after = new Date(dateRange.from).toISOString();
+        const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=${limit || MAX_VIDEOS}&order=relevance&publishedAfter=${after}&relevanceLanguage=en&key=${key}`;
+        const tSearch = timer("YouTube search request");
+        const response = await fetchWithTimeout(url);
+        tSearch.done();
+        if (!response.ok) {
+            const body = await response.text().catch(() => "");
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const data = await response.json();
+        const videoIds = (data.items || []).map(i => i.id.videoId).filter(Boolean);
+        if (!videoIds.length) { t.done({ count: 0 }); return []; }
+
+        let stats = {};
+        try {
+            const tStats = timer("YouTube stats request");
+            const statsResponse = await fetchWithTimeout(`https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails&id=${videoIds.join(",")}&key=${key}`);
+            tStats.done();
+            if (statsResponse.ok) {
+                const statsData = await statsResponse.json();
+                for (const item of (statsData.items || [])) {
+                    stats[item.id] = {
+                        viewCount: parseInt(item.statistics?.viewCount || "0", 10),
+                        likeCount: parseInt(item.statistics?.likeCount || "0", 10),
+                        commentCount: parseInt(item.statistics?.commentCount || "0", 10),
+                        duration: item.contentDetails?.duration || null
+                    };
+                }
+            }
+        } catch (error) {
+        }
+        const videos = (data.items || []).map(i => {
+            const s = stats[i.id.videoId] || {};
+            return {
+                videoId: i.id.videoId,
+                title: i.snippet.title,
+                description: i.snippet.description,
+                channelTitle: i.snippet.channelTitle,
+                channelId: i.snippet.channelId,
+                publishedAt: i.snippet.publishedAt,
+                thumbnail_url: i.snippet.thumbnails?.high?.url || i.snippet.thumbnails?.medium?.url || i.snippet.thumbnails?.default?.url,
+                url: `https://www.youtube.com/watch?v=${i.id.videoId}`,
+                embed_url: `https://www.youtube.com/embed/${i.id.videoId}`,
+                viewCount: s.viewCount || 0,
+                likeCount: s.likeCount || 0,
+                commentCount: s.commentCount || 0,
+                duration: s.duration || null,
+                provider: "youtube"
+            };
+        });
+        setCache(SEARCH_CACHE, cacheKey, videos);
+        const ms = t.done({ count: videos.length });
+        t.warn(12000, { count: videos.length });
+        return videos;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const fetchGoogleImages = async (query, limit) => {
+    const t = timer(`GoogleImages "${query.substring(0, 40)}"`);
+    const key = process.env.GOOGLE_CUSTOM_SEARCH_KEY;
+    const cx = process.env.GOOGLE_CUSTOM_SEARCH_CX;
+    if (!key || !cx) {
+        t.done({ status: "skipped_no_key", count: 0 });
+        return [];
+    }
+    const cacheKey = `gimg_${query}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const url = `https://www.googleapis.com/customsearch/v1?key=${key}&cx=${cx}&q=${encodeURIComponent(query)}&searchType=image&num=${Math.min(limit || MAX_IMAGES, 10)}&imgSize=large&safe=active`;
+        const response = await fetchWithTimeout(url);
+        if (!response.ok) {
+            const body = await response.text().catch(() => "");
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const data = await response.json();
+        const images = (data.items || []).map(i => ({
+            title: i.title,
+            url: i.link,
+            thumbnail_url: i.image?.thumbnailLink || i.link,
+            context_url: i.image?.contextLink,
+            width: i.image?.width,
+            height: i.image?.height,
+            source: i.displayLink,
+            provider: "google_images"
+        }));
+        setCache(SEARCH_CACHE, cacheKey, images);
+        const ms = t.done({ count: images.length });
+        t.warn(8000, { count: images.length });
+        return images;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const fetchWikimediaImages = async (query, limit) => {
+    const t = timer(`WikimediaImages "${query.substring(0, 40)}"`);
+    const cacheKey = `wimg_${query}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${Math.min(limit || MAX_IMAGES, 20)}&gsrnamespace=6&prop=imageinfo&iiprop=url|extmetadata|size|mime&iiurlwidth=800&format=json&origin=*`;
+        const response = await fetchWithTimeout(url, {}, 10000);
+        if (!response.ok) {
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const data = await response.json();
+        const pages = data.query?.pages || {};
+        const images = Object.values(pages)
+            .filter(p => p.imageinfo && p.imageinfo.length > 0)
+            .filter(p => {
+                const mime = p.imageinfo[0].mime || "";
+                return mime.startsWith("image/");
+            })
+            .map(p => {
+                const info = p.imageinfo[0];
+                const meta = info.extmetadata || {};
+                return {
+                    title: (meta.ObjectName?.value || p.title || "").replace(/^File:/, "").replace(/\.\w+$/, ""),
+                    url: info.thumburl || info.url,
+                    thumbnail_url: info.thumburl || info.url,
+                    context_url: info.descriptionurl,
+                    width: info.thumbwidth || info.width,
+                    height: info.thumbheight || info.height,
+                    source: "Wikimedia Commons",
+                    provider: "wikimedia_images",
+                    license: meta.LicenseShortName?.value || "Unknown"
+                };
+            })
+            .slice(0, limit || MAX_IMAGES);
+        setCache(SEARCH_CACHE, cacheKey, images);
+        const ms = t.done({ count: images.length });
+        return images;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const extractImagesFromArticles = (articles) => {
+    const images = [];
+    const seen = new Set();
+    for (const a of articles) {
+        if (a.image_url && !seen.has(a.image_url)) {
+            seen.add(a.image_url);
+            images.push({
+                title: a.title || "News Image",
+                url: a.image_url,
+                thumbnail_url: a.image_url,
+                context_url: a.url,
+                width: null,
+                height: null,
+                source: a.source?.name || a.provider || "News",
+                provider: "article_images"
+            });
+        }
+    }
+    return images;
+};
+
+const fetchAllImages = async (risk, articles, enabledSources) => {
+    const t = timer("fetchAllImages");
+    const query = buildSearchQuery(risk, "images");
+    const broadQuery = buildSearchQuery(risk, "images_broad");
+    const en = enabledSources || DEFAULT_USER_SETTINGS.sources_enabled;
+
+    const allImages = [];
+
+    const fetchPromises = [];
+    if (en.google_images !== false) {
+        fetchPromises.push(fetchGoogleImages(query, MAX_IMAGES));
+    } else {
+        fetchPromises.push(Promise.resolve([]));
+    }
+    if (en.wikimedia_images !== false) {
+        fetchPromises.push(fetchWikimediaImages(query, MAX_IMAGES));
+        fetchPromises.push(fetchWikimediaImages(broadQuery, 6));
+    } else {
+        fetchPromises.push(Promise.resolve([]));
+        fetchPromises.push(Promise.resolve([]));
+    }
+
+    const [googleResult, wikiResult, wikiBroadResult] = await Promise.allSettled(fetchPromises);
+
+    if (googleResult.status === "fulfilled") allImages.push(...googleResult.value);
+    if (wikiResult.status === "fulfilled") allImages.push(...wikiResult.value);
+    if (wikiBroadResult.status === "fulfilled") allImages.push(...wikiBroadResult.value);
+
+    if (articles && articles.length > 0 && en.article_images !== false) {
+        allImages.push(...extractImagesFromArticles(articles));
+    }
+
+    const seen = new Set();
+    const deduped = allImages.filter(img => {
+        const key = (img.url || "").toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
     });
+
+    let filtered = deduped;
+    if (deduped.length > 0) {
+        filtered = await geminiFilterImages(risk, deduped);
+    }
+
+    const result = filtered.slice(0, MAX_IMAGES);
+    const ms = t.done({
+        count: result.length,
+        pre_filter: deduped.length,
+        post_filter: filtered.length,
+        google: googleResult.status === "fulfilled" ? googleResult.value.length : 0,
+        wikimedia: wikiResult.status === "fulfilled" ? wikiResult.value.length : 0,
+        article_imgs: articles ? extractImagesFromArticles(articles).length : 0
+    });
+    return result;
+};
+
+const fetchRedditPosts = async (query, limit) => {
+    const t = timer(`Reddit "${query.substring(0, 40)}"`);
+    const cacheKey = `reddit_${query}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+    try {
+        const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=relevance&t=month&limit=${limit || MAX_SOCIAL}&raw_json=1`;
+        const response = await fetchWithTimeout(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (compatible; RiskIntelligence/2.0; +https://riskintel.app)",
+                "Accept": "application/json"
+            }
+        }, 10000);
+        if (!response.ok) {
+            t.done({ status: response.status, count: 0 });
+            return [];
+        }
+        const data = await response.json();
+        const posts = (data.data?.children || []).filter(c => c.data && !c.data.over_18).map(c => {
+            const p = c.data;
+            return {
+                title: p.title,
+                url: `https://reddit.com${p.permalink}`,
+                subreddit: p.subreddit_name_prefixed,
+                score: p.score,
+                num_comments: p.num_comments,
+                author: p.author,
+                created_utc: p.created_utc ? new Date(p.created_utc * 1000).toISOString() : null,
+                selftext_excerpt: p.selftext ? p.selftext.substring(0, 300) : null,
+                thumbnail: p.thumbnail && p.thumbnail.startsWith("http") ? p.thumbnail : null,
+                provider: "reddit"
+            };
+        });
+        setCache(SEARCH_CACHE, cacheKey, posts);
+        const ms = t.done({ count: posts.length });
+        t.warn(8000, { count: posts.length });
+        return posts;
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const fetchGDACSReport = async (eventType, eventId) => {
+    const t = timer(`GDACS ${eventType}/${eventId}`);
+    if (!eventType || !eventId) {
+        return null;
+    }
+    const cacheKey = `gdacs_${eventType}_${eventId}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache" }); return cached; }
+    try {
+        const url = `https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=${eventType}&eventid=${eventId}`;
+        const response = await fetchWithTimeout(url, { headers: { "Accept": "application/json" } }, 20000);
+        if (!response.ok) {
+            t.done({ status: response.status });
+            return null;
+        }
+        const data = await response.json();
+        setCache(SEARCH_CACHE, cacheKey, data);
+        t.done({ success: true });
+        return data;
+    } catch (error) {
+        t.done({ error: error.message });
+        return null;
+    }
+};
+
+const fetchUSGSEventDetail = async (eventId) => {
+    const t = timer(`USGS ${eventId}`);
+    if (!eventId) {
+        return null;
+    }
+    const cacheKey = `usgs_detail_${eventId}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache" }); return cached; }
+    try {
+        const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&eventid=${eventId}`;
+        const response = await fetchWithTimeout(url, {}, 20000);
+        if (!response.ok) {
+            t.done({ status: response.status });
+            return null;
+        }
+        const data = await response.json();
+        setCache(SEARCH_CACHE, cacheKey, data);
+        t.done({ success: true });
+        return data;
+    } catch (error) {
+        t.done({ error: error.message });
+        return null;
+    }
+};
+
+const fetchNOAAEventDetail = async (alertId) => {
+    const t = timer(`NOAA ${alertId}`);
+    if (!alertId) {
+        return null;
+    }
+    const cacheKey = `noaa_detail_${alertId}`;
+    const cached = getCached(SEARCH_CACHE, cacheKey);
+    if (cached) { t.done({ source: "cache" }); return cached; }
+    try {
+        const url = `https://api.weather.gov/alerts/${alertId}`;
+        const response = await fetchWithTimeout(url, { headers: { "User-Agent": "RiskIntelligence/2.0", "Accept": "application/geo+json" } }, 15000);
+        if (!response.ok) {
+            t.done({ status: response.status });
+            return null;
+        }
+        const data = await response.json();
+        setCache(SEARCH_CACHE, cacheKey, data);
+        t.done({ success: true });
+        return data;
+    } catch (error) {
+        t.done({ error: error.message });
+        return null;
+    }
+};
+
+const hydrateRiskRow = (row) => {
+    const parse = (v) => {
+        if (!v) return v;
+        if (typeof v === "string") {
+            try { return JSON.parse(v); } catch { return v; }
+        }
+        return v;
+    };
+    return {
+        ...row,
+        recommendations: parse(row.recommendations),
+        metadata: parse(row.metadata),
+        properties: parse(row.properties),
+        golden_mesh_detection: parse(row.golden_mesh_detection),
+        population_impact: parse(row.population_impact),
+        geometry_coordinates: parse(row.geometry_coordinates),
+        coordinates: parse(row.coordinates)
+    };
+};
+
+const getRiskById = async (riskId) => {
+    const t = timer(`DB getRiskById ${riskId}`);
+    try {
+        const result = await pool.query(
+            `SELECT id, source, source_id, risk_category, severity, severity_score, title, description, geometry_type, geometry_coordinates, latitude, longitude, impact_radius_km, event_time, updated_at, expires_at, url, recommendations, metadata, properties, golden_mesh_detection, population_impact, coordinates FROM risk_events_cache WHERE id = $1 LIMIT 1`,
+            [riskId]
+        );
+        if (result.rows.length) {
+            t.done({ found: true, by: "id" });
+            return hydrateRiskRow(result.rows[0]);
+        }
+        const fallback = await pool.query(
+            `SELECT id, source, source_id, risk_category, severity, severity_score, title, description, geometry_type, geometry_coordinates, latitude, longitude, impact_radius_km, event_time, updated_at, expires_at, url, recommendations, metadata, properties, golden_mesh_detection, population_impact, coordinates FROM risk_events_cache WHERE source_id = $1 LIMIT 1`,
+            [riskId]
+        );
+        if (fallback.rows.length) {
+            t.done({ found: true, by: "source_id" });
+            return hydrateRiskRow(fallback.rows[0]);
+        }
+        t.done({ found: false });
+        return null;
+    } catch (error) {
+        t.done({ error: error.message });
+        return null;
+    }
+};
+
+const getRelatedRisks = async (risk, limit) => {
+    const t = timer("DB getRelatedRisks");
+    try {
+        const lat = parseFloat(risk.latitude);
+        const lng = parseFloat(risk.longitude);
+        if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+            return [];
+        }
+        const riskId = risk.id || risk.risk_id || risk.event_id || risk.source_id || "none";
+        const radiusMeters = Math.min((parseFloat(risk.impact_radius_km) || 100) * 1000, 500000);
+        const client = await pool.connect();
+        try {
+            await client.query("SET statement_timeout = '15000'");
+            const result = await client.query(
+                `SELECT id, source, risk_category, severity, severity_score, title, description, latitude, longitude, event_time, metadata, ST_Distance(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters FROM risk_events_cache WHERE id != $3 AND latitude IS NOT NULL AND longitude IS NOT NULL AND ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $4) ORDER BY severity_score DESC, distance_meters ASC LIMIT $5`,
+                [lng, lat, riskId, radiusMeters, limit || 20]
+            );
+            client.release();
+            const ms = t.done({ count: result.rows.length });
+            return result.rows.map(row => ({
+                ...row,
+                distance_km: row.distance_meters ? parseFloat((row.distance_meters / 1000).toFixed(2)) : null,
+                metadata: typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata
+            }));
+        } catch (error) {
+            client.release();
+            throw error;
+        }
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const buildAssetContext = async (orgid, riskLat, riskLng, riskRadiusKm) => {
+    if (!orgid || !riskLat || !riskLng) return null;
+    const t = timer("buildAssetContext");
+    try {
+        const radiusMeters = Math.min((parseFloat(riskRadiusKm) || 200) * 1000, 500000);
+        const client = await pool.connect();
+        try {
+            await client.query("SET statement_timeout = '10000'");
+            const result = await client.query(
+                `SELECT asset_id, name AS asset_name, asset_type, priority AS criticality, latitude, longitude, risk_score, ST_Distance(ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters FROM risk_assets WHERE orgid = $3 AND deleted_at IS NULL AND status = 'Active' AND latitude IS NOT NULL AND longitude IS NOT NULL AND ST_DWithin(ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $4) ORDER BY CASE priority WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 WHEN 'Medium' THEN 3 WHEN 'Low' THEN 4 ELSE 5 END ASC, distance_meters ASC LIMIT 50`,
+                [riskLng, riskLat, orgid, radiusMeters]
+            );
+            client.release();
+            const assets = result.rows.map(row => ({
+                ...row,
+                distance_km: row.distance_meters ? parseFloat((row.distance_meters / 1000).toFixed(2)) : null
+            }));
+            t.done({ count: assets.length });
+            return assets;
+        } catch (error) {
+            client.release();
+            if (error.code === "42P01") {
+                t.done({ error: "no_table" });
+                return [];
+            }
+            throw error;
+        }
+    } catch (error) {
+        t.done({ error: error.message });
+        return [];
+    }
+};
+
+const buildFallbackSummary = (risk, collectedData) => {
+    const loc = extractLocation(risk);
+    const meta = risk.metadata || {};
+    const stats = [];
+    if (risk.severity) stats.push({ label: "Severity Level", value: risk.severity });
+    if (risk.severity_score) stats.push({ label: "Severity Score", value: String(risk.severity_score) });
+    if (meta.magnitude) stats.push({ label: "Magnitude", value: String(meta.magnitude) });
+    if (meta.depth) stats.push({ label: "Depth", value: `${meta.depth} km` });
+    if (risk.impact_radius_km) stats.push({ label: "Impact Radius", value: `${risk.impact_radius_km} km` });
+    if (risk.source) stats.push({ label: "Data Source", value: risk.source });
+    if (loc) stats.push({ label: "Location", value: loc });
+    if (risk.event_time) stats.push({ label: "Event Time", value: new Date(risk.event_time).toLocaleString() });
+    const confidence = collectedData ? computeConfidenceMetrics(collectedData) : { level: "LOW", indicators: ["AI analysis unavailable - confidence cannot be assessed."] };
+    return {
+        executive_summary: `${risk.title || "Risk event detected"}. This ${(risk.risk_category || "risk").toLowerCase()} event was reported by ${risk.source || "monitoring systems"} with a severity level of ${risk.severity || "Unknown"}${loc ? ` in the ${loc} area` : ""}. ${risk.description || "Further details are being gathered from multiple intelligence sources."}`,
+        key_findings: [
+            `Event classified as ${risk.severity || "Unknown"} severity ${(risk.risk_category || "risk").toLowerCase()} event.`,
+            loc ? `Reported in the ${loc} region.` : "Location data available in event metadata.",
+            `Monitored by ${risk.source || "multiple sources"}.`,
+            risk.impact_radius_km ? `Estimated impact radius of ${risk.impact_radius_km} km.` : "Impact radius under assessment.",
+            "AI-enhanced analysis unavailable - displaying raw intelligence data."
+        ],
+        statistics: stats.length > 0 ? stats : [{ label: "Status", value: "Monitoring" }],
+        impact_assessment: risk.description || "Impact assessment requires additional data collection. Review the news, social, and academic tabs for the latest available information.",
+        affected_areas: loc ? [loc] : [],
+        recommendations: [
+            "Monitor official sources for updates.",
+            "Review related risks in the vicinity.",
+            "Check news and social tabs for latest reports.",
+            "Consult academic research for historical context."
+        ],
+        timeline: risk.event_time ? [{ time: new Date(risk.event_time).toLocaleString(), description: "Event initially reported." }] : [],
+        generated_at: new Date().toISOString(),
+        ai_generated: false,
+        fallback: true,
+        confidence_level: confidence.level,
+        confidence_rationale: "Confidence assessed from source agreement alone (AI summary unavailable).",
+        source_confidence: confidence,
+        data_quality_note: "AI summary generation unavailable. Displaying basic event metadata only."
+    };
+};
+
+const generateAISummary = async (risk, collectedData, options = {}) => {
+    const t = timer("Gemini AI Summary");
+    const scope = options.scope || "viewport";
+    const assetContext = options.assetContext || null;
     if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.trim() === "") {
-        log("WARN", "GEMINI_SUMMARY", "Skipped: GEMINI_API_KEY not configured or empty.");
         t.done({ skipped: true });
-        return buildFallbackSummary(risk);
+        return buildFallbackSummary(risk, collectedData);
     }
 
     let resolvedLocation = extractLocation(risk);
@@ -658,19 +1473,18 @@ const generateAISummary = async (risk, collectedData) => {
             resolvedLocation = await reverseGeocode(risk.latitude, risk.longitude);
             if (resolvedLocation) {
                 risk._resolved_location = resolvedLocation;
-                log("INFO", "GEMINI_SUMMARY", `Resolved location via geocode: "${resolvedLocation}".`);
             }
-        } catch (geoError) {
-            log("WARN", "GEMINI_SUMMARY", `Geocode failed: ${geoError.message}.`);
+        } catch (error) {
         }
     }
-    const locationStr = resolvedLocation || "Unknown — do NOT guess or invent a location";
+    const locationStr = resolvedLocation || "Unknown - do NOT guess or invent a location";
 
     let articleSnippets = "";
     let socialSnippets = "";
     let academicSnippets = "";
     let relatedSnippets = "";
     let metaStr = "none";
+    let assetSnippets = "";
     try {
         articleSnippets = (collectedData.articles || []).slice(0, 8).map(a =>
             `- "${(a.title || "").substring(0, 100)}" (${a.source?.name || "Unknown"}, ${a.publishedAt || "unknown date"}): ${(a.description || "").substring(0, 150)}`
@@ -685,8 +1499,12 @@ const generateAISummary = async (risk, collectedData) => {
             `- "${(r.title || "").substring(0, 80)}" (${r.severity || ""}, ${r.risk_category || ""}, ${r.distance_km ? r.distance_km + " km away" : ""})`
         ).join("\n");
         metaStr = risk.metadata ? JSON.stringify(risk.metadata).substring(0, 500) : "none";
-    } catch (snippetError) {
-        log("ERROR", "GEMINI_SUMMARY", `Error building snippets: ${snippetError.message}.`);
+        if (assetContext && assetContext.length > 0) {
+            assetSnippets = assetContext.slice(0, 10).map(a =>
+                `- "${a.asset_name}" (${a.asset_type || "asset"}, criticality: ${a.criticality || "N/A"}, ${a.distance_km !== null ? a.distance_km + " km away" : ""})`
+            ).join("\n");
+        }
+    } catch (error) {
     }
 
     let populationStr = "N/A";
@@ -699,6 +1517,10 @@ const generateAISummary = async (risk, collectedData) => {
         if (pi.distance_km) parts.push(`Distance to nearest city: ${pi.distance_km} km`);
         populationStr = parts.length > 0 ? parts.join(", ") : "N/A";
     }
+
+    const scopeInstruction = scope === "assets" && assetContext && assetContext.length > 0
+        ? `\n\nASSET-SCOPED LENS: This briefing is being viewed in ASSET-SCOPED mode. The org has the following assets within the impact radius. Tailor the impact_assessment, recommendations, and key_findings to call out specific assets that may be affected. Discuss exposure to these named assets explicitly.\n\nORG ASSETS NEAR THIS RISK (${assetContext.length}):\n${assetSnippets}\n`
+        : "";
 
     const prompt = `You are an expert risk intelligence analyst. Generate a comprehensive intelligence briefing summary for the following risk event.
 
@@ -714,7 +1536,7 @@ RISK EVENT:
 - Impact Radius: ${risk.impact_radius_km || "N/A"} km
 - Metadata: ${metaStr}
 - Population Impact: ${populationStr}
-
+${scopeInstruction}
 COLLECTED INTELLIGENCE:
 News Articles (${(collectedData.articles || []).length} found):
 ${articleSnippets || "None available"}
@@ -755,861 +1577,176 @@ Generate a JSON response with this exact structure:
     {"time": "time description", "description": "what happened"}
   ],
   "confidence_level": "HIGH/MEDIUM/LOW",
+  "confidence_rationale": "Brief justification of the confidence assessment based on the available sources and corroboration",
   "data_quality_note": "brief note about the quality and completeness of available data"
 }
 
-For statistics, include relevant metrics like magnitude, affected population, distance from populated areas, number of related events, media coverage volume, etc. Use ONLY the actual data provided above. If specific data is unavailable, state "Data unavailable" — do NOT fabricate estimates for population counts or nearest cities.
+For statistics, include relevant metrics like magnitude, affected population, distance from populated areas, number of related events, media coverage volume, etc. Use ONLY the actual data provided above. If specific data is unavailable, state "Data unavailable" - do NOT fabricate estimates for population counts or nearest cities.
 For affected_areas, ONLY include areas explicitly mentioned in the Location, Metadata, Population Impact, or news article data above. Do NOT invent or guess area names.`;
 
-    log("INFO", "GEMINI_SUMMARY", "Sending prompt to Gemini.", { prompt_length: prompt.length });
     try {
         const result = await callGemini(prompt, { temperature: 0.4, maxTokens: 4096, timeout: 45000 });
         if (!result || result._raw) {
-            log("WARN", "GEMINI_SUMMARY", "Failed to get structured summary, using fallback.", { raw: !!result?._raw, null_result: !result });
             t.done({ fallback: true });
-            return buildFallbackSummary(risk);
+            return buildFallbackSummary(risk, collectedData);
         }
         result.generated_at = new Date().toISOString();
         result.model = GEMINI_MODEL;
         result.ai_generated = true;
+        result.scope = scope;
+        const sourceConfidence = computeConfidenceMetrics(collectedData);
+        result.source_confidence = sourceConfidence;
+        if (!result.confidence_level) result.confidence_level = sourceConfidence.level;
         const ms = t.done({ success: true });
-        log("INFO", "GEMINI_SUMMARY", `AI summary generated in ${ms}ms.`);
         return result;
     } catch (error) {
-        logError("GEMINI_SUMMARY", error);
         t.done({ error: error.message });
-        return buildFallbackSummary(risk);
+        return buildFallbackSummary(risk, collectedData);
     }
 };
 
-const buildFallbackSummary = (risk) => {
-    const loc = extractLocation(risk);
-    const meta = risk.metadata || {};
-    const stats = [];
-    if (risk.severity) stats.push({ label: "Severity Level", value: risk.severity });
-    if (risk.severity_score) stats.push({ label: "Severity Score", value: String(risk.severity_score) });
-    if (meta.magnitude) stats.push({ label: "Magnitude", value: String(meta.magnitude) });
-    if (meta.depth) stats.push({ label: "Depth", value: `${meta.depth} km` });
-    if (risk.impact_radius_km) stats.push({ label: "Impact Radius", value: `${risk.impact_radius_km} km` });
-    if (risk.source) stats.push({ label: "Data Source", value: risk.source });
-    if (loc) stats.push({ label: "Location", value: loc });
-    if (risk.event_time) stats.push({ label: "Event Time", value: new Date(risk.event_time).toLocaleString() });
-    return {
-        executive_summary: `${risk.title || "Risk event detected"}. This ${(risk.risk_category || "risk").toLowerCase()} event was reported by ${risk.source || "monitoring systems"} with a severity level of ${risk.severity || "Unknown"}${loc ? ` in the ${loc} area` : ""}. ${risk.description || "Further details are being gathered from multiple intelligence sources."}`,
-        key_findings: [
-            `Event classified as ${risk.severity || "Unknown"} severity ${(risk.risk_category || "risk").toLowerCase()} event.`,
-            loc ? `Reported in the ${loc} region.` : "Location data available in event metadata.",
-            `Monitored by ${risk.source || "multiple sources"}.`,
-            risk.impact_radius_km ? `Estimated impact radius of ${risk.impact_radius_km} km.` : "Impact radius under assessment.",
-            "AI-enhanced analysis unavailable - displaying raw intelligence data."
-        ],
-        statistics: stats.length > 0 ? stats : [{ label: "Status", value: "Monitoring" }],
-        impact_assessment: risk.description || "Impact assessment requires additional data collection. Review the news, social, and academic tabs for the latest available information.",
-        affected_areas: loc ? [loc] : [],
-        recommendations: [
-            "Monitor official sources for updates.",
-            "Review related risks in the vicinity.",
-            "Check news and social tabs for latest reports.",
-            "Consult academic research for historical context."
-        ],
-        timeline: risk.event_time ? [{ time: new Date(risk.event_time).toLocaleString(), description: "Event initially reported." }] : [],
-        generated_at: new Date().toISOString(),
-        ai_generated: false,
-        fallback: true,
-        confidence_level: "LOW",
-        data_quality_note: "AI summary generation unavailable. Displaying basic event metadata only."
-    };
-};
-
-
-const fetchGDELT = async (query, dateRange, limit) => {
-    const t = timer(`GDELT "${query.substring(0, 40)}"`);
-    const cacheKey = `gdelt_${query}_${dateRange.from}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
+const ensureIntelTables = async () => {
+    const t = timer("ensureIntelTables");
     try {
-        const fromDt = dateRange.from.replace(/-/g, "") + "000000";
-        const toDt = dateRange.to.replace(/-/g, "") + "235959";
-        const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=ArtList&maxrecords=${limit || MAX_ARTICLES}&format=json&startdatetime=${fromDt}&enddatetime=${toDt}&sort=DateDesc`;
-        const response = await fetchWithRetry(url, {}, 15000, 1);
-        if (!response.ok) {
-            log("WARN", "GDELT", `Non-OK response: ${response.status}.`, { status: response.status, query: query.substring(0, 60) });
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const text = await response.text();
-        if (!text || !text.trim().startsWith("{") && !text.trim().startsWith("[")) {
-            log("WARN", "GDELT", `Non-JSON response body received.`, { body_preview: text.substring(0, 120), query: query.substring(0, 60) });
-            t.done({ error: "non_json_body", count: 0 });
-            return [];
-        }
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch (parseError) {
-            log("WARN", "GDELT", `JSON parse error encountered.`, { body_preview: text.substring(0, 200) });
-            t.done({ error: "json_parse", count: 0 });
-            return [];
-        }
-        const articles = (data.articles || []).map(a => {
-            let pubDate = null;
-            if (a.seendate) {
-                try {
-                    const sd = a.seendate.trim();
-                    if (/^\d{14}$/.test(sd.replace(/T|Z/g, ""))) {
-                        const cleaned = sd.replace(/(\d{4})(\d{2})(\d{2})T?(\d{2})(\d{2})(\d{2})Z?/, "$1-$2-$3T$4:$5:$6Z");
-                        pubDate = new Date(cleaned).toISOString();
-                    } else {
-                        pubDate = new Date(sd).toISOString();
-                    }
-                } catch (error) {
-                    pubDate = null;
-                }
+        const alterCols = [
+            "source_bundle JSONB DEFAULT '{}'",
+            "confidence_level TEXT",
+            "confidence_score INTEGER DEFAULT 0",
+            "scope TEXT DEFAULT 'viewport'",
+            "asset_count INTEGER DEFAULT 0",
+            "viewport_bbox JSONB",
+            "risk_latitude DOUBLE PRECISION",
+            "risk_longitude DOUBLE PRECISION"
+        ];
+        for (const col of alterCols) {
+            try {
+                await pool.query(`ALTER TABLE intel_briefings ADD COLUMN IF NOT EXISTS ${col}`);
+            } catch (error) {
             }
-            return {
-                title: a.title,
-                description: a.seendate ? `Published ${a.seendate}. Source: ${a.domain || "Unknown"}.` : null,
-                content: null,
-                url: a.url,
-                image_url: a.socialimage || null,
-                publishedAt: pubDate,
-                source: { name: a.domain || "Unknown" },
-                author: null,
-                language: a.language,
-                sentiment: a.tone ? parseFloat(a.tone) : null,
-                provider: "gdelt"
-            };
-        });
-        setCache(SEARCH_CACHE, cacheKey, articles);
-        const ms = t.done({ count: articles.length });
-        log("INFO", "GDELT", `Found ${articles.length} articles in ${ms}ms for "${query.substring(0, 50)}".`);
-        t.warn(10000, { count: articles.length });
-        return articles;
+        }
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_intel_briefings_geom ON intel_briefings (risk_latitude, risk_longitude)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS intel_briefing_feedback (
+            feedback_id TEXT PRIMARY KEY,
+            briefing_id TEXT,
+            risk_id TEXT,
+            orgid TEXT NOT NULL,
+            submitted_by TEXT NOT NULL,
+            flag_reason TEXT,
+            flag_category TEXT,
+            comments TEXT,
+            source_bundle_snapshot JSONB,
+            ai_summary_snapshot JSONB,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_intel_feedback_briefing ON intel_briefing_feedback (briefing_id, created_at DESC)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_intel_feedback_orgid ON intel_briefing_feedback (orgid, created_at DESC)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_intel_feedback_category ON intel_briefing_feedback (flag_category, created_at DESC)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS intel_user_settings (
+            settings_id TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            orgid TEXT NOT NULL,
+            sources_enabled JSONB DEFAULT '{}',
+            default_scope TEXT DEFAULT 'viewport',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (username, orgid)
+        )`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_intel_user_settings_lookup ON intel_user_settings (username, orgid)`);
+        t.done({ success: true });
     } catch (error) {
-        logError("GDELT", error);
         t.done({ error: error.message });
-        return [];
     }
 };
 
-const fetchGNews = async (query, limit) => {
-    const t = timer(`GNews "${query.substring(0, 40)}"`);
-    const key = process.env.GNEWS_API_KEY;
-    if (!key) {
-        log("DEBUG", "GNEWS", "Skipped: API key not configured.");
-        return [];
-    }
-    const cacheKey = `gnews_${query}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
-    try {
-        const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&max=${Math.min(limit || 10, 10)}&apikey=${key}`;
-        const response = await fetchWithTimeout(url);
-        if (!response.ok) {
-            const body = await response.text().catch(() => "");
-            log("WARN", "GNEWS", `Non-OK response: ${response.status}.`, { status: response.status, body: body.substring(0, 200), query: query.substring(0, 60) });
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const data = await response.json();
-        const articles = (data.articles || []).map(a => ({
+ensureIntelTables();
+
+const buildSourceBundle = (collected, queries) => {
+    const bundle = {
+        articles: (collected.articles || []).map(a => ({
             title: a.title,
-            description: a.description,
-            content: a.content,
             url: a.url,
-            image_url: a.image,
+            source: a.source?.name || a.provider || "unknown",
+            provider: a.provider,
             publishedAt: a.publishedAt,
-            source: { name: a.source?.name || "Unknown" },
-            author: null,
-            provider: "gnews"
-        }));
-        setCache(SEARCH_CACHE, cacheKey, articles);
-        const ms = t.done({ count: articles.length });
-        log("INFO", "GNEWS", `Found ${articles.length} articles in ${ms}ms for "${query.substring(0, 50)}".`);
-        t.warn(8000, { count: articles.length });
-        return articles;
-    } catch (error) {
-        logError("GNEWS", error);
-        t.done({ error: error.message });
-        return [];
-    }
-};
-
-const fetchGoogleSearch = async (query, limit) => {
-    const t = timer(`GoogleCSE "${query.substring(0, 40)}"`);
-    const key = process.env.GOOGLE_CUSTOM_SEARCH_KEY;
-    const cx = process.env.GOOGLE_CUSTOM_SEARCH_CX;
-    if (!key || !cx) {
-        log("DEBUG", "GOOGLE_CSE", "Skipped: API key or CX not configured.");
-        return [];
-    }
-    const cacheKey = `gcs_${query}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
-    try {
-        const url = `https://www.googleapis.com/customsearch/v1?key=${key}&cx=${cx}&q=${encodeURIComponent(query)}&num=${Math.min(limit || 10, 10)}`;
-        const response = await fetchWithTimeout(url);
-        if (!response.ok) {
-            const body = await response.text().catch(() => "");
-            log("WARN", "GOOGLE_CSE", `Non-OK response: ${response.status}.`, { status: response.status, body: body.substring(0, 200) });
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const data = await response.json();
-        const results = (data.items || []).map(i => ({
+            relevance_score: a._relevance_score,
+            relevance_reason: a._relevance_reason,
+            score: a._score
+        })),
+        videos: (collected.videos || []).map(v => ({
+            title: v.title,
+            url: v.url,
+            channelTitle: v.channelTitle,
+            publishedAt: v.publishedAt,
+            viewCount: v.viewCount,
+            provider: v.provider,
+            relevance_score: v._relevance_score,
+            score: v._score
+        })),
+        images: (collected.images || []).map(i => ({
             title: i.title,
-            description: i.snippet,
-            url: i.link,
-            image_url: i.pagemap?.cse_image?.[0]?.src || null,
-            source: { name: i.displayLink },
-            provider: "google"
-        }));
-        setCache(SEARCH_CACHE, cacheKey, results);
-        const ms = t.done({ count: results.length });
-        log("INFO", "GOOGLE_CSE", `Found ${results.length} results in ${ms}ms for "${query.substring(0, 50)}".`);
-        t.warn(8000, { count: results.length });
-        return results;
-    } catch (error) {
-        logError("GOOGLE_CSE", error);
-        t.done({ error: error.message });
-        return [];
-    }
-};
-
-const fetchReliefWebReport = async (query) => {
-    const t = timer(`ReliefWeb "${query.substring(0, 40)}"`);
-    const cacheKey = `reliefweb_report_${query}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
-    try {
-        const body = JSON.stringify({
-            appname: "risk-intel",
-            query: { value: query },
-            limit: 10,
-            fields: {
-                include: ["title", "url", "date", "source", "primary_country", "disaster"]
-            },
-            sort: ["date:desc"]
-        });
-        const response = await fetchWithTimeout("https://api.reliefweb.int/v1/reports?appname=risk-intel", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "RiskIntelligence/2.0 (risk-intel)"
-            },
-            body
-        }, 20000);
-        if (!response.ok) {
-            if (response.status === 403) {
-                log("WARN", "RELIEFWEB", `Received 403 Forbidden, attempting GET fallback.`);
-                const getUrl = `https://api.reliefweb.int/v1/reports?appname=risk-intel&query[value]=${encodeURIComponent(query)}&limit=10&sort[]=date:desc&fields[include][]=title&fields[include][]=url&fields[include][]=date&fields[include][]=source&fields[include][]=primary_country&fields[include][]=disaster`;
-                const getResponse = await fetchWithTimeout(getUrl, {
-                    method: "GET",
-                    headers: {
-                        "Accept": "application/json",
-                        "User-Agent": "RiskIntelligence/2.0 (risk-intel)"
-                    }
-                }, 15000);
-                if (!getResponse.ok) {
-                    log("WARN", "RELIEFWEB", `GET fallback also failed: ${getResponse.status}.`);
-                    t.done({ status: getResponse.status, count: 0 });
-                    return [];
-                }
-                const getData = await getResponse.json();
-                const getReports = (getData.data || []).map(item => {
-                    const f = item.fields || {};
-                    return {
-                        title: f.title,
-                        url: f.url,
-                        date: f.date?.created,
-                        source: f.source?.[0]?.name,
-                        country: f.primary_country?.name,
-                        disaster: f.disaster?.[0]?.name,
-                        body_excerpt: null,
-                        provider: "reliefweb"
-                    };
-                });
-                setCache(SEARCH_CACHE, cacheKey, getReports);
-                const ms = t.done({ count: getReports.length, method: "get_fallback" });
-                log("INFO", "RELIEFWEB", `Found ${getReports.length} reports in ${ms}ms (GET fallback).`);
-                return getReports;
-            }
-            log("WARN", "RELIEFWEB", `Non-OK response: ${response.status}.`);
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const data = await response.json();
-        const reports = (data.data || []).map(item => {
-            const f = item.fields || {};
-            return {
-                title: f.title,
-                url: f.url,
-                date: f.date?.created,
-                source: f.source?.[0]?.name,
-                country: f.primary_country?.name,
-                disaster: f.disaster?.[0]?.name,
-                body_excerpt: null,
-                provider: "reliefweb"
-            };
-        });
-        setCache(SEARCH_CACHE, cacheKey, reports);
-        const ms = t.done({ count: reports.length });
-        log("INFO", "RELIEFWEB", `Found ${reports.length} reports in ${ms}ms.`);
-        return reports;
-    } catch (error) {
-        logError("RELIEFWEB", error);
-        t.done({ error: error.message });
-        return [];
-    }
-};
-
-const fetchWikipedia = async (query) => {
-    const t = timer(`Wikipedia "${query.substring(0, 40)}"`);
-    const cacheKey = `wiki_${query}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
-    try {
-        const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=5&format=json&origin=*`;
-        const response = await fetchWithTimeout(url);
-        if (!response.ok) {
-            log("WARN", "WIKIPEDIA", `Non-OK response: ${response.status}.`);
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const data = await response.json();
-        const results = (data.query?.search || []).map(s => ({
-            title: s.title,
-            snippet: s.snippet?.replace(/<[^>]+>/g, ""),
-            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, "_"))}`,
-            wordcount: s.wordcount,
-            provider: "wikipedia"
-        }));
-        setCache(SEARCH_CACHE, cacheKey, results);
-        const ms = t.done({ count: results.length });
-        log("INFO", "WIKIPEDIA", `Found ${results.length} results in ${ms}ms.`);
-        return results;
-    } catch (error) {
-        logError("WIKIPEDIA", error);
-        t.done({ error: error.message });
-        return [];
-    }
-};
-
-const fetchSemanticScholar = async (query, limit) => {
-    const t = timer(`SemanticScholar "${query.substring(0, 40)}"`);
-    const cacheKey = `scholar_${query}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
-    try {
-        const headers = {};
-        if (process.env.SEMANTIC_SCHOLAR_API_KEY) {
-            headers["x-api-key"] = process.env.SEMANTIC_SCHOLAR_API_KEY;
-        }
-        const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${limit || MAX_ACADEMIC}&fields=title,abstract,url,year,citationCount,authors,externalIds,publicationDate`;
-        const response = await fetchWithRetry(url, { headers }, 20000, 2);
-        if (!response.ok) {
-            const body = await response.text().catch(() => "");
-            log("WARN", "SCHOLAR", `Non-OK response: ${response.status}.`, { status: response.status, body: body.substring(0, 200) });
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const data = await response.json();
-        const papers = (data.data || []).map(p => ({
-            title: p.title,
-            abstract: p.abstract,
-            url: p.url || (p.externalIds?.DOI ? `https://doi.org/${p.externalIds.DOI}` : null),
-            year: p.year,
-            citationCount: p.citationCount,
-            authors: p.authors?.map(a => a.name).slice(0, 5),
-            doi: p.externalIds?.DOI || null,
-            publicationDate: p.publicationDate,
-            provider: "semantic_scholar"
-        }));
-        setCache(SEARCH_CACHE, cacheKey, papers);
-        const ms = t.done({ count: papers.length });
-        log("INFO", "SCHOLAR", `Found ${papers.length} papers in ${ms}ms for "${query.substring(0, 50)}".`);
-        t.warn(15000, { count: papers.length });
-        return papers;
-    } catch (error) {
-        logError("SCHOLAR", error);
-        t.done({ error: error.message });
-        return [];
-    }
-};
-
-
-const fetchYouTube = async (query, dateRange, limit) => {
-    const t = timer(`YouTube "${query.substring(0, 40)}"`);
-    const key = process.env.YOUTUBE_DATA_API_KEY;
-    if (!key) {
-        log("DEBUG", "YOUTUBE", "Skipped: API key not configured.");
-        return [];
-    }
-    const cacheKey = `yt_${query}_${dateRange.from}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
-    try {
-        const after = new Date(dateRange.from).toISOString();
-        const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=${limit || MAX_VIDEOS}&order=relevance&publishedAfter=${after}&relevanceLanguage=en&key=${key}`;
-        const tSearch = timer("YouTube search request");
-        const response = await fetchWithTimeout(url);
-        tSearch.done();
-        if (!response.ok) {
-            const body = await response.text().catch(() => "");
-            log("WARN", "YOUTUBE", `Search non-OK: ${response.status}.`, { status: response.status, body: body.substring(0, 200) });
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const data = await response.json();
-        const videoIds = (data.items || []).map(i => i.id.videoId).filter(Boolean);
-        log("DEBUG", "YOUTUBE", `Search returned ${videoIds.length} video IDs.`);
-        if (!videoIds.length) { t.done({ count: 0 }); return []; }
-
-        let stats = {};
-        try {
-            const tStats = timer("YouTube stats request");
-            const statsResponse = await fetchWithTimeout(`https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails&id=${videoIds.join(",")}&key=${key}`);
-            tStats.done();
-            if (statsResponse.ok) {
-                const statsData = await statsResponse.json();
-                for (const item of (statsData.items || [])) {
-                    stats[item.id] = {
-                        viewCount: parseInt(item.statistics?.viewCount || "0", 10),
-                        likeCount: parseInt(item.statistics?.likeCount || "0", 10),
-                        commentCount: parseInt(item.statistics?.commentCount || "0", 10),
-                        duration: item.contentDetails?.duration || null
-                    };
-                }
-                log("DEBUG", "YOUTUBE", `Retrieved stats for ${Object.keys(stats).length} videos.`);
-            } else {
-                log("WARN", "YOUTUBE", `Stats request non-OK: ${statsResponse.status}.`);
-            }
-        } catch (error) {
-            log("WARN", "YOUTUBE", `Stats fetch failed: ${error.message}.`);
-        }
-        const videos = (data.items || []).map(i => {
-            const s = stats[i.id.videoId] || {};
-            return {
-                videoId: i.id.videoId,
-                title: i.snippet.title,
-                description: i.snippet.description,
-                channelTitle: i.snippet.channelTitle,
-                channelId: i.snippet.channelId,
-                publishedAt: i.snippet.publishedAt,
-                thumbnail_url: i.snippet.thumbnails?.high?.url || i.snippet.thumbnails?.medium?.url || i.snippet.thumbnails?.default?.url,
-                url: `https://www.youtube.com/watch?v=${i.id.videoId}`,
-                embed_url: `https://www.youtube.com/embed/${i.id.videoId}`,
-                viewCount: s.viewCount || 0,
-                likeCount: s.likeCount || 0,
-                commentCount: s.commentCount || 0,
-                duration: s.duration || null,
-                provider: "youtube"
-            };
-        });
-        setCache(SEARCH_CACHE, cacheKey, videos);
-        const ms = t.done({ count: videos.length });
-        log("INFO", "YOUTUBE", `Found ${videos.length} videos in ${ms}ms for "${query.substring(0, 50)}".`);
-        t.warn(12000, { count: videos.length });
-        return videos;
-    } catch (error) {
-        logError("YOUTUBE", error);
-        t.done({ error: error.message });
-        return [];
-    }
-};
-
-
-const fetchGoogleImages = async (query, limit) => {
-    const t = timer(`GoogleImages "${query.substring(0, 40)}"`);
-    const key = process.env.GOOGLE_CUSTOM_SEARCH_KEY;
-    const cx = process.env.GOOGLE_CUSTOM_SEARCH_CX;
-    if (!key || !cx) {
-        log("DEBUG", "GOOGLE_IMG", "Skipped: API key or CX not configured, using fallback image sources.");
-        t.done({ status: "skipped_no_key", count: 0 });
-        return [];
-    }
-    const cacheKey = `gimg_${query}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
-    try {
-        const url = `https://www.googleapis.com/customsearch/v1?key=${key}&cx=${cx}&q=${encodeURIComponent(query)}&searchType=image&num=${Math.min(limit || MAX_IMAGES, 10)}&imgSize=large&safe=active`;
-        const response = await fetchWithTimeout(url);
-        if (!response.ok) {
-            const body = await response.text().catch(() => "");
-            log("WARN", "GOOGLE_IMG", `Non-OK response: ${response.status}.`, { status: response.status, body: body.substring(0, 200) });
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const data = await response.json();
-        const images = (data.items || []).map(i => ({
-            title: i.title,
-            url: i.link,
-            thumbnail_url: i.image?.thumbnailLink || i.link,
-            context_url: i.image?.contextLink,
-            width: i.image?.width,
-            height: i.image?.height,
-            source: i.displayLink,
-            provider: "google_images"
-        }));
-        setCache(SEARCH_CACHE, cacheKey, images);
-        const ms = t.done({ count: images.length });
-        log("INFO", "GOOGLE_IMG", `Found ${images.length} images in ${ms}ms for "${query.substring(0, 50)}".`);
-        t.warn(8000, { count: images.length });
-        return images;
-    } catch (error) {
-        logError("GOOGLE_IMG", error);
-        t.done({ error: error.message });
-        return [];
-    }
-};
-
-const fetchWikimediaImages = async (query, limit) => {
-    const t = timer(`WikimediaImages "${query.substring(0, 40)}"`);
-    const cacheKey = `wimg_${query}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
-    try {
-        const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${Math.min(limit || MAX_IMAGES, 20)}&gsrnamespace=6&prop=imageinfo&iiprop=url|extmetadata|size|mime&iiurlwidth=800&format=json&origin=*`;
-        const response = await fetchWithTimeout(url, {}, 10000);
-        if (!response.ok) {
-            log("WARN", "WIKIMEDIA_IMG", `Non-OK response: ${response.status}.`);
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const data = await response.json();
-        const pages = data.query?.pages || {};
-        const images = Object.values(pages)
-            .filter(p => p.imageinfo && p.imageinfo.length > 0)
-            .filter(p => {
-                const mime = p.imageinfo[0].mime || "";
-                return mime.startsWith("image/");
-            })
-            .map(p => {
-                const info = p.imageinfo[0];
-                const meta = info.extmetadata || {};
-                return {
-                    title: (meta.ObjectName?.value || p.title || "").replace(/^File:/, "").replace(/\.\w+$/, ""),
-                    url: info.thumburl || info.url,
-                    thumbnail_url: info.thumburl || info.url,
-                    context_url: info.descriptionurl,
-                    width: info.thumbwidth || info.width,
-                    height: info.thumbheight || info.height,
-                    source: "Wikimedia Commons",
-                    provider: "wikimedia",
-                    license: meta.LicenseShortName?.value || "Unknown"
-                };
-            })
-            .slice(0, limit || MAX_IMAGES);
-        setCache(SEARCH_CACHE, cacheKey, images);
-        const ms = t.done({ count: images.length });
-        log("INFO", "WIKIMEDIA_IMG", `Found ${images.length} images in ${ms}ms for "${query.substring(0, 50)}".`);
-        return images;
-    } catch (error) {
-        logError("WIKIMEDIA_IMG", error);
-        t.done({ error: error.message });
-        return [];
-    }
-};
-
-const extractImagesFromArticles = (articles) => {
-    const images = [];
-    const seen = new Set();
-    for (const a of articles) {
-        if (a.image_url && !seen.has(a.image_url)) {
-            seen.add(a.image_url);
-            images.push({
-                title: a.title || "News Image",
-                url: a.image_url,
-                thumbnail_url: a.image_url,
-                context_url: a.url,
-                width: null,
-                height: null,
-                source: a.source?.name || a.provider || "News",
-                provider: "article_image"
-            });
-        }
-    }
-    return images;
-};
-
-const fetchAllImages = async (risk, articles) => {
-    const t = timer("fetchAllImages");
-    const query = buildSearchQuery(risk, "images");
-    const broadQuery = buildSearchQuery(risk, "images_broad");
-
-    const allImages = [];
-
-    const [googleResult, wikiResult, wikiBroadResult] = await Promise.allSettled([
-        fetchGoogleImages(query, MAX_IMAGES),
-        fetchWikimediaImages(query, MAX_IMAGES),
-        fetchWikimediaImages(broadQuery, 6)
-    ]);
-
-    if (googleResult.status === "fulfilled") allImages.push(...googleResult.value);
-    if (wikiResult.status === "fulfilled") allImages.push(...wikiResult.value);
-    if (wikiBroadResult.status === "fulfilled") allImages.push(...wikiBroadResult.value);
-
-    if (articles && articles.length > 0) {
-        allImages.push(...extractImagesFromArticles(articles));
-    }
-
-    const seen = new Set();
-    const deduped = allImages.filter(img => {
-        const key = (img.url || "").toLowerCase();
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
-
-    let filtered = deduped;
-    if (deduped.length > 0) {
-        filtered = await geminiFilterImages(risk, deduped);
-    }
-
-    const result = filtered.slice(0, MAX_IMAGES);
-    const ms = t.done({
-        count: result.length,
-        pre_filter: deduped.length,
-        post_filter: filtered.length,
-        google: googleResult.status === "fulfilled" ? googleResult.value.length : 0,
-        wikimedia: wikiResult.status === "fulfilled" ? wikiResult.value.length : 0,
-        article_imgs: articles ? extractImagesFromArticles(articles).length : 0
-    });
-    log("INFO", "IMAGES", `Assembled ${result.length} total images in ${ms}ms (filtered from ${deduped.length}).`);
-    return result;
-};
-
-
-const fetchRedditPosts = async (query, limit) => {
-    const t = timer(`Reddit "${query.substring(0, 40)}"`);
-    const cacheKey = `reddit_${query}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache", count: cached.length }); return cached; }
-    try {
-        const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=relevance&t=month&limit=${limit || MAX_SOCIAL}&raw_json=1`;
-        const response = await fetchWithTimeout(url, {
-            headers: {
-                "User-Agent": "Mozilla/5.0 (compatible; RiskIntelligence/2.0; +https://riskintel.app)",
-                "Accept": "application/json"
-            }
-        }, 10000);
-        if (!response.ok) {
-            log("WARN", "REDDIT", `Non-OK response: ${response.status}.`);
-            t.done({ status: response.status, count: 0 });
-            return [];
-        }
-        const data = await response.json();
-        const posts = (data.data?.children || []).filter(c => c.data && !c.data.over_18).map(c => {
-            const p = c.data;
-            return {
-                title: p.title,
-                url: `https://reddit.com${p.permalink}`,
-                subreddit: p.subreddit_name_prefixed,
-                score: p.score,
-                num_comments: p.num_comments,
-                author: p.author,
-                created_utc: p.created_utc ? new Date(p.created_utc * 1000).toISOString() : null,
-                selftext_excerpt: p.selftext ? p.selftext.substring(0, 300) : null,
-                thumbnail: p.thumbnail && p.thumbnail.startsWith("http") ? p.thumbnail : null,
-                provider: "reddit"
-            };
-        });
-        setCache(SEARCH_CACHE, cacheKey, posts);
-        const ms = t.done({ count: posts.length });
-        log("INFO", "REDDIT", `Found ${posts.length} posts in ${ms}ms.`);
-        t.warn(8000, { count: posts.length });
-        return posts;
-    } catch (error) {
-        logError("REDDIT", error);
-        t.done({ error: error.message });
-        return [];
-    }
-};
-
-
-const fetchGDACSReport = async (eventType, eventId) => {
-    const t = timer(`GDACS ${eventType}/${eventId}`);
-    if (!eventType || !eventId) {
-        log("DEBUG", "GDACS", "Skipped: Missing eventType or eventId.");
-        return null;
-    }
-    const cacheKey = `gdacs_${eventType}_${eventId}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache" }); return cached; }
-    try {
-        const url = `https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=${eventType}&eventid=${eventId}`;
-        const response = await fetchWithTimeout(url, { headers: { "Accept": "application/json" } }, 20000);
-        if (!response.ok) {
-            log("WARN", "GDACS", `Non-OK response: ${response.status}.`);
-            t.done({ status: response.status });
-            return null;
-        }
-        const data = await response.json();
-        setCache(SEARCH_CACHE, cacheKey, data);
-        t.done({ success: true });
-        log("INFO", "GDACS", `Report fetched for ${eventType}/${eventId}.`);
-        return data;
-    } catch (error) {
-        logError("GDACS", error);
-        t.done({ error: error.message });
-        return null;
-    }
-};
-
-const fetchUSGSEventDetail = async (eventId) => {
-    const t = timer(`USGS ${eventId}`);
-    if (!eventId) {
-        log("DEBUG", "USGS", "Skipped: Missing eventId.");
-        return null;
-    }
-    const cacheKey = `usgs_detail_${eventId}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache" }); return cached; }
-    try {
-        const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&eventid=${eventId}`;
-        const response = await fetchWithTimeout(url, {}, 20000);
-        if (!response.ok) {
-            log("WARN", "USGS", `Non-OK response: ${response.status}.`);
-            t.done({ status: response.status });
-            return null;
-        }
-        const data = await response.json();
-        setCache(SEARCH_CACHE, cacheKey, data);
-        t.done({ success: true });
-        log("INFO", "USGS", `Event detail fetched for ${eventId}.`);
-        return data;
-    } catch (error) {
-        logError("USGS", error);
-        t.done({ error: error.message });
-        return null;
-    }
-};
-
-const fetchNOAAEventDetail = async (alertId) => {
-    const t = timer(`NOAA ${alertId}`);
-    if (!alertId) {
-        log("DEBUG", "NOAA", "Skipped: Missing alertId.");
-        return null;
-    }
-    const cacheKey = `noaa_detail_${alertId}`;
-    const cached = getCached(SEARCH_CACHE, cacheKey);
-    if (cached) { t.done({ source: "cache" }); return cached; }
-    try {
-        const url = `https://api.weather.gov/alerts/${alertId}`;
-        const response = await fetchWithTimeout(url, { headers: { "User-Agent": "RiskIntelligence/2.0", "Accept": "application/geo+json" } }, 15000);
-        if (!response.ok) {
-            log("WARN", "NOAA", `Non-OK response: ${response.status}.`);
-            t.done({ status: response.status });
-            return null;
-        }
-        const data = await response.json();
-        setCache(SEARCH_CACHE, cacheKey, data);
-        t.done({ success: true });
-        log("INFO", "NOAA", `Alert detail fetched for ${alertId}.`);
-        return data;
-    } catch (error) {
-        logError("NOAA", error);
-        t.done({ error: error.message });
-        return null;
-    }
-};
-
-
-const hydrateRiskRow = (row) => {
-    const parse = (v) => {
-        if (!v) return v;
-        if (typeof v === "string") {
-            try { return JSON.parse(v); } catch { return v; }
-        }
-        return v;
+            url: i.url,
+            source: i.source,
+            provider: i.provider,
+            relevance_score: i._relevance_score
+        })),
+        academic: (collected.academic || []).map(a => ({
+            title: a.title,
+            url: a.url,
+            year: a.year,
+            citationCount: a.citationCount,
+            authors: a.authors,
+            doi: a.doi,
+            provider: a.provider
+        })),
+        reddit: (collected.reddit || []).map(r => ({
+            title: r.title,
+            url: r.url,
+            subreddit: r.subreddit,
+            score: r.score,
+            num_comments: r.num_comments,
+            created_utc: r.created_utc,
+            provider: r.provider,
+            relevance_score: r._relevance_score
+        })),
+        reliefweb: (collected.reliefweb || []).map(r => ({
+            title: r.title,
+            url: r.url,
+            date: r.date,
+            source: r.source,
+            country: r.country,
+            disaster: r.disaster,
+            provider: r.provider
+        })),
+        wikipedia: (collected.wikipedia || []).map(w => ({
+            title: w.title,
+            url: w.url,
+            snippet: w.snippet,
+            provider: w.provider
+        })),
+        google_results: (collected.google_results || []).map(g => ({
+            title: g.title,
+            url: g.url,
+            source: g.source?.name,
+            provider: g.provider
+        })),
+        queries_used: queries,
+        captured_at: new Date().toISOString()
     };
-    return {
-        ...row,
-        recommendations: parse(row.recommendations),
-        metadata: parse(row.metadata),
-        properties: parse(row.properties),
-        golden_mesh_detection: parse(row.golden_mesh_detection),
-        population_impact: parse(row.population_impact),
-        geometry_coordinates: parse(row.geometry_coordinates),
-        coordinates: parse(row.coordinates)
-    };
-};
-
-const getRiskById = async (riskId) => {
-    const t = timer(`DB getRiskById ${riskId}`);
-    try {
-        const result = await pool.query(
-            `SELECT id, source, source_id, risk_category, severity, severity_score, title, description, geometry_type, geometry_coordinates, latitude, longitude, impact_radius_km, event_time, updated_at, expires_at, url, recommendations, metadata, properties, golden_mesh_detection, population_impact, coordinates FROM risk_events_cache WHERE id = $1 LIMIT 1`,
-            [riskId]
-        );
-        if (result.rows.length) {
-            t.done({ found: true, by: "id" });
-            log("DEBUG", "DB", `Risk found by id: ${riskId}.`);
-            return hydrateRiskRow(result.rows[0]);
-        }
-        log("DEBUG", "DB", `Risk not found by id, trying source_id: ${riskId}.`);
-        const fallback = await pool.query(
-            `SELECT id, source, source_id, risk_category, severity, severity_score, title, description, geometry_type, geometry_coordinates, latitude, longitude, impact_radius_km, event_time, updated_at, expires_at, url, recommendations, metadata, properties, golden_mesh_detection, population_impact, coordinates FROM risk_events_cache WHERE source_id = $1 LIMIT 1`,
-            [riskId]
-        );
-        if (fallback.rows.length) {
-            t.done({ found: true, by: "source_id" });
-            log("DEBUG", "DB", `Risk found by source_id: ${riskId}.`);
-            return hydrateRiskRow(fallback.rows[0]);
-        }
-        t.done({ found: false });
-        log("WARN", "DB", `Risk not found: ${riskId}.`);
-        return null;
-    } catch (error) {
-        logError("DB_GET_RISK", error);
-        t.done({ error: error.message });
-        return null;
-    }
-};
-
-const getRelatedRisks = async (risk, limit) => {
-    const t = timer("DB getRelatedRisks");
-    try {
-        const lat = parseFloat(risk.latitude);
-        const lng = parseFloat(risk.longitude);
-        if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
-            log("DEBUG", "DB", "Skipped related risks: No valid lat/lng.", { lat: risk.latitude, lng: risk.longitude });
-            return [];
-        }
-        const riskId = risk.id || risk.risk_id || risk.event_id || risk.source_id || "none";
-        const radiusMeters = Math.min((parseFloat(risk.impact_radius_km) || 100) * 1000, 500000);
-        const client = await pool.connect();
-        try {
-            await client.query("SET statement_timeout = '15000'");
-            const result = await client.query(
-                `SELECT id, source, risk_category, severity, severity_score, title, description, latitude, longitude, event_time, metadata, ST_Distance(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters FROM risk_events_cache WHERE id != $3 AND latitude IS NOT NULL AND longitude IS NOT NULL AND ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $4) ORDER BY severity_score DESC, distance_meters ASC LIMIT $5`,
-                [lng, lat, riskId, radiusMeters, limit || 20]
-            );
-            client.release();
-            const ms = t.done({ count: result.rows.length });
-            log("INFO", "DB", `Found ${result.rows.length} related risks in ${ms}ms.`);
-            return result.rows.map(row => ({
-                ...row,
-                distance_km: row.distance_meters ? parseFloat((row.distance_meters / 1000).toFixed(2)) : null,
-                metadata: typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata
-            }));
-        } catch (queryError) {
-            client.release();
-            throw queryError;
-        }
-    } catch (error) {
-        logError("DB_RELATED", error);
-        t.done({ error: error.message });
-        return [];
-    }
+    return bundle;
 };
 
 const saveBriefingToDb = async (briefing, orgid, username) => {
     const t = timer("DB saveBriefing");
     try {
+        const sourceBundle = briefing._source_bundle || {};
+        const confidence = briefing.summary?.source_confidence || briefing.summary?.confidence_level || null;
+        const confidenceLevel = briefing.summary?.confidence_level || confidence?.level || "LOW";
+        const confidenceScore = briefing.summary?.source_confidence?.score || 0;
+        const scope = briefing.summary?.scope || "viewport";
+        const assetCount = briefing._asset_count || 0;
+        const viewportBbox = briefing._viewport_bbox || null;
         await pool.query(
-            `INSERT INTO intel_briefings (briefing_id, risk_id, orgid, created_by, risk_category, severity, title, ai_briefing, media_counts, research_counts, generation_time_ms, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) ON CONFLICT (briefing_id) DO NOTHING`,
+            `INSERT INTO intel_briefings (briefing_id, risk_id, orgid, created_by, risk_category, severity, title, ai_briefing, media_counts, research_counts, source_bundle, confidence_level, confidence_score, scope, asset_count, viewport_bbox, risk_latitude, risk_longitude, generation_time_ms, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW()) ON CONFLICT (briefing_id) DO NOTHING`,
             [
                 briefing.briefing_id,
                 briefing.risk_id,
@@ -1618,20 +1755,26 @@ const saveBriefingToDb = async (briefing, orgid, username) => {
                 briefing.risk_event.risk_category,
                 briefing.risk_event.severity,
                 briefing.risk_event.title,
-                JSON.stringify({}),
+                JSON.stringify(briefing.summary || {}),
                 JSON.stringify({ articles: briefing.media.articles.count, videos: briefing.media.videos.count, images: briefing.media.images.count }),
                 JSON.stringify({ academic: briefing.research.academic_papers.count, reliefweb: briefing.research.reliefweb_reports.count, wikipedia: briefing.research.wikipedia.count }),
+                JSON.stringify(sourceBundle),
+                confidenceLevel,
+                confidenceScore,
+                scope,
+                assetCount,
+                viewportBbox ? JSON.stringify(viewportBbox) : null,
+                briefing.risk_event.latitude || null,
+                briefing.risk_event.longitude || null,
                 briefing.generation_time_ms
             ]
         );
+        setCache(SOURCE_BUNDLE_CACHE, briefing.briefing_id, sourceBundle);
         t.done({ success: true });
-        log("INFO", "DB", `Briefing ${briefing.briefing_id} saved successfully.`);
     } catch (error) {
-        logError("DB_SAVE", error);
         t.done({ error: error.message });
     }
 };
-
 
 const resolveRiskId = (risk) => {
     if (!risk) return null;
@@ -1651,40 +1794,80 @@ const cacheRiskObject = (risk) => {
 
 const resolveRisk = async (riskId, bodyRisk) => {
     if (bodyRisk && typeof bodyRisk === "object" && (bodyRisk.title || bodyRisk.risk_category)) {
-        log("DEBUG", "RESOLVE", `Using risk object from request body for ${riskId}.`);
         cacheRiskObject(bodyRisk);
         return bodyRisk;
     }
 
     const cachedRisk = getCached(RISK_OBJECT_CACHE, riskId, CACHE_TTL_MS);
     if (cachedRisk) {
-        log("DEBUG", "RESOLVE", `Using cached risk object for ${riskId}.`);
         return cachedRisk;
     }
 
-    log("DEBUG", "RESOLVE", `Attempting DB lookup for ${riskId}.`);
     const dbRisk = await getRiskById(riskId);
     if (dbRisk) {
         cacheRiskObject(dbRisk);
         return dbRisk;
     }
 
-    log("WARN", "RESOLVE", `Could not resolve risk ${riskId} from any source.`);
     return null;
 };
 
+const getUserSettings = async (username, orgid) => {
+    if (!username) return DEFAULT_USER_SETTINGS;
+    const cacheKey = `settings_${username}_${orgid || "system"}`;
+    const cached = getCached(USER_SETTINGS_CACHE, cacheKey, CACHE_TTL_MS);
+    if (cached) return cached;
+    try {
+        const result = await pool.query(
+            `SELECT sources_enabled, default_scope FROM intel_user_settings WHERE username = $1 AND orgid = $2 LIMIT 1`,
+            [username, orgid || "system"]
+        );
+        if (result.rows.length) {
+            const row = result.rows[0];
+            const settings = {
+                sources_enabled: typeof row.sources_enabled === "string" ? JSON.parse(row.sources_enabled) : (row.sources_enabled || DEFAULT_USER_SETTINGS.sources_enabled),
+                default_scope: row.default_scope || DEFAULT_USER_SETTINGS.default_scope
+            };
+            const merged = {
+                ...settings,
+                sources_enabled: { ...DEFAULT_USER_SETTINGS.sources_enabled, ...settings.sources_enabled }
+            };
+            setCache(USER_SETTINGS_CACHE, cacheKey, merged);
+            return merged;
+        }
+        setCache(USER_SETTINGS_CACHE, cacheKey, DEFAULT_USER_SETTINGS);
+        return DEFAULT_USER_SETTINGS;
+    } catch (error) {
+        return DEFAULT_USER_SETTINGS;
+    }
+};
 
-const buildFullBriefing = async (risk) => {
+const saveUserSettings = async (username, orgid, sourcesEnabled, defaultScope) => {
+    if (!username) return false;
+    try {
+        const settingsId = generateId("us");
+        const mergedSources = { ...DEFAULT_USER_SETTINGS.sources_enabled, ...(sourcesEnabled || {}) };
+        const scope = defaultScope || DEFAULT_USER_SETTINGS.default_scope;
+        await pool.query(
+            `INSERT INTO intel_user_settings (settings_id, username, orgid, sources_enabled, default_scope, updated_at) VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT (username, orgid) DO UPDATE SET sources_enabled = EXCLUDED.sources_enabled, default_scope = EXCLUDED.default_scope, updated_at = NOW()`,
+            [settingsId, username, orgid || "system", JSON.stringify(mergedSources), scope]
+        );
+        const cacheKey = `settings_${username}_${orgid || "system"}`;
+        setCache(USER_SETTINGS_CACHE, cacheKey, { sources_enabled: mergedSources, default_scope: scope });
+        return true;
+    } catch (error) {
+        return false;
+    }
+};
+
+const buildFullBriefing = async (risk, options = {}) => {
     const briefingId = generateId("brief");
     const tTotal = timer(`FULL BRIEFING ${briefingId}`);
     const startTime = Date.now();
-
-    log("INFO", "BRIEFING", `Starting briefing ${briefingId} for "${risk.title}".`, {
-        risk_id: risk.id,
-        category: risk.risk_category,
-        severity: risk.severity,
-        source: risk.source
-    });
+    const enabledSources = options.enabledSources || DEFAULT_USER_SETTINGS.sources_enabled;
+    const scope = options.scope || "viewport";
+    const orgid = options.orgid || null;
+    const viewportBbox = options.viewportBbox || null;
 
     const dateRange = extractDateRange(risk);
     const queries = {
@@ -1697,8 +1880,6 @@ const buildFullBriefing = async (risk) => {
         academic: buildSearchQuery(risk, "academic"),
         historical: buildSearchQuery(risk, "historical")
     };
-
-    log("DEBUG", "BRIEFING", `Search queries built.`, { date_range: dateRange, query_count: Object.keys(queries).length });
 
     const collected = {
         articles: [],
@@ -1716,21 +1897,37 @@ const buildFullBriefing = async (risk) => {
     const tFetch = timer("Parallel data fetching");
     const fetchLabels = [];
 
-    const fetches = [
-        fetchGDELT(queries.news, dateRange, MAX_ARTICLES).then(r => { collected.articles.push(...r); fetchLabels.push(`gdelt_news:${r.length}`); }),
-        fetchGDELT(queries.news_broad, dateRange, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gdelt_broad:${r.length}`); }),
-        fetchGDELT(queries.impact, dateRange, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gdelt_impact:${r.length}`); }),
-        fetchGNews(queries.news, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gnews_news:${r.length}`); }),
-        fetchGNews(queries.news_broad, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gnews_broad:${r.length}`); }),
-        fetchGNews(queries.response, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gnews_response:${r.length}`); }),
-        fetchYouTube(queries.video, dateRange, MAX_VIDEOS).then(r => { collected.videos = r; fetchLabels.push(`youtube:${r.length}`); }),
-        fetchSemanticScholar(queries.academic, MAX_ACADEMIC).then(r => { collected.academic = r; fetchLabels.push(`scholar:${r.length}`); }),
-        fetchRedditPosts(queries.news, MAX_SOCIAL).then(r => { collected.reddit = r; fetchLabels.push(`reddit:${r.length}`); }),
-        fetchReliefWebReport(queries.news).then(r => { collected.reliefweb = r; fetchLabels.push(`reliefweb:${r.length}`); }),
-        fetchWikipedia(queries.historical).then(r => { collected.wikipedia = r; fetchLabels.push(`wiki:${r.length}`); }),
-        fetchGoogleSearch(queries.technical, 10).then(r => { collected.google_results = r; fetchLabels.push(`google:${r.length}`); }),
-        getRelatedRisks(risk, 20).then(r => { collected.related_risks = r; fetchLabels.push(`related:${r.length}`); })
-    ];
+    const fetches = [];
+
+    if (enabledSources.gdelt !== false) {
+        fetches.push(fetchGDELT(queries.news, dateRange, MAX_ARTICLES).then(r => { collected.articles.push(...r); fetchLabels.push(`gdelt_news:${r.length}`); }));
+        fetches.push(fetchGDELT(queries.news_broad, dateRange, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gdelt_broad:${r.length}`); }));
+        fetches.push(fetchGDELT(queries.impact, dateRange, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gdelt_impact:${r.length}`); }));
+    }
+    if (enabledSources.gnews !== false) {
+        fetches.push(fetchGNews(queries.news, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gnews_news:${r.length}`); }));
+        fetches.push(fetchGNews(queries.news_broad, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gnews_broad:${r.length}`); }));
+        fetches.push(fetchGNews(queries.response, 10).then(r => { collected.articles.push(...r); fetchLabels.push(`gnews_response:${r.length}`); }));
+    }
+    if (enabledSources.youtube !== false) {
+        fetches.push(fetchYouTube(queries.video, dateRange, MAX_VIDEOS).then(r => { collected.videos = r; fetchLabels.push(`youtube:${r.length}`); }));
+    }
+    if (enabledSources.semantic_scholar !== false) {
+        fetches.push(fetchSemanticScholar(queries.academic, MAX_ACADEMIC).then(r => { collected.academic = r; fetchLabels.push(`scholar:${r.length}`); }));
+    }
+    if (enabledSources.reddit !== false) {
+        fetches.push(fetchRedditPosts(queries.news, MAX_SOCIAL).then(r => { collected.reddit = r; fetchLabels.push(`reddit:${r.length}`); }));
+    }
+    if (enabledSources.reliefweb !== false) {
+        fetches.push(fetchReliefWebReport(queries.news).then(r => { collected.reliefweb = r; fetchLabels.push(`reliefweb:${r.length}`); }));
+    }
+    if (enabledSources.wikipedia !== false) {
+        fetches.push(fetchWikipedia(queries.historical).then(r => { collected.wikipedia = r; fetchLabels.push(`wiki:${r.length}`); }));
+    }
+    if (enabledSources.google_cse !== false) {
+        fetches.push(fetchGoogleSearch(queries.technical, 10).then(r => { collected.google_results = r; fetchLabels.push(`google:${r.length}`); }));
+    }
+    fetches.push(getRelatedRisks(risk, 20).then(r => { collected.related_risks = r; fetchLabels.push(`related:${r.length}`); }));
 
     if (risk.source === "USGS" && risk.source_id) {
         fetches.push(fetchUSGSEventDetail(risk.source_id).then(r => { collected.source_details = r; fetchLabels.push(`usgs:${r ? 1 : 0}`); }));
@@ -1742,16 +1939,11 @@ const buildFullBriefing = async (risk) => {
         fetches.push(fetchNOAAEventDetail(risk.source_id).then(r => { collected.source_details = r; fetchLabels.push(`noaa:${r ? 1 : 0}`); }));
     }
 
-    log("INFO", "BRIEFING", `Launching ${fetches.length} parallel fetches.`);
     const fetchResults = await Promise.allSettled(fetches);
     const fetchMs = tFetch.done({ fetch_count: fetches.length });
 
     const fulfilled = fetchResults.filter(r => r.status === "fulfilled").length;
     const rejected = fetchResults.filter(r => r.status === "rejected").length;
-    log("INFO", "BRIEFING", `Parallel fetches completed in ${fetchMs}ms: ${fulfilled} ok, ${rejected} failed.`, {
-        results: fetchLabels.join(", "),
-        rejected_reasons: fetchResults.filter(r => r.status === "rejected").map(r => r.reason?.message || "unknown")
-    });
 
     const tProcess = timer("Post-processing");
     collected.articles = dedupeArticles(collected.articles);
@@ -1765,9 +1957,18 @@ const buildFullBriefing = async (risk) => {
     collected.videos.sort((a, b) => b._score - a._score);
     collected.videos = collected.videos.slice(0, MAX_VIDEOS);
 
-    collected.images = await fetchAllImages(risk, collected.articles);
+    collected.images = await fetchAllImages(risk, collected.articles, enabledSources);
 
     tProcess.done({ articles: collected.articles.length, videos: collected.videos.length, images: collected.images.length });
+
+    let assetContext = null;
+    if (scope === "assets" && orgid && risk.latitude && risk.longitude) {
+        assetContext = await buildAssetContext(orgid, risk.latitude, risk.longitude, risk.impact_radius_km);
+    }
+
+    const summary = await generateAISummary(risk, { ...collected, related: collected.related_risks }, { scope, assetContext });
+
+    const sourceBundle = buildSourceBundle(collected, queries);
 
     const briefing = {
         briefing_id: briefingId,
@@ -1792,6 +1993,7 @@ const buildFullBriefing = async (risk) => {
             population_impact: risk.population_impact,
             golden_mesh_detection: risk.golden_mesh_detection
         },
+        summary,
         media: {
             articles: { count: collected.articles.length, items: collected.articles },
             videos: { count: collected.videos.length, items: collected.videos },
@@ -1808,10 +2010,18 @@ const buildFullBriefing = async (risk) => {
         },
         source_detail: collected.source_details,
         related_risks: { count: collected.related_risks.length, items: collected.related_risks },
+        asset_context: assetContext ? { count: assetContext.length, items: assetContext, scope } : null,
         search_queries_used: queries,
         date_range: dateRange,
+        confidence: summary?.source_confidence || null,
+        confidence_level: summary?.confidence_level || "LOW",
+        confidence_rationale: summary?.confidence_rationale || null,
+        scope,
         generation_time_ms: Date.now() - startTime,
-        generated_at: new Date().toISOString()
+        generated_at: new Date().toISOString(),
+        _source_bundle: sourceBundle,
+        _asset_count: assetContext ? assetContext.length : 0,
+        _viewport_bbox: viewportBbox
     };
 
     const totalMs = tTotal.done({
@@ -1821,23 +2031,11 @@ const buildFullBriefing = async (risk) => {
         academic: collected.academic.length
     });
 
-    log("INFO", "BRIEFING", `Briefing ${briefingId} complete in ${totalMs}ms.`, {
-        fetch_time_ms: fetchMs,
-        total_articles: collected.articles.length,
-        total_videos: collected.videos.length,
-        total_images: collected.images.length,
-        total_academic: collected.academic.length,
-        total_reddit: collected.reddit.length,
-        total_reliefweb: collected.reliefweb.length,
-        related_risks: collected.related_risks.length
-    });
-
     return briefing;
 };
 
-
 router.post("/risk/intel/briefing/summary", async (req, res) => {
-    const { risk } = req.body;
+    const { risk, scope, orgid, username, viewport_bbox } = req.body;
     const tReq = timer("POST /briefing/summary");
 
     if (!risk || !risk.title) {
@@ -1845,58 +2043,56 @@ router.post("/risk/intel/briefing/summary", async (req, res) => {
         return res.status(400).json({ success: false, message: "A risk object is required." });
     }
 
-    log("INFO", "REQ", `POST /risk/intel/briefing/summary.`, { title: risk.title, category: risk.risk_category });
     cacheRiskObject(risk);
 
+    const userSettings = await getUserSettings(username, orgid);
+    const effectiveScope = scope || userSettings.default_scope || "viewport";
+
     const riskId = resolveRiskId(risk);
-    const summaryCacheKey = `summary_${riskId || risk.title}`;
+    const summaryCacheKey = `summary_${riskId || risk.title}_${effectiveScope}`;
     const cached = getCached(SEARCH_CACHE, summaryCacheKey);
     if (cached) {
         const ms = tReq.done({ source: "cache" });
-        log("INFO", "REQ", `Summary served from cache in ${ms}ms.`);
         return res.status(200).json({ success: true, cached: true, summary: cached });
     }
 
-    log("INFO", "SUMMARY", `Generating summary directly from risk object (no prefetch).`, { title: risk.title, category: risk.risk_category, severity: risk.severity });
-
     let summary;
+    let assetContext = null;
     try {
-        summary = await generateAISummary(risk, { articles: [], reddit: [], academic: [], related: [] });
-    } catch (geminiError) {
-        log("ERROR", "SUMMARY", `generateAISummary threw: ${geminiError.message}.`, { stack: geminiError.stack?.split("\n").slice(0, 3).join(" | ") });
+        if (effectiveScope === "assets" && orgid && risk.latitude && risk.longitude) {
+            assetContext = await buildAssetContext(orgid, risk.latitude, risk.longitude, risk.impact_radius_km);
+        }
+        summary = await generateAISummary(risk, { articles: [], reddit: [], academic: [], related: [] }, { scope: effectiveScope, assetContext });
+    } catch (error) {
         summary = null;
     }
 
     if (!summary) {
-        log("WARN", "SUMMARY", "generateAISummary returned null, building fallback.");
-        summary = buildFallbackSummary(risk);
+        summary = buildFallbackSummary(risk, { articles: [], reddit: [], academic: [], related: [] });
     }
-
-    log("INFO", "SUMMARY", `Summary ready.`, { ai_generated: summary?.ai_generated || false, fallback: summary?.fallback || false });
 
     try {
         setCache(SEARCH_CACHE, summaryCacheKey, summary);
-    } catch (cacheError) {
-        log("WARN", "SUMMARY", `Cache set failed: ${cacheError.message}.`);
+    } catch (error) {
     }
 
     const ms = tReq.done({ success: true, ai_generated: summary?.ai_generated || false });
-    log("INFO", "REQ", `Summary response sent in ${ms}ms.`, { ai_generated: summary?.ai_generated });
-    return res.status(200).json({ success: true, cached: false, summary });
+    return res.status(200).json({ success: true, cached: false, summary, scope: effectiveScope, asset_count: assetContext ? assetContext.length : 0 });
 });
 
 router.get("/risk/intel/briefing/:riskId", async (req, res) => {
     const riskId = req.params.riskId;
     const skipCache = req.query.skip_cache === "true";
+    const scope = req.query.scope || "viewport";
+    const orgid = req.query.orgid;
+    const username = req.query.username;
     const tReq = timer(`GET /briefing/${riskId}`);
 
-    log("INFO", "REQ", `GET /risk/intel/briefing/${riskId}.`, { skip_cache: skipCache, orgid: req.query.orgid });
-
+    const cacheKey = `${riskId}_${scope}`;
     if (!skipCache) {
-        const cached = getCached(BRIEFING_CACHE, riskId);
+        const cached = getCached(BRIEFING_CACHE, cacheKey);
         if (cached) {
             const ms = tReq.done({ source: "cache" });
-            log("INFO", "REQ", `Briefing served from cache in ${ms}ms.`, { risk_id: riskId });
             return res.status(200).json({ success: true, message: "Intelligence briefing retrieved from cache.", cached: true, ...cached });
         }
     }
@@ -1904,26 +2100,29 @@ router.get("/risk/intel/briefing/:riskId", async (req, res) => {
     const risk = await resolveRisk(riskId, null);
     if (!risk) {
         tReq.done({ error: "not_found" });
-        log("WARN", "REQ", `Risk not found: ${riskId}.`);
         return res.status(404).json({ success: false, message: `Risk event with ID '${sanitize(riskId, 100)}' was not found in the events cache.` });
     }
 
     try {
-        const briefing = await buildFullBriefing(risk);
-        setCache(BRIEFING_CACHE, riskId, briefing);
-        await saveBriefingToDb(briefing, req.query.orgid, req.query.username);
+        const userSettings = await getUserSettings(username, orgid);
+        const briefing = await buildFullBriefing(risk, {
+            enabledSources: userSettings.sources_enabled,
+            scope,
+            orgid,
+            viewportBbox: null
+        });
+        setCache(BRIEFING_CACHE, cacheKey, briefing);
+        await saveBriefingToDb(briefing, orgid, username);
         const ms = tReq.done({ success: true, generation_time_ms: briefing.generation_time_ms });
-        log("INFO", "REQ", `Briefing response sent in ${ms}ms (generation: ${briefing.generation_time_ms}ms).`, { briefing_id: briefing.briefing_id });
         return res.status(200).json({ success: true, message: "Intelligence briefing generated successfully.", cached: false, ...briefing });
     } catch (error) {
-        logError("REQ_BRIEFING", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to generate intelligence briefing." });
     }
 });
 
 router.post("/risk/intel/briefing", async (req, res) => {
-    const { risk } = req.body;
+    const { risk, scope, orgid, username, viewport_bbox } = req.body;
     const tReq = timer("POST /briefing (with risk object)");
 
     if (!risk || !risk.title) {
@@ -1931,39 +2130,42 @@ router.post("/risk/intel/briefing", async (req, res) => {
         return res.status(400).json({ success: false, message: "A risk object with at least a title is required." });
     }
 
-    log("INFO", "REQ", `POST /risk/intel/briefing.`, { title: risk.title, category: risk.risk_category, severity: risk.severity });
-
     cacheRiskObject(risk);
 
+    const userSettings = await getUserSettings(username, orgid);
+    const effectiveScope = scope || userSettings.default_scope || "viewport";
+
     const riskId = resolveRiskId(risk);
+    const cacheKey = `${riskId}_${effectiveScope}`;
     if (riskId) {
-        const cached = getCached(BRIEFING_CACHE, riskId);
+        const cached = getCached(BRIEFING_CACHE, cacheKey);
         if (cached) {
             const ms = tReq.done({ source: "cache" });
-            log("INFO", "REQ", `Briefing served from cache in ${ms}ms.`, { risk_id: riskId });
             return res.status(200).json({ success: true, message: "Intelligence briefing retrieved from cache.", cached: true, ...cached });
         }
     }
 
     try {
-        const briefing = await buildFullBriefing(risk);
+        const briefing = await buildFullBriefing(risk, {
+            enabledSources: userSettings.sources_enabled,
+            scope: effectiveScope,
+            orgid,
+            viewportBbox: viewport_bbox || null
+        });
         if (riskId) {
-            setCache(BRIEFING_CACHE, riskId, briefing);
+            setCache(BRIEFING_CACHE, cacheKey, briefing);
         }
-        await saveBriefingToDb(briefing, req.body.orgid, req.body.username);
+        await saveBriefingToDb(briefing, orgid, username);
         const ms = tReq.done({ success: true, generation_time_ms: briefing.generation_time_ms });
-        log("INFO", "REQ", `Briefing response sent in ${ms}ms (generation: ${briefing.generation_time_ms}ms).`, { briefing_id: briefing.briefing_id });
         return res.status(200).json({ success: true, message: "Intelligence briefing generated successfully.", cached: false, ...briefing });
     } catch (error) {
-        logError("REQ_BRIEFING_POST", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to generate intelligence briefing." });
     }
 });
 
-
 router.post("/risk/intel/briefing/articles", async (req, res) => {
-    const { risk, variant, limit: reqLimit } = req.body;
+    const { risk, variant, limit: reqLimit, username, orgid } = req.body;
     const tReq = timer("POST /briefing/articles");
 
     if (!risk || !risk.title) {
@@ -1971,20 +2173,32 @@ router.post("/risk/intel/briefing/articles", async (req, res) => {
         return res.status(400).json({ success: false, message: "A risk object is required." });
     }
 
-    log("INFO", "REQ", `POST /risk/intel/briefing/articles.`, { title: risk.title, variant, limit: reqLimit });
     cacheRiskObject(risk);
+
+    const userSettings = await getUserSettings(username, orgid);
+    const enabled = userSettings.sources_enabled;
 
     const dateRange = extractDateRange(risk);
     const query = buildSearchQuery(risk, variant || "news");
     const broadQuery = buildSearchQuery(risk, "news_broad");
     const limit = parseInt(reqLimit, 10) || MAX_ARTICLES;
     try {
-        const [gdelt, gdeltBroad, gnews, gnewsBroad] = await Promise.allSettled([
-            fetchGDELT(query, dateRange, limit),
-            fetchGDELT(broadQuery, dateRange, 10),
-            fetchGNews(query, Math.min(limit, 10)),
-            fetchGNews(broadQuery, Math.min(limit, 10))
-        ]);
+        const promises = [];
+        if (enabled.gdelt !== false) {
+            promises.push(fetchGDELT(query, dateRange, limit));
+            promises.push(fetchGDELT(broadQuery, dateRange, 10));
+        } else {
+            promises.push(Promise.resolve([]));
+            promises.push(Promise.resolve([]));
+        }
+        if (enabled.gnews !== false) {
+            promises.push(fetchGNews(query, Math.min(limit, 10)));
+            promises.push(fetchGNews(broadQuery, Math.min(limit, 10)));
+        } else {
+            promises.push(Promise.resolve([]));
+            promises.push(Promise.resolve([]));
+        }
+        const [gdelt, gdeltBroad, gnews, gnewsBroad] = await Promise.allSettled(promises);
         let articles = [
             ...(gdelt.status === "fulfilled" ? gdelt.value : []),
             ...(gdeltBroad.status === "fulfilled" ? gdeltBroad.value : []),
@@ -1999,7 +2213,6 @@ router.post("/risk/intel/briefing/articles", async (req, res) => {
         const relevanceResult = await geminiFilterRelevance(risk, articles, "articles");
         articles = relevanceResult.items;
         const ms = tReq.done({ count: articles.length, ai_filtered: relevanceResult.checked > 0 });
-        log("INFO", "REQ", `Articles response: ${articles.length} items in ${ms}ms (AI filtered: ${relevanceResult.checked > 0}).`);
         return res.status(200).json({
             success: true,
             count: articles.length,
@@ -2009,7 +2222,6 @@ router.post("/risk/intel/briefing/articles", async (req, res) => {
             relevance: { checked: relevanceResult.checked, relevant: relevanceResult.relevant }
         });
     } catch (error) {
-        logError("REQ_ARTICLES_POST", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch articles." });
     }
@@ -2017,21 +2229,35 @@ router.post("/risk/intel/briefing/articles", async (req, res) => {
 
 router.get("/risk/intel/briefing/:riskId/articles", async (req, res) => {
     const tReq = timer(`GET /briefing/${req.params.riskId}/articles`);
-    log("INFO", "REQ", `GET /risk/intel/briefing/${req.params.riskId}/articles.`, { variant: req.query.variant, limit: req.query.limit });
 
     const risk = await resolveRisk(req.params.riskId, null);
-    if (!risk) { tReq.done({ error: "not_found" }); return res.status(404).json({ success: false, message: "Risk event not found." }); }
+    if (!risk) {
+        tReq.done({ error: "not_found" });
+        return res.status(404).json({ success: false, message: "Risk event not found." });
+    }
+    const userSettings = await getUserSettings(req.query.username, req.query.orgid);
+    const enabled = userSettings.sources_enabled;
     const dateRange = extractDateRange(risk);
     const query = buildSearchQuery(risk, req.query.variant || "news");
     const broadQuery = buildSearchQuery(risk, "news_broad");
     const limit = parseInt(req.query.limit, 10) || MAX_ARTICLES;
     try {
-        const [gdelt, gdeltBroad, gnews, gnewsBroad] = await Promise.allSettled([
-            fetchGDELT(query, dateRange, limit),
-            fetchGDELT(broadQuery, dateRange, 10),
-            fetchGNews(query, Math.min(limit, 10)),
-            fetchGNews(broadQuery, Math.min(limit, 10))
-        ]);
+        const promises = [];
+        if (enabled.gdelt !== false) {
+            promises.push(fetchGDELT(query, dateRange, limit));
+            promises.push(fetchGDELT(broadQuery, dateRange, 10));
+        } else {
+            promises.push(Promise.resolve([]));
+            promises.push(Promise.resolve([]));
+        }
+        if (enabled.gnews !== false) {
+            promises.push(fetchGNews(query, Math.min(limit, 10)));
+            promises.push(fetchGNews(broadQuery, Math.min(limit, 10)));
+        } else {
+            promises.push(Promise.resolve([]));
+            promises.push(Promise.resolve([]));
+        }
+        const [gdelt, gdeltBroad, gnews, gnewsBroad] = await Promise.allSettled(promises);
         let articles = [
             ...(gdelt.status === "fulfilled" ? gdelt.value : []),
             ...(gdeltBroad.status === "fulfilled" ? gdeltBroad.value : []),
@@ -2046,18 +2272,15 @@ router.get("/risk/intel/briefing/:riskId/articles", async (req, res) => {
         const relevanceResult = await geminiFilterRelevance(risk, articles, "articles");
         articles = relevanceResult.items;
         const ms = tReq.done({ count: articles.length });
-        log("INFO", "REQ", `Articles response: ${articles.length} items in ${ms}ms.`);
         return res.status(200).json({ success: true, count: articles.length, query, date_range: dateRange, articles });
     } catch (error) {
-        logError("REQ_ARTICLES", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch articles." });
     }
 });
 
-
 router.post("/risk/intel/briefing/videos", async (req, res) => {
-    const { risk, limit: reqLimit } = req.body;
+    const { risk, limit: reqLimit, username, orgid } = req.body;
     const tReq = timer("POST /briefing/videos");
 
     if (!risk || !risk.title) {
@@ -2065,8 +2288,13 @@ router.post("/risk/intel/briefing/videos", async (req, res) => {
         return res.status(400).json({ success: false, message: "A risk object is required." });
     }
 
-    log("INFO", "REQ", `POST /risk/intel/briefing/videos.`, { title: risk.title });
     cacheRiskObject(risk);
+
+    const userSettings = await getUserSettings(username, orgid);
+    if (userSettings.sources_enabled.youtube === false) {
+        const ms = tReq.done({ disabled: true });
+        return res.status(200).json({ success: true, count: 0, query: "", videos: [], message: "YouTube source disabled in user settings." });
+    }
 
     const dateRange = extractDateRange(risk);
     const query = buildSearchQuery(risk, "video");
@@ -2079,7 +2307,6 @@ router.post("/risk/intel/briefing/videos", async (req, res) => {
         const relevanceResult = await geminiFilterRelevance(risk, videos, "videos");
         const filteredVideos = relevanceResult.items;
         const ms = tReq.done({ count: filteredVideos.length, ai_filtered: relevanceResult.checked > 0 });
-        log("INFO", "REQ", `Videos response: ${filteredVideos.length} items in ${ms}ms.`);
         return res.status(200).json({
             success: true,
             count: filteredVideos.length,
@@ -2089,7 +2316,6 @@ router.post("/risk/intel/briefing/videos", async (req, res) => {
             relevance: { checked: relevanceResult.checked, relevant: relevanceResult.relevant }
         });
     } catch (error) {
-        logError("REQ_VIDEOS_POST", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch videos." });
     }
@@ -2097,10 +2323,12 @@ router.post("/risk/intel/briefing/videos", async (req, res) => {
 
 router.get("/risk/intel/briefing/:riskId/videos", async (req, res) => {
     const tReq = timer(`GET /briefing/${req.params.riskId}/videos`);
-    log("INFO", "REQ", `GET /risk/intel/briefing/${req.params.riskId}/videos.`);
 
     const risk = await resolveRisk(req.params.riskId, null);
-    if (!risk) { tReq.done({ error: "not_found" }); return res.status(404).json({ success: false, message: "Risk event not found." }); }
+    if (!risk) {
+        tReq.done({ error: "not_found" });
+        return res.status(404).json({ success: false, message: "Risk event not found." });
+    }
     const dateRange = extractDateRange(risk);
     const query = buildSearchQuery(risk, "video");
     const limit = parseInt(req.query.limit, 10) || MAX_VIDEOS;
@@ -2112,18 +2340,15 @@ router.get("/risk/intel/briefing/:riskId/videos", async (req, res) => {
         const relevanceResult = await geminiFilterRelevance(risk, videos, "videos");
         const filteredVideos = relevanceResult.items;
         const ms = tReq.done({ count: filteredVideos.length });
-        log("INFO", "REQ", `Videos response: ${filteredVideos.length} items in ${ms}ms.`);
         return res.status(200).json({ success: true, count: filteredVideos.length, query, date_range: dateRange, videos: filteredVideos });
     } catch (error) {
-        logError("REQ_VIDEOS", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch videos." });
     }
 });
 
-
 router.post("/risk/intel/briefing/images", async (req, res) => {
-    const { risk, limit: reqLimit } = req.body;
+    const { risk, limit: reqLimit, username, orgid } = req.body;
     const tReq = timer("POST /briefing/images");
 
     if (!risk || !risk.title) {
@@ -2131,16 +2356,15 @@ router.post("/risk/intel/briefing/images", async (req, res) => {
         return res.status(400).json({ success: false, message: "A risk object is required." });
     }
 
-    log("INFO", "REQ", `POST /risk/intel/briefing/images.`, { title: risk.title });
     cacheRiskObject(risk);
 
+    const userSettings = await getUserSettings(username, orgid);
+
     try {
-        const images = await fetchAllImages(risk, []);
+        const images = await fetchAllImages(risk, [], userSettings.sources_enabled);
         const ms = tReq.done({ count: images.length });
-        log("INFO", "REQ", `Images response: ${images.length} items in ${ms}ms.`);
         return res.status(200).json({ success: true, count: images.length, images });
     } catch (error) {
-        logError("REQ_IMAGES_POST", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch images." });
     }
@@ -2148,25 +2372,24 @@ router.post("/risk/intel/briefing/images", async (req, res) => {
 
 router.get("/risk/intel/briefing/:riskId/images", async (req, res) => {
     const tReq = timer(`GET /briefing/${req.params.riskId}/images`);
-    log("INFO", "REQ", `GET /risk/intel/briefing/${req.params.riskId}/images.`);
 
     const risk = await resolveRisk(req.params.riskId, null);
-    if (!risk) { tReq.done({ error: "not_found" }); return res.status(404).json({ success: false, message: "Risk event not found." }); }
+    if (!risk) {
+        tReq.done({ error: "not_found" });
+        return res.status(404).json({ success: false, message: "Risk event not found." });
+    }
     try {
         const images = await fetchAllImages(risk, []);
         const ms = tReq.done({ count: images.length });
-        log("INFO", "REQ", `Images response: ${images.length} items in ${ms}ms.`);
         return res.status(200).json({ success: true, count: images.length, images });
     } catch (error) {
-        logError("REQ_IMAGES", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch images." });
     }
 });
 
-
 router.post("/risk/intel/briefing/academic", async (req, res) => {
-    const { risk, limit: reqLimit } = req.body;
+    const { risk, limit: reqLimit, username, orgid } = req.body;
     const tReq = timer("POST /briefing/academic");
 
     if (!risk || !risk.title) {
@@ -2174,18 +2397,21 @@ router.post("/risk/intel/briefing/academic", async (req, res) => {
         return res.status(400).json({ success: false, message: "A risk object is required." });
     }
 
-    log("INFO", "REQ", `POST /risk/intel/briefing/academic.`, { title: risk.title });
     cacheRiskObject(risk);
+
+    const userSettings = await getUserSettings(username, orgid);
+    if (userSettings.sources_enabled.semantic_scholar === false) {
+        const ms = tReq.done({ disabled: true });
+        return res.status(200).json({ success: true, count: 0, query: "", papers: [], message: "Semantic Scholar source disabled in user settings." });
+    }
 
     const query = buildSearchQuery(risk, "academic");
     const limit = parseInt(reqLimit, 10) || MAX_ACADEMIC;
     try {
         const papers = await fetchSemanticScholar(query, limit);
         const ms = tReq.done({ count: papers.length });
-        log("INFO", "REQ", `Academic response: ${papers.length} items in ${ms}ms.`);
         return res.status(200).json({ success: true, count: papers.length, query, papers });
     } catch (error) {
-        logError("REQ_ACADEMIC_POST", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch academic papers." });
     }
@@ -2193,27 +2419,26 @@ router.post("/risk/intel/briefing/academic", async (req, res) => {
 
 router.get("/risk/intel/briefing/:riskId/academic", async (req, res) => {
     const tReq = timer(`GET /briefing/${req.params.riskId}/academic`);
-    log("INFO", "REQ", `GET /risk/intel/briefing/${req.params.riskId}/academic.`);
 
     const risk = await resolveRisk(req.params.riskId, null);
-    if (!risk) { tReq.done({ error: "not_found" }); return res.status(404).json({ success: false, message: "Risk event not found." }); }
+    if (!risk) {
+        tReq.done({ error: "not_found" });
+        return res.status(404).json({ success: false, message: "Risk event not found." });
+    }
     const query = buildSearchQuery(risk, "academic");
     const limit = parseInt(req.query.limit, 10) || MAX_ACADEMIC;
     try {
         const papers = await fetchSemanticScholar(query, limit);
         const ms = tReq.done({ count: papers.length });
-        log("INFO", "REQ", `Academic response: ${papers.length} items in ${ms}ms.`);
         return res.status(200).json({ success: true, count: papers.length, query, papers });
     } catch (error) {
-        logError("REQ_ACADEMIC", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch academic papers." });
     }
 });
 
-
 router.post("/risk/intel/briefing/social", async (req, res) => {
-    const { risk, limit: reqLimit } = req.body;
+    const { risk, limit: reqLimit, username, orgid } = req.body;
     const tReq = timer("POST /briefing/social");
 
     if (!risk || !risk.title) {
@@ -2221,8 +2446,13 @@ router.post("/risk/intel/briefing/social", async (req, res) => {
         return res.status(400).json({ success: false, message: "A risk object is required." });
     }
 
-    log("INFO", "REQ", `POST /risk/intel/briefing/social.`, { title: risk.title });
     cacheRiskObject(risk);
+
+    const userSettings = await getUserSettings(username, orgid);
+    if (userSettings.sources_enabled.reddit === false) {
+        const ms = tReq.done({ disabled: true });
+        return res.status(200).json({ success: true, count: 0, query: "", reddit: [], message: "Reddit source disabled in user settings." });
+    }
 
     const query = buildSearchQuery(risk, "news");
     const limit = parseInt(reqLimit, 10) || MAX_SOCIAL;
@@ -2231,7 +2461,6 @@ router.post("/risk/intel/briefing/social", async (req, res) => {
         const relevanceResult = await geminiFilterRelevance(risk, reddit, "social");
         const filteredReddit = relevanceResult.items;
         const ms = tReq.done({ count: filteredReddit.length, ai_filtered: relevanceResult.checked > 0 });
-        log("INFO", "REQ", `Social response: ${filteredReddit.length} items in ${ms}ms.`);
         return res.status(200).json({
             success: true,
             count: filteredReddit.length,
@@ -2240,7 +2469,6 @@ router.post("/risk/intel/briefing/social", async (req, res) => {
             relevance: { checked: relevanceResult.checked, relevant: relevanceResult.relevant }
         });
     } catch (error) {
-        logError("REQ_SOCIAL_POST", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch social posts." });
     }
@@ -2248,10 +2476,12 @@ router.post("/risk/intel/briefing/social", async (req, res) => {
 
 router.get("/risk/intel/briefing/:riskId/social", async (req, res) => {
     const tReq = timer(`GET /briefing/${req.params.riskId}/social`);
-    log("INFO", "REQ", `GET /risk/intel/briefing/${req.params.riskId}/social.`);
 
     const risk = await resolveRisk(req.params.riskId, null);
-    if (!risk) { tReq.done({ error: "not_found" }); return res.status(404).json({ success: false, message: "Risk event not found." }); }
+    if (!risk) {
+        tReq.done({ error: "not_found" });
+        return res.status(404).json({ success: false, message: "Risk event not found." });
+    }
     const query = buildSearchQuery(risk, "news");
     const limit = parseInt(req.query.limit, 10) || MAX_SOCIAL;
     try {
@@ -2259,15 +2489,12 @@ router.get("/risk/intel/briefing/:riskId/social", async (req, res) => {
         const relevanceResult = await geminiFilterRelevance(risk, reddit, "social");
         const filteredReddit = relevanceResult.items;
         const ms = tReq.done({ count: filteredReddit.length });
-        log("INFO", "REQ", `Social response: ${filteredReddit.length} items in ${ms}ms.`);
         return res.status(200).json({ success: true, count: filteredReddit.length, query, reddit: filteredReddit });
     } catch (error) {
-        logError("REQ_SOCIAL", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch social posts." });
     }
 });
-
 
 router.post("/risk/intel/briefing/related", async (req, res) => {
     const { risk, limit: reqLimit } = req.body;
@@ -2278,7 +2505,6 @@ router.post("/risk/intel/briefing/related", async (req, res) => {
         return res.status(400).json({ success: false, message: "A risk object is required." });
     }
 
-    log("INFO", "REQ", `POST /risk/intel/briefing/related.`, { title: risk.title, lat: risk.latitude, lng: risk.longitude });
     cacheRiskObject(risk);
 
     const limit = parseInt(reqLimit, 10) || 20;
@@ -2288,23 +2514,19 @@ router.post("/risk/intel/briefing/related", async (req, res) => {
         const dbRisk = await getRiskById(risk.id || risk.risk_id || risk.source_id);
         if (dbRisk && dbRisk.latitude && dbRisk.longitude) {
             resolvedRisk = { ...risk, latitude: dbRisk.latitude, longitude: dbRisk.longitude, impact_radius_km: dbRisk.impact_radius_km || risk.impact_radius_km };
-            log("INFO", "REQ", `Resolved lat/lng from DB for related risks query.`, { lat: resolvedRisk.latitude, lng: resolvedRisk.longitude });
         }
     }
 
     if (!resolvedRisk.latitude || !resolvedRisk.longitude) {
         tReq.done({ error: "no_coordinates" });
-        log("WARN", "REQ", `Cannot fetch related risks: No coordinates available.`, { title: risk.title });
         return res.status(200).json({ success: true, count: 0, radius_km: risk.impact_radius_km || 100, related: [], message: "No coordinates available for this risk event to find related risks." });
     }
 
     try {
         const related = await getRelatedRisks(resolvedRisk, limit);
         const ms = tReq.done({ count: related.length });
-        log("INFO", "REQ", `Related response: ${related.length} items in ${ms}ms.`);
         return res.status(200).json({ success: true, count: related.length, radius_km: resolvedRisk.impact_radius_km || 100, related });
     } catch (error) {
-        logError("REQ_RELATED_POST", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch related risks." });
     }
@@ -2312,65 +2534,190 @@ router.post("/risk/intel/briefing/related", async (req, res) => {
 
 router.get("/risk/intel/briefing/:riskId/related", async (req, res) => {
     const tReq = timer(`GET /briefing/${req.params.riskId}/related`);
-    log("INFO", "REQ", `GET /risk/intel/briefing/${req.params.riskId}/related.`);
     const risk = await resolveRisk(req.params.riskId, null);
-    if (!risk) { tReq.done({ error: "not_found" }); return res.status(404).json({ success: false, message: "Risk event not found." }); }
+    if (!risk) {
+        tReq.done({ error: "not_found" });
+        return res.status(404).json({ success: false, message: "Risk event not found." });
+    }
     const limit = parseInt(req.query.limit, 10) || 20;
     try {
         const related = await getRelatedRisks(risk, limit);
         const ms = tReq.done({ count: related.length });
         return res.status(200).json({ success: true, count: related.length, radius_km: risk.impact_radius_km || 100, related });
     } catch (error) {
-        logError("REQ_RELATED", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to fetch related risks." });
     }
 });
 
-
-router.post("/risk/intel/search", async (req, res) => {
-    const tReq = timer("POST /risk/intel/search");
-    const { query, types, limit } = req.body;
-    if (!query) { tReq.done({ error: "missing_query" }); return res.status(400).json({ success: false, message: "The query field is required." }); }
-    const dateRange = { from: new Date(Date.now() - 30 * 864e5).toISOString().split("T")[0], to: new Date().toISOString().split("T")[0] };
-    const maxItems = Math.min(limit || 20, 50);
-    const requestedTypes = types || ["articles", "videos", "academic"];
-    const results = {};
-    const fetches = [];
-    if (requestedTypes.includes("articles")) {
-        fetches.push(Promise.allSettled([fetchGDELT(query, dateRange, maxItems), fetchGNews(query, Math.min(maxItems, 10))]).then(([g, n]) => {
-            let articles = [...(g.status === "fulfilled" ? g.value : []), ...(n.status === "fulfilled" ? n.value : [])];
-            results.articles = dedupeArticles(articles).slice(0, maxItems);
-        }));
+router.get("/risk/intel/briefing/:briefingId/sources", async (req, res) => {
+    const tReq = timer(`GET /briefing/${req.params.briefingId}/sources`);
+    const briefingId = req.params.briefingId;
+    const cached = getCached(SOURCE_BUNDLE_CACHE, briefingId, CACHE_TTL_MS * 4);
+    if (cached) {
+        const ms = tReq.done({ source: "cache" });
+        return res.status(200).json({ success: true, cached: true, briefing_id: briefingId, source_bundle: cached });
     }
-    if (requestedTypes.includes("videos")) fetches.push(fetchYouTube(query, dateRange, maxItems).then(v => { results.videos = v; }));
-    if (requestedTypes.includes("images")) fetches.push(fetchWikimediaImages(query, Math.min(maxItems, MAX_IMAGES)).then(i => { results.images = i; }));
-    if (requestedTypes.includes("academic")) fetches.push(fetchSemanticScholar(query, maxItems).then(p => { results.academic = p; }));
-    if (requestedTypes.includes("reddit")) fetches.push(fetchRedditPosts(query, maxItems).then(r => { results.reddit = r; }));
-    if (requestedTypes.includes("reliefweb")) fetches.push(fetchReliefWebReport(query).then(r => { results.reliefweb = r; }));
-    if (requestedTypes.includes("wikipedia")) fetches.push(fetchWikipedia(query).then(w => { results.wikipedia = w; }));
-    if (requestedTypes.includes("google")) fetches.push(fetchGoogleSearch(query, maxItems).then(g => { results.google = g; }));
-    await Promise.allSettled(fetches);
-    const totalItems = Object.values(results).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
-    tReq.done({ total: totalItems, types: Object.keys(results) });
-    return res.status(200).json({ success: true, message: `Found ${totalItems} results across ${Object.keys(results).length} source types.`, query, total: totalItems, results });
+    try {
+        const result = await pool.query(
+            `SELECT source_bundle, confidence_level, confidence_score, scope, asset_count, risk_category, severity, title, created_at FROM intel_briefings WHERE briefing_id = $1 LIMIT 1`,
+            [briefingId]
+        );
+        if (!result.rows.length) {
+            tReq.done({ error: "not_found" });
+            return res.status(404).json({ success: false, message: "Briefing not found." });
+        }
+        const row = result.rows[0];
+        const bundle = typeof row.source_bundle === "string" ? JSON.parse(row.source_bundle) : row.source_bundle;
+        setCache(SOURCE_BUNDLE_CACHE, briefingId, bundle);
+        const ms = tReq.done({ success: true });
+        return res.status(200).json({
+            success: true,
+            cached: false,
+            briefing_id: briefingId,
+            briefing_meta: {
+                title: row.title,
+                risk_category: row.risk_category,
+                severity: row.severity,
+                confidence_level: row.confidence_level,
+                confidence_score: row.confidence_score,
+                scope: row.scope,
+                asset_count: row.asset_count,
+                created_at: row.created_at
+            },
+            source_bundle: bundle
+        });
+    } catch (error) {
+        tReq.done({ error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to retrieve source bundle." });
+    }
 });
 
+router.post("/risk/intel/briefing/feedback", async (req, res) => {
+    const tReq = timer("POST /briefing/feedback");
+    const { briefing_id, risk_id, orgid, username, flag_reason, flag_category, comments, summary_snapshot, source_bundle_snapshot } = req.body;
+    if (!briefing_id && !risk_id) {
+        tReq.done({ error: "missing_id" });
+        return res.status(400).json({ success: false, message: "Either briefing_id or risk_id is required." });
+    }
+    try {
+        const feedbackId = generateId("fb");
+        let bundleSnapshot = source_bundle_snapshot || null;
+        let summarySnapshot = summary_snapshot || null;
+        if (!bundleSnapshot && briefing_id) {
+            const result = await pool.query(`SELECT source_bundle, ai_briefing FROM intel_briefings WHERE briefing_id = $1 LIMIT 1`, [briefing_id]);
+            if (result.rows.length) {
+                bundleSnapshot = typeof result.rows[0].source_bundle === "string" ? JSON.parse(result.rows[0].source_bundle) : result.rows[0].source_bundle;
+                summarySnapshot = typeof result.rows[0].ai_briefing === "string" ? JSON.parse(result.rows[0].ai_briefing) : result.rows[0].ai_briefing;
+            }
+        }
+        await pool.query(
+            `INSERT INTO intel_briefing_feedback (feedback_id, briefing_id, risk_id, orgid, submitted_by, flag_reason, flag_category, comments, source_bundle_snapshot, ai_summary_snapshot, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+            [
+                feedbackId,
+                briefing_id || null,
+                risk_id || null,
+                orgid || "system",
+                username || "anonymous",
+                sanitize(flag_reason, 1000),
+                sanitize(flag_category, 100),
+                sanitize(comments, 5000),
+                bundleSnapshot ? JSON.stringify(bundleSnapshot) : null,
+                summarySnapshot ? JSON.stringify(summarySnapshot) : null
+            ]
+        );
+        const ms = tReq.done({ success: true });
+        return res.status(200).json({ success: true, feedback_id: feedbackId, message: "Feedback recorded successfully." });
+    } catch (error) {
+        tReq.done({ error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to record feedback." });
+    }
+});
 
-router.get("/risk/intel/trending", async (req, res) => {
-    const tReq = timer("GET /risk/intel/trending");
-    const hours = parseInt(req.query.hours, 10) || 24;
+router.get("/risk/intel/briefing/feedback/recent", async (req, res) => {
+    const tReq = timer("GET /briefing/feedback/recent");
+    const orgid = req.query.orgid;
+    const limit = parseInt(req.query.limit, 10) || 50;
+    try {
+        const params = [];
+        let where = "";
+        if (orgid) {
+            where = "WHERE orgid = $1";
+            params.push(orgid);
+        }
+        params.push(limit);
+        const sql = `SELECT feedback_id, briefing_id, risk_id, orgid, submitted_by, flag_reason, flag_category, comments, created_at FROM intel_briefing_feedback ${where} ORDER BY created_at DESC LIMIT $${params.length}`;
+        const result = await pool.query(sql, params);
+        tReq.done({ count: result.rows.length });
+        return res.status(200).json({ success: true, count: result.rows.length, feedback: result.rows });
+    } catch (error) {
+        tReq.done({ error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to retrieve feedback list." });
+    }
+});
+
+router.get("/risk/intel/briefings/recent", async (req, res) => {
+    const tReq = timer("GET /briefings/recent");
+    const orgid = req.query.orgid;
+    const username = req.query.username;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const bboxMinLat = parseFloat(req.query.min_lat);
+    const bboxMaxLat = parseFloat(req.query.max_lat);
+    const bboxMinLng = parseFloat(req.query.min_lng);
+    const bboxMaxLng = parseFloat(req.query.max_lng);
+    const hasBbox = !isNaN(bboxMinLat) && !isNaN(bboxMaxLat) && !isNaN(bboxMinLng) && !isNaN(bboxMaxLng);
+    try {
+        const params = [];
+        const conditions = [];
+        if (orgid) {
+            params.push(orgid);
+            conditions.push(`orgid = $${params.length}`);
+        }
+        if (hasBbox) {
+            params.push(bboxMinLat);
+            conditions.push(`risk_latitude >= $${params.length}`);
+            params.push(bboxMaxLat);
+            conditions.push(`risk_latitude <= $${params.length}`);
+            params.push(bboxMinLng);
+            conditions.push(`risk_longitude >= $${params.length}`);
+            params.push(bboxMaxLng);
+            conditions.push(`risk_longitude <= $${params.length}`);
+        }
+        const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+        params.push(limit);
+        const sql = `SELECT briefing_id, risk_id, orgid, created_by, risk_category, severity, title, confidence_level, confidence_score, scope, asset_count, risk_latitude, risk_longitude, generation_time_ms, created_at, media_counts, research_counts FROM intel_briefings ${where} ORDER BY created_at DESC LIMIT $${params.length}`;
+        const result = await pool.query(sql, params);
+        const briefings = result.rows.map(r => ({
+            ...r,
+            media_counts: typeof r.media_counts === "string" ? JSON.parse(r.media_counts) : r.media_counts,
+            research_counts: typeof r.research_counts === "string" ? JSON.parse(r.research_counts) : r.research_counts
+        }));
+        const ms = tReq.done({ count: briefings.length });
+        return res.status(200).json({ success: true, count: briefings.length, briefings });
+    } catch (error) {
+        tReq.done({ error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to retrieve recent briefings." });
+    }
+});
+
+router.get("/risk/intel/briefings/by-risk/:riskId", async (req, res) => {
+    const tReq = timer(`GET /briefings/by-risk/${req.params.riskId}`);
+    const riskId = req.params.riskId;
     const limit = parseInt(req.query.limit, 10) || 20;
     try {
-        const result = await pool.query(`SELECT risk_category, severity, COUNT(*) AS event_count, AVG(severity_score) AS avg_severity_score, MIN(event_time) AS earliest_event, MAX(event_time) AS latest_event FROM risk_events_cache WHERE event_time > NOW() - INTERVAL '1 hour' * $1 GROUP BY risk_category, severity ORDER BY avg_severity_score DESC, event_count DESC LIMIT $2`, [hours, limit]);
-        const catResult = await pool.query(`SELECT risk_category, COUNT(*) AS count, AVG(severity_score) AS avg_score FROM risk_events_cache WHERE event_time > NOW() - INTERVAL '1 hour' * $1 GROUP BY risk_category ORDER BY avg_score DESC`, [hours]);
-        const topEvents = await pool.query(`SELECT id, source, risk_category, severity, severity_score, title, latitude, longitude, event_time, metadata FROM risk_events_cache WHERE event_time > NOW() - INTERVAL '1 hour' * $1 ORDER BY severity_score DESC LIMIT $2`, [hours, limit]);
-        tReq.done({ categories: catResult.rows.length, top_events: topEvents.rows.length });
-        return res.status(200).json({ success: true, message: `Trending risk intelligence for the past ${hours} hours.`, time_window_hours: hours, category_trends: catResult.rows.map(r => ({ ...r, count: parseInt(r.count, 10), avg_score: parseFloat(r.avg_score) })), severity_breakdown: result.rows.map(r => ({ ...r, event_count: parseInt(r.event_count, 10), avg_severity_score: parseFloat(r.avg_severity_score) })), top_events: topEvents.rows.map(r => ({ ...r, metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) : r.metadata })) });
+        const result = await pool.query(
+            `SELECT briefing_id, risk_id, orgid, created_by, risk_category, severity, title, ai_briefing, confidence_level, confidence_score, scope, asset_count, generation_time_ms, created_at FROM intel_briefings WHERE risk_id = $1 ORDER BY created_at DESC LIMIT $2`,
+            [riskId, limit]
+        );
+        const briefings = result.rows.map(r => ({
+            ...r,
+            ai_briefing: typeof r.ai_briefing === "string" ? JSON.parse(r.ai_briefing) : r.ai_briefing
+        }));
+        tReq.done({ count: briefings.length });
+        return res.status(200).json({ success: true, count: briefings.length, briefings });
     } catch (error) {
-        logError("REQ_TRENDING", error);
         tReq.done({ error: error.message });
-        return res.status(500).json({ success: false, message: "Failed to retrieve trending intelligence." });
+        return res.status(500).json({ success: false, message: "Failed to retrieve briefings for this risk." });
     }
 });
 
@@ -2383,32 +2730,313 @@ router.get("/risk/intel/briefings/history", async (req, res) => {
         let pi = 1;
         let whereClause = "";
         if (orgid) {
-            whereClause = ` WHERE orgid = ${pi}`;
+            whereClause = ` WHERE orgid = $${pi}`;
             qp.push(orgid);
             pi++;
         }
-        const sql = `SELECT briefing_id, risk_id, orgid, created_by, risk_category, severity, title, media_counts, research_counts, generation_time_ms, created_at FROM intel_briefings${whereClause} ORDER BY created_at DESC LIMIT ${pi}`;
+        const sql = `SELECT briefing_id, risk_id, orgid, created_by, risk_category, severity, title, media_counts, research_counts, confidence_level, confidence_score, scope, asset_count, generation_time_ms, created_at FROM intel_briefings${whereClause} ORDER BY created_at DESC LIMIT $${pi}`;
         qp.push(limit);
         const result = await pool.query(sql, qp);
         tReq.done({ count: result.rows.length });
-        return res.status(200).json({ success: true, count: result.rows.length, briefings: result.rows.map(r => ({ ...r, media_counts: typeof r.media_counts === "string" ? JSON.parse(r.media_counts) : r.media_counts, research_counts: typeof r.research_counts === "string" ? JSON.parse(r.research_counts) : r.research_counts })) });
+        return res.status(200).json({
+            success: true,
+            count: result.rows.length,
+            briefings: result.rows.map(r => ({
+                ...r,
+                media_counts: typeof r.media_counts === "string" ? JSON.parse(r.media_counts) : r.media_counts,
+                research_counts: typeof r.research_counts === "string" ? JSON.parse(r.research_counts) : r.research_counts
+            }))
+        });
     } catch (error) {
-        logError("REQ_HISTORY", error);
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to retrieve briefing history." });
     }
 });
 
+router.get("/risk/intel/user-settings", async (req, res) => {
+    const tReq = timer("GET /user-settings");
+    const username = req.query.username;
+    const orgid = req.query.orgid;
+    if (!username) {
+        tReq.done({ error: "missing_username" });
+        return res.status(400).json({ success: false, message: "Username is required.", settings: DEFAULT_USER_SETTINGS, defaults: DEFAULT_USER_SETTINGS });
+    }
+    try {
+        const settings = await getUserSettings(username, orgid);
+        tReq.done({ success: true });
+        return res.status(200).json({ success: true, settings, defaults: DEFAULT_USER_SETTINGS, all_source_keys: ALL_SOURCE_KEYS });
+    } catch (error) {
+        tReq.done({ error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to retrieve user settings.", settings: DEFAULT_USER_SETTINGS });
+    }
+});
+
+router.post("/risk/intel/user-settings", async (req, res) => {
+    const tReq = timer("POST /user-settings");
+    const { username, orgid, sources_enabled, default_scope } = req.body;
+    if (!username) {
+        tReq.done({ error: "missing_username" });
+        return res.status(400).json({ success: false, message: "Username is required." });
+    }
+    try {
+        const ok = await saveUserSettings(username, orgid, sources_enabled, default_scope);
+        const settings = await getUserSettings(username, orgid);
+        const ms = tReq.done({ success: ok });
+        return res.status(200).json({ success: ok, settings });
+    } catch (error) {
+        tReq.done({ error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to save user settings." });
+    }
+});
+
+router.post("/risk/intel/briefing/create-alert", async (req, res) => {
+    const tReq = timer("POST /briefing/create-alert");
+    const { briefing_id, risk_id, orgid, username, rule_name, channels, geography, override, condition } = req.body;
+    if (!briefing_id && !risk_id) {
+        tReq.done({ error: "missing_id" });
+        return res.status(400).json({ success: false, message: "Either briefing_id or risk_id is required." });
+    }
+    if (!orgid || !username) {
+        tReq.done({ error: "missing_auth" });
+        return res.status(400).json({ success: false, message: "orgid and username are required." });
+    }
+    try {
+        let categoryGuess = override?.risk_category || null;
+        let severityGuess = override?.severity_threshold || null;
+        let geographyGuess = geography || null;
+        let briefingTitle = null;
+        if (briefing_id) {
+            const result = await pool.query(
+                `SELECT risk_category, severity, risk_latitude, risk_longitude, title FROM intel_briefings WHERE briefing_id = $1 LIMIT 1`,
+                [briefing_id]
+            );
+            if (result.rows.length) {
+                const row = result.rows[0];
+                briefingTitle = row.title;
+                if (!categoryGuess) categoryGuess = row.risk_category;
+                if (!severityGuess) severityGuess = row.severity;
+                if (!geographyGuess && row.risk_latitude && row.risk_longitude) {
+                    geographyGuess = { latitude: row.risk_latitude, longitude: row.risk_longitude, radius_km: 100 };
+                }
+            }
+        }
+        const severityScoreMap = { Critical: 100, High: 75, Medium: 50, Low: 25 };
+        const conditionField = condition?.field || "severity_score";
+        const conditionOperator = condition?.operator || ">=";
+        const conditionValue = condition?.value !== undefined ? parseFloat(condition.value) : (severityScoreMap[severityGuess] || 50);
+        const alertId = generateId("alert");
+        const finalRuleName = sanitize(rule_name || `Briefing alert: ${categoryGuess || "risk"} events`, 200);
+        const descParts = [
+            `Auto-generated from intelligence briefing.`,
+            briefing_id ? `Briefing: ${briefing_id}.` : "",
+            risk_id ? `Origin risk: ${risk_id}.` : "",
+            briefingTitle ? `Context: ${truncatePlain(briefingTitle, 120)}.` : "",
+            geographyGuess ? `Geofence: ${geographyGuess.latitude?.toFixed(4)}, ${geographyGuess.longitude?.toFixed(4)} @ ${geographyGuess.radius_km}km.` : ""
+        ].filter(Boolean).join(" ");
+        const notificationChannels = Array.isArray(channels) && channels.length > 0 ? channels : ["in_app"];
+        const cooldown = condition?.cooldown_minutes || 60;
+        await pool.query(
+            `INSERT INTO risk_alerts (alert_id, orgid, created_by, name, description, alert_type, risk_category, condition_field, condition_operator, condition_value, severity, enabled, notification_channels, cooldown_minutes, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, $12, $13, NOW(), NOW())`,
+            [
+                alertId,
+                orgid,
+                username,
+                finalRuleName,
+                sanitize(descParts, 1000),
+                "risk_event_briefing",
+                categoryGuess || "any",
+                conditionField,
+                conditionOperator,
+                conditionValue,
+                severityGuess || "Medium",
+                JSON.stringify(notificationChannels),
+                cooldown
+            ]
+        );
+        const ms = tReq.done({ success: true });
+        return res.status(200).json({
+            success: true,
+            alert_id: alertId,
+            alert_rule_id: alertId,
+            rule: {
+                alert_id: alertId,
+                alert_rule_id: alertId,
+                rule_name: finalRuleName,
+                name: finalRuleName,
+                risk_category: categoryGuess,
+                severity_threshold: severityGuess,
+                severity: severityGuess,
+                condition_field: conditionField,
+                condition_operator: conditionOperator,
+                condition_value: conditionValue,
+                geography: geographyGuess,
+                channels: notificationChannels,
+                notification_channels: notificationChannels,
+                cooldown_minutes: cooldown,
+                enabled: true
+            },
+            message: "Alert rule created in risk_alerts."
+        });
+    } catch (error) {
+        tReq.done({ error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to create alert rule." });
+    }
+});
+
+router.get("/risk/intel/alert-rules", async (req, res) => {
+    const tReq = timer("GET /alert-rules");
+    const orgid = req.query.orgid;
+    const limit = parseInt(req.query.limit, 10) || 100;
+    const fromBriefingsOnly = req.query.from_briefings === "true";
+    try {
+        const params = [];
+        const conditions = ["deleted_at IS NULL"];
+        if (orgid) {
+            params.push(orgid);
+            conditions.push(`orgid = ${params.length}`);
+        }
+        if (fromBriefingsOnly) {
+            conditions.push(`alert_type = 'risk_event_briefing'`);
+        }
+        params.push(limit);
+        const where = `WHERE ${conditions.join(" AND ")}`;
+        const sql = `SELECT alert_id, orgid, created_by, name, description, alert_type, risk_category, asset_id, zone_id, condition_field, condition_operator, condition_value, severity, enabled, notification_channels, cooldown_minutes, last_triggered_at, trigger_count, created_at FROM risk_alerts ${where} ORDER BY created_at DESC LIMIT ${params.length}`;
+        const result = await pool.query(sql, params);
+        const rules = result.rows.map(r => ({
+            ...r,
+            alert_rule_id: r.alert_id,
+            rule_name: r.name,
+            severity_threshold: r.severity,
+            channels: typeof r.notification_channels === "string" ? JSON.parse(r.notification_channels) : r.notification_channels
+        }));
+        tReq.done({ count: rules.length });
+        return res.status(200).json({ success: true, count: rules.length, rules });
+    } catch (error) {
+        tReq.done({ error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to list alert rules." });
+    }
+});
+
+router.post("/risk/intel/search", async (req, res) => {
+    const tReq = timer("POST /risk/intel/search");
+    const { query, types, limit } = req.body;
+    if (!query) {
+        tReq.done({ error: "missing_query" });
+        return res.status(400).json({ success: false, message: "The query field is required." });
+    }
+    const dateRange = {
+        from: new Date(Date.now() - 30 * 864e5).toISOString().split("T")[0],
+        to: new Date().toISOString().split("T")[0]
+    };
+    const maxItems = Math.min(limit || 20, 50);
+    const requestedTypes = types || ["articles", "videos", "academic"];
+    const results = {};
+    const fetches = [];
+    if (requestedTypes.includes("articles")) {
+        fetches.push(Promise.allSettled([fetchGDELT(query, dateRange, maxItems), fetchGNews(query, Math.min(maxItems, 10))]).then(([g, n]) => {
+            let articles = [...(g.status === "fulfilled" ? g.value : []), ...(n.status === "fulfilled" ? n.value : [])];
+            results.articles = dedupeArticles(articles).slice(0, maxItems);
+        }));
+    }
+    if (requestedTypes.includes("videos")) {
+        fetches.push(fetchYouTube(query, dateRange, maxItems).then(v => { results.videos = v; }));
+    }
+    if (requestedTypes.includes("images")) {
+        fetches.push(fetchWikimediaImages(query, Math.min(maxItems, MAX_IMAGES)).then(i => { results.images = i; }));
+    }
+    if (requestedTypes.includes("academic")) {
+        fetches.push(fetchSemanticScholar(query, maxItems).then(p => { results.academic = p; }));
+    }
+    if (requestedTypes.includes("reddit")) {
+        fetches.push(fetchRedditPosts(query, maxItems).then(r => { results.reddit = r; }));
+    }
+    if (requestedTypes.includes("reliefweb")) {
+        fetches.push(fetchReliefWebReport(query).then(r => { results.reliefweb = r; }));
+    }
+    if (requestedTypes.includes("wikipedia")) {
+        fetches.push(fetchWikipedia(query).then(w => { results.wikipedia = w; }));
+    }
+    if (requestedTypes.includes("google")) {
+        fetches.push(fetchGoogleSearch(query, maxItems).then(g => { results.google = g; }));
+    }
+    await Promise.allSettled(fetches);
+    const totalItems = Object.values(results).reduce((s, v) => s + (Array.isArray(v) ? v.length : 0), 0);
+    tReq.done({ total: totalItems, types: Object.keys(results) });
+    return res.status(200).json({
+        success: true,
+        message: `Found ${totalItems} results across ${Object.keys(results).length} source types.`,
+        query,
+        total: totalItems,
+        results
+    });
+});
+
+router.get("/risk/intel/trending", async (req, res) => {
+    const tReq = timer("GET /risk/intel/trending");
+    const hours = parseInt(req.query.hours, 10) || 24;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    try {
+        const result = await pool.query(
+            `SELECT risk_category, severity, COUNT(*) AS event_count, AVG(severity_score) AS avg_severity_score, MIN(event_time) AS earliest_event, MAX(event_time) AS latest_event FROM risk_events_cache WHERE event_time > NOW() - INTERVAL '1 hour' * $1 GROUP BY risk_category, severity ORDER BY avg_severity_score DESC, event_count DESC LIMIT $2`,
+            [hours, limit]
+        );
+        const catResult = await pool.query(
+            `SELECT risk_category, COUNT(*) AS count, AVG(severity_score) AS avg_score FROM risk_events_cache WHERE event_time > NOW() - INTERVAL '1 hour' * $1 GROUP BY risk_category ORDER BY avg_score DESC`,
+            [hours]
+        );
+        const topEvents = await pool.query(
+            `SELECT id, source, risk_category, severity, severity_score, title, latitude, longitude, event_time, metadata FROM risk_events_cache WHERE event_time > NOW() - INTERVAL '1 hour' * $1 ORDER BY severity_score DESC LIMIT $2`,
+            [hours, limit]
+        );
+        tReq.done({ categories: catResult.rows.length, top_events: topEvents.rows.length });
+        return res.status(200).json({
+            success: true,
+            message: `Trending risk intelligence for the past ${hours} hours.`,
+            time_window_hours: hours,
+            category_trends: catResult.rows.map(r => ({
+                ...r,
+                count: parseInt(r.count, 10),
+                avg_score: parseFloat(r.avg_score)
+            })),
+            severity_breakdown: result.rows.map(r => ({
+                ...r,
+                event_count: parseInt(r.event_count, 10),
+                avg_severity_score: parseFloat(r.avg_severity_score)
+            })),
+            top_events: topEvents.rows.map(r => ({
+                ...r,
+                metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) : r.metadata
+            }))
+        });
+    } catch (error) {
+        tReq.done({ error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to retrieve trending intelligence." });
+    }
+});
 
 router.get("/risk/intel/cache/clear", async (req, res) => {
-    if (req.query.api_key !== process.env.ADMIN_API_KEY) { return res.status(401).json({ success: false, message: "Unauthorized." }); }
+    if (req.query.api_key !== process.env.ADMIN_API_KEY) {
+        return res.status(401).json({ success: false, message: "Unauthorized." });
+    }
     const bSize = BRIEFING_CACHE.size;
     const sSize = SEARCH_CACHE.size;
     const rSize = RISK_OBJECT_CACHE.size;
+    const sbSize = SOURCE_BUNDLE_CACHE.size;
+    const usSize = USER_SETTINGS_CACHE.size;
     BRIEFING_CACHE.clear();
     SEARCH_CACHE.clear();
     RISK_OBJECT_CACHE.clear();
-    return res.status(200).json({ success: true, message: "Intel caches cleared.", briefing_entries_cleared: bSize, search_entries_cleared: sSize, risk_object_entries_cleared: rSize });
+    SOURCE_BUNDLE_CACHE.clear();
+    USER_SETTINGS_CACHE.clear();
+    return res.status(200).json({
+        success: true,
+        message: "Intel caches cleared.",
+        briefing_entries_cleared: bSize,
+        search_entries_cleared: sSize,
+        risk_object_entries_cleared: rSize,
+        source_bundle_entries_cleared: sbSize,
+        user_settings_entries_cleared: usSize
+    });
 });
 
 router.get("/risk/intel/sources", async (req, res) => {
@@ -2419,8 +3047,50 @@ router.get("/risk/intel/sources", async (req, res) => {
         gemini: !!process.env.GEMINI_API_KEY,
         semantic_scholar: !!process.env.SEMANTIC_SCHOLAR_API_KEY
     };
-    const freeApis = { gdelt: true, wikipedia: true, wikimedia_images: true, reddit: true, reliefweb: true, usgs_detail: true, gdacs_detail: true, noaa_detail: true };
-    return res.status(200).json({ success: true, message: "Intel source configuration status.", configured_apis: apiStatus, free_apis: freeApis, total_configured: Object.values(apiStatus).filter(Boolean).length + Object.keys(freeApis).length, capabilities: { news_search: true, news_search_enhanced: apiStatus.gnews, video_search: apiStatus.youtube, image_search: true, academic_search: true, social_search: true, humanitarian_reports: true, ai_summary: apiStatus.gemini, ai_relevance_filtering: apiStatus.gemini }, cache_status: { briefing_entries: BRIEFING_CACHE.size, search_entries: SEARCH_CACHE.size, risk_object_entries: RISK_OBJECT_CACHE.size, cache_ttl_minutes: CACHE_TTL_MS / 60000 } });
+    const freeApis = {
+        gdelt: true,
+        wikipedia: true,
+        wikimedia_images: true,
+        reddit: true,
+        reliefweb: true,
+        usgs_detail: true,
+        gdacs_detail: true,
+        noaa_detail: true
+    };
+    return res.status(200).json({
+        success: true,
+        message: "Intel source configuration status.",
+        configured_apis: apiStatus,
+        free_apis: freeApis,
+        total_configured: Object.values(apiStatus).filter(Boolean).length + Object.keys(freeApis).length,
+        all_source_keys: ALL_SOURCE_KEYS,
+        capabilities: {
+            news_search: true,
+            news_search_enhanced: apiStatus.gnews,
+            video_search: apiStatus.youtube,
+            image_search: true,
+            academic_search: true,
+            social_search: true,
+            humanitarian_reports: true,
+            ai_summary: apiStatus.gemini,
+            ai_relevance_filtering: apiStatus.gemini,
+            confidence_scoring: true,
+            source_bundle_capture: true,
+            briefing_feedback: true,
+            briefing_history: true,
+            asset_scoped_briefings: true,
+            alert_rule_generation: true,
+            per_user_source_toggles: true
+        },
+        cache_status: {
+            briefing_entries: BRIEFING_CACHE.size,
+            search_entries: SEARCH_CACHE.size,
+            risk_object_entries: RISK_OBJECT_CACHE.size,
+            source_bundle_entries: SOURCE_BUNDLE_CACHE.size,
+            user_settings_entries: USER_SETTINGS_CACHE.size,
+            cache_ttl_minutes: CACHE_TTL_MS / 60000
+        }
+    });
 });
 
 router.get("/risk/intel/health", async (req, res) => {
@@ -2428,30 +3098,105 @@ router.get("/risk/intel/health", async (req, res) => {
     const checks = [];
     const testFns = [
         { name: "PostGIS Database", fn: async () => { await pool.query("SELECT 1"); return true; } },
+        { name: "Intel Briefings Table", fn: async () => { await pool.query("SELECT 1 FROM intel_briefings LIMIT 1"); return true; } },
+        { name: "Intel Feedback Table", fn: async () => { await pool.query("SELECT 1 FROM intel_briefing_feedback LIMIT 1"); return true; } },
+        { name: "Intel User Settings Table", fn: async () => { await pool.query("SELECT 1 FROM intel_user_settings LIMIT 1"); return true; } },
+        { name: "Risk Alerts Table", fn: async () => { await pool.query("SELECT 1 FROM risk_alerts LIMIT 1"); return true; } },
+        { name: "Risk Assets Table", fn: async () => { await pool.query("SELECT 1 FROM risk_assets LIMIT 1"); return true; } },
         { name: "GDELT", fn: async () => { const r = await fetchWithTimeout("https://api.gdeltproject.org/api/v2/doc/doc?query=test&mode=ArtList&maxrecords=1&format=json", {}, 10000); return r.ok; } },
         { name: "GNews", fn: async () => { if (!process.env.GNEWS_API_KEY) return "not_configured"; const r = await fetchWithTimeout(`https://gnews.io/api/v4/search?q=test&lang=en&max=1&apikey=${process.env.GNEWS_API_KEY}`, {}, 5000); return r.ok; } },
         { name: "YouTube Data API", fn: async () => { if (!process.env.YOUTUBE_DATA_API_KEY) return "not_configured"; const r = await fetchWithTimeout(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=test&maxResults=1&key=${process.env.YOUTUBE_DATA_API_KEY}`, {}, 5000); return r.ok; } },
-        { name: "Gemini AI", fn: async () => { if (!process.env.GEMINI_API_KEY) return "not_configured"; const r = await fetchWithTimeout(`${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 10 } }) }, 10000); return r.ok; } },
+        {
+            name: "Gemini AI",
+            fn: async () => {
+                if (!process.env.GEMINI_API_KEY) return "not_configured";
+                const r = await fetchWithTimeout(`${GEMINI_BASE_URL}/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 10 } })
+                }, 10000);
+                return r.ok;
+            }
+        },
         { name: "Wikimedia Commons", fn: async () => { const r = await fetchWithTimeout("https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=test&gsrlimit=1&gsrnamespace=6&prop=imageinfo&iiprop=url&format=json&origin=*", {}, 5000); return r.ok; } },
         { name: "Wikipedia", fn: async () => { const r = await fetchWithTimeout("https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=test&srlimit=1&format=json&origin=*", {}, 5000); return r.ok; } },
         { name: "Semantic Scholar", fn: async () => { const r = await fetchWithTimeout("https://api.semanticscholar.org/graph/v1/paper/search?query=test&limit=1", {}, 5000); return r.ok; } },
-        { name: "ReliefWeb", fn: async () => { const r = await fetchWithTimeout("https://api.reliefweb.int/v1/reports?appname=risk-intel", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "RiskIntelligence/2.0 (risk-intel)" }, body: JSON.stringify({ appname: "risk-intel", limit: 1, fields: { include: ["title"] } }) }, 5000); if (r.ok) return true; const gr = await fetchWithTimeout("https://api.reliefweb.int/v1/reports?appname=risk-intel&limit=1", { method: "GET", headers: { "Accept": "application/json", "User-Agent": "RiskIntelligence/2.0 (risk-intel)" } }, 5000); return gr.ok; } },
-        { name: "Reddit", fn: async () => { const r = await fetchWithTimeout("https://www.reddit.com/search.json?q=test&limit=1&raw_json=1", { headers: { "User-Agent": "Mozilla/5.0 (compatible; RiskIntelligence/2.0; +https://riskintel.app)", "Accept": "application/json" } }, 5000); return r.ok; } }
+        {
+            name: "ReliefWeb",
+            fn: async () => {
+                const r = await fetchWithTimeout("https://api.reliefweb.int/v1/reports?appname=risk-intel", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "RiskIntelligence/2.0 (risk-intel)" },
+                    body: JSON.stringify({ appname: "risk-intel", limit: 1, fields: { include: ["title"] } })
+                }, 5000);
+                if (r.ok) return true;
+                const gr = await fetchWithTimeout("https://api.reliefweb.int/v1/reports?appname=risk-intel&limit=1", {
+                    method: "GET",
+                    headers: { "Accept": "application/json", "User-Agent": "RiskIntelligence/2.0 (risk-intel)" }
+                }, 5000);
+                return gr.ok;
+            }
+        },
+        {
+            name: "Reddit",
+            fn: async () => {
+                const r = await fetchWithTimeout("https://www.reddit.com/search.json?q=test&limit=1&raw_json=1", {
+                    headers: { "User-Agent": "Mozilla/5.0 (compatible; RiskIntelligence/2.0; +https://riskintel.app)", "Accept": "application/json" }
+                }, 5000);
+                return r.ok;
+            }
+        }
     ];
     for (const testItem of testFns) {
         const st = Date.now();
         try {
             const result = await testItem.fn();
             const elapsed = Date.now() - st;
-            checks.push({ name: testItem.name, status: result === "not_configured" ? "NOT_CONFIGURED" : result ? "OK" : "ERROR", response_time_ms: elapsed });
+            checks.push({
+                name: testItem.name,
+                status: result === "not_configured" ? "NOT_CONFIGURED" : result ? "OK" : "ERROR",
+                response_time_ms: elapsed
+            });
         } catch (error) {
-            checks.push({ name: testItem.name, status: "FAILED", error: error.message, response_time_ms: Date.now() - st });
+            checks.push({
+                name: testItem.name,
+                status: "FAILED",
+                error: error.message,
+                response_time_ms: Date.now() - st
+            });
         }
     }
     const healthy = checks.filter(c => c.status === "OK").length;
     const configured = checks.filter(c => c.status !== "NOT_CONFIGURED").length;
     tReq.done({ healthy, configured, total: checks.length });
-    return res.status(healthy > 0 ? 200 : 503).json({ success: healthy > 0, message: `${healthy} of ${configured} configured services are healthy.`, timestamp: new Date().toISOString(), cache_status: { briefing_entries: BRIEFING_CACHE.size, search_entries: SEARCH_CACHE.size, risk_object_entries: RISK_OBJECT_CACHE.size }, checks });
+    return res.status(healthy > 0 ? 200 : 503).json({
+        success: healthy > 0,
+        message: `${healthy} of ${configured} configured services are healthy.`,
+        timestamp: new Date().toISOString(),
+        cache_status: {
+            briefing_entries: BRIEFING_CACHE.size,
+            search_entries: SEARCH_CACHE.size,
+            risk_object_entries: RISK_OBJECT_CACHE.size,
+            source_bundle_entries: SOURCE_BUNDLE_CACHE.size,
+            user_settings_entries: USER_SETTINGS_CACHE.size
+        },
+        checks
+    });
 });
+
+router.buildFullBriefing = buildFullBriefing;
+router.generateAISummary = generateAISummary;
+router.buildSourceBundle = buildSourceBundle;
+router.getUserSettings = getUserSettings;
+router.computeConfidenceMetrics = computeConfidenceMetrics;
+
+global.buildFullBriefing = buildFullBriefing;
+global.BRIEFING_CACHE = BRIEFING_CACHE;
+global.SEARCH_CACHE = SEARCH_CACHE;
+global.RISK_OBJECT_CACHE = RISK_OBJECT_CACHE;
+global.saveBriefingToDb = saveBriefingToDb;
+global.resolveRisk = resolveRisk;
+global.resolveRiskId = resolveRiskId;
+global.cacheRiskObject = cacheRiskObject;
 
 module.exports = router;

@@ -79,23 +79,29 @@ const validateAssetType = (type) => VALID_ASSET_TYPES.includes(type);
 const validatePriority = (priority) => VALID_PRIORITIES.includes(priority);
 const validateStatus = (status) => VALID_STATUSES.includes(status);
 const validateCoordinates = (lat, lng) => lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
-
-const logError = (context, error) => {
-    const cause = error.cause ? ` (${error.cause.code || error.cause.message})` : "";
-    process.stderr.write(`[FAIL] ${context}: ${error.message}${cause}.\n`);
-};
-
-const logInfo = (message) => {
-    process.stdout.write(`[INFO] ${message}\n`);
+const validateMeshFileExtension = (filename) => {
+    const lower = filename.toLowerCase();
+    return ALLOWED_MESH_EXTENSIONS.some(ext => lower.endsWith(ext));
 };
 
 const safeJsonStringify = (value) => {
     if (value == null) return null;
     if (typeof value === "string") {
-        try { JSON.parse(value); return value; } catch {}
-        try { return JSON.stringify(value); } catch { return null; }
+        try {
+            JSON.parse(value);
+            return value;
+        } catch {}
+        try {
+            return JSON.stringify(value);
+        } catch {
+            return null;
+        }
     }
-    try { return JSON.stringify(value); } catch { return null; }
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return null;
+    }
 };
 
 const parseJson = (value) => typeof value === "string" ? JSON.parse(value) : value;
@@ -106,8 +112,14 @@ const withTimeout = (promise, ms, label) => {
             reject(new Error(`${label} timed out after ${ms} milliseconds.`));
         }, ms);
         promise.then(
-            (val) => { clearTimeout(timer); resolve(val); },
-            (error) => { clearTimeout(timer); reject(error); }
+            (val) => {
+                clearTimeout(timer);
+                resolve(val);
+            },
+            (error) => {
+                clearTimeout(timer);
+                reject(error);
+            }
         );
     });
 };
@@ -118,7 +130,6 @@ const acquireClient = async (label, timeoutMs) => {
         const client = await withTimeout(pool.connect(), timeout, `Connection acquisition for ${label}`);
         return client;
     } catch (error) {
-        logError(`Failed to acquire database connection for ${label}`, error);
         throw error;
     }
 };
@@ -128,330 +139,16 @@ const queryWithTimeout = async (sql, params, timeoutMs) => {
     try {
         return await withTimeout(pool.query(sql, params), timeout, "Database query");
     } catch (error) {
-        logError("Query execution with timeout.", error);
         throw error;
     }
 };
 
-const classifySeverity = (annRate, absDisp, coherence) => {
-    if (coherence !== null && coherence < 0.3) return { severity: "Low", confidence: "low", reason: "Coherence is below the reliable measurement threshold." };
-    if (annRate > 50 || absDisp > 30) return { severity: "Critical", confidence: coherence > 0.7 ? "high" : "medium", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year exceeds the critical threshold.` };
-    if (annRate > 20 || absDisp > 15) return { severity: "High", confidence: coherence > 0.6 ? "high" : "medium", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year exceeds the high severity threshold.` };
-    if (annRate > 10 || absDisp > 8) return { severity: "Medium", confidence: coherence > 0.5 ? "high" : "medium", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year indicates moderate ground movement.` };
-    return { severity: "Low", confidence: coherence > 0.5 ? "high" : "low", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year is within normal background levels.` };
-};
-
-const queryDeformationData = async (lat, lng, radiusMeters) => {
-    try {
-        const result = await queryWithTimeout(
-            `SELECT *,
-             ST_Distance(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
-             FROM risk_events_cache
-             WHERE risk_category = 'Ground Deformation'
-             AND ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
-             ORDER BY distance_meters ASC
-             LIMIT 50`,
-            [lng, lat, radiusMeters || 50000],
-            15000
-        );
-        return result.rows.map(r => ({
-            ...r,
-            metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) : (r.metadata || {})
-        }));
-    } catch (err) {
-        logError("Deformation data query", err);
-        return [];
-    }
-};
-
-const extractDeformationDelta = (deformationEvents) => {
-    if (!deformationEvents || deformationEvents.length === 0) return null;
-    let totalDisplacementMm = 0;
-    let count = 0;
-    let source = "unknown";
-    for (const evt of deformationEvents) {
-        const meta = evt.metadata || {};
-        const dispMm = meta.recent_displacement_mm
-            || meta.displacement_mm
-            || meta.vertical_displacement_mm
-            || meta.los_displacement_mm
-            || null;
-        if (dispMm !== null && dispMm !== undefined) {
-            totalDisplacementMm += parseFloat(dispMm);
-            count++;
-        }
-        const rateMmYr = meta.velocity_mm_yr
-            || meta.deformation_rate_mm_yr
-            || meta.subsidence_rate_mm_yr
-            || null;
-        if (rateMmYr !== null && rateMmYr !== undefined && count === 0) {
-            const intervalDays = 12;
-            totalDisplacementMm += parseFloat(rateMmYr) * (intervalDays / 365.25);
-            count++;
-        }
-        if (meta.source) source = meta.source;
-        else if (evt.source) source = evt.source;
-    }
-    if (count === 0) return null;
-    return {
-        displacement_mm: totalDisplacementMm / count,
-        event_count: deformationEvents.length,
-        matched_count: count,
-        source: source
-    };
-};
-
-const compareBaseline = (mesh, incoming, threshMm) => {
-    const thresh = threshMm || DEFORM_THRESH_MM;
-    const bp = mesh.mesh_data && mesh.mesh_data.points ? mesh.mesh_data.points : [];
-    if (!bp.length) return { exceeded: false, max_delta_mm: 0, mean_delta_mm: 0, std_delta_mm: 0, affected_count: 0, total_count: 0, affected_percentage: 0, hotspots: [], deltas: [] };
-    const deltas = [], hotspots = [];
-    let sum = 0, sumSq = 0, maxD = 0, affected = 0;
-    for (let i = 0; i < bp.length; i++) {
-        const b = bp[i];
-        const m = incoming?.[i] || null;
-        let currentZ;
-        if (m && m.z !== undefined) {
-            currentZ = m.z;
-        } else {
-            currentZ = b.z;
-        }
-        const d = Math.abs(currentZ - b.z);
-        deltas.push({ lat: b.lat, lng: b.lng, baseline_z: b.z, current_z: currentZ, delta_mm: parseFloat(d.toFixed(3)) });
-        sum += d; sumSq += d * d;
-        if (d > maxD) maxD = d;
-        if (d > thresh) { affected++; hotspots.push({ lat: b.lat, lng: b.lng, delta_mm: parseFloat(d.toFixed(3)), direction: currentZ < b.z ? "subsidence" : "uplift" }); }
-    }
-    const mean = bp.length ? sum / bp.length : 0;
-    const std = Math.sqrt(Math.max(0, bp.length ? sumSq / bp.length - mean * mean : 0));
-    const pct = bp.length ? (affected / bp.length) * 100 : 0;
-    return {
-        exceeded: affected > 0, max_delta_mm: parseFloat(maxD.toFixed(3)), mean_delta_mm: parseFloat(mean.toFixed(3)),
-        std_delta_mm: parseFloat(std.toFixed(3)), affected_count: affected, total_count: bp.length,
-        affected_percentage: parseFloat(pct.toFixed(2)), hotspots: hotspots.sort((a, b) => b.delta_mm - a.delta_mm).slice(0, 50), deltas
-    };
-};
-
-const runChangeDetection = async (assetId, options) => {
-    const {
-        incoming_points,
-        threshold_mm,
-        detection_mode,
-        mesh_id,
-        comparison_file_id,
-        comparison_filename,
-        comparison_notes
-    } = options || {};
-    const thresh = threshold_mm || DEFORM_THRESH_MM;
-    const meshes = [];
-    for (const [mid, m] of goldenMeshStore.entries()) {
-        if (m.asset_id === assetId && m.is_active && !m.deleted_at) meshes.push({ meshId: mid, mesh: m });
-    }
-    if (mesh_id) {
-        const specific = goldenMeshStore.get(mesh_id);
-        if (specific && specific.asset_id === assetId && !specific.deleted_at) {
-            const idx = meshes.findIndex(mm => mm.meshId === mesh_id);
-            if (idx >= 0) {
-                meshes.splice(0, meshes.length);
-                meshes.push({ meshId: mesh_id, mesh: specific });
-            }
-        }
-    }
-    if (!meshes.length) return { asset_id: assetId, has_baseline: false, message: "No active golden mesh baseline exists for this asset." };
-    meshes.sort((a, b) => new Date(b.mesh.scan_date) - new Date(a.mesh.scan_date));
-    const active = meshes[0];
-    const bp = active.mesh.mesh_data && active.mesh.mesh_data.points ? active.mesh.mesh_data.points : [];
-
-    let effectiveIncoming = incoming_points || null;
-    let deformationSource = "manual";
-    let deformationMeta = null;
-
-    if (detection_mode === "satellite_insar" && !effectiveIncoming) {
-        let assetLat = null;
-        let assetLng = null;
-        try {
-            const assetResult = await pool.query(
-                `SELECT latitude, longitude FROM risk_assets WHERE asset_id = $1 AND deleted_at IS NULL`,
-                [assetId]
-            );
-            if (assetResult.rows.length > 0) {
-                assetLat = assetResult.rows[0].latitude;
-                assetLng = assetResult.rows[0].longitude;
-            }
-        } catch (err) {
-            logError("Asset lookup for satellite sync", err);
-        }
-
-        if (assetLat !== null && assetLng !== null) {
-            const deformationEvents = await queryDeformationData(assetLat, assetLng, 50000);
-            const deformationDelta = extractDeformationDelta(deformationEvents);
-
-            if (deformationDelta && deformationDelta.displacement_mm !== 0) {
-                deformationSource = `Sentinel-1 InSAR (${deformationDelta.source})`;
-                deformationMeta = deformationDelta;
-                effectiveIncoming = bp.map(b => ({
-                    lat: b.lat,
-                    lng: b.lng,
-                    z: b.z + deformationDelta.displacement_mm
-                }));
-            } else {
-                deformationSource = "Sentinel-1 InSAR (no active deformation detected)";
-                effectiveIncoming = bp.map(b => ({
-                    lat: b.lat,
-                    lng: b.lng,
-                    z: b.z
-                }));
-            }
-        } else {
-            deformationSource = "Sentinel-1 InSAR (asset coordinates unavailable)";
-            effectiveIncoming = bp.map(b => ({
-                lat: b.lat,
-                lng: b.lng,
-                z: b.z
-            }));
-        }
-    } else if (detection_mode === "comparison_upload" && !effectiveIncoming) {
-        deformationSource = `Comparison scan upload: ${comparison_filename || comparison_file_id || "unknown"}`;
-
-        let assetLat = null;
-        let assetLng = null;
-        try {
-            const assetResult = await pool.query(
-                `SELECT latitude, longitude FROM risk_assets WHERE asset_id = $1 AND deleted_at IS NULL`,
-                [assetId]
-            );
-            if (assetResult.rows.length > 0) {
-                assetLat = assetResult.rows[0].latitude;
-                assetLng = assetResult.rows[0].longitude;
-            }
-        } catch (err) {
-            logError("Asset lookup for comparison upload", err);
-        }
-
-        if (assetLat !== null && assetLng !== null) {
-            const deformationEvents = await queryDeformationData(assetLat, assetLng, 50000);
-            const deformationDelta = extractDeformationDelta(deformationEvents);
-
-            if (deformationDelta && deformationDelta.displacement_mm !== 0) {
-                deformationMeta = deformationDelta;
-                effectiveIncoming = bp.map(b => ({
-                    lat: b.lat,
-                    lng: b.lng,
-                    z: b.z + deformationDelta.displacement_mm + (Math.random() - 0.5) * 0.5
-                }));
-            } else {
-                effectiveIncoming = bp.map(b => ({
-                    lat: b.lat,
-                    lng: b.lng,
-                    z: b.z + (Math.random() - 0.5) * 2
-                }));
-            }
-        } else {
-            effectiveIncoming = bp.map(b => ({
-                lat: b.lat,
-                lng: b.lng,
-                z: b.z + (Math.random() - 0.5) * 2
-            }));
-        }
-    } else if (!effectiveIncoming) {
-        let assetLat = null;
-        let assetLng = null;
-        try {
-            const assetResult = await pool.query(
-                `SELECT latitude, longitude FROM risk_assets WHERE asset_id = $1 AND deleted_at IS NULL`,
-                [assetId]
-            );
-            if (assetResult.rows.length > 0) {
-                assetLat = assetResult.rows[0].latitude;
-                assetLng = assetResult.rows[0].longitude;
-            }
-        } catch (err) {
-            logError("Asset lookup for fallback detection", err);
-        }
-
-        if (assetLat !== null && assetLng !== null) {
-            const deformationEvents = await queryDeformationData(assetLat, assetLng, 50000);
-            const deformationDelta = extractDeformationDelta(deformationEvents);
-
-            if (deformationDelta && deformationDelta.displacement_mm !== 0) {
-                deformationSource = `Dynamic risk data (${deformationDelta.source})`;
-                deformationMeta = deformationDelta;
-                effectiveIncoming = bp.map(b => ({
-                    lat: b.lat,
-                    lng: b.lng,
-                    z: b.z + deformationDelta.displacement_mm
-                }));
-            } else {
-                deformationSource = "Simulated (no deformation data available)";
-                effectiveIncoming = bp.map(b => ({
-                    lat: b.lat,
-                    lng: b.lng,
-                    z: b.z + (active.mesh.metadata?.known_rate_mm_yr || 0) * (12 / 365.25) + (Math.random() - 0.5) * 2
-                }));
-            }
-        } else {
-            deformationSource = "Simulated (asset coordinates unavailable)";
-            effectiveIncoming = bp.map(b => ({
-                lat: b.lat,
-                lng: b.lng,
-                z: b.z + (active.mesh.metadata?.known_rate_mm_yr || 0) * (12 / 365.25) + (Math.random() - 0.5) * 2
-            }));
-        }
-    }
-
-    const cmp = compareBaseline(active.mesh, effectiveIncoming, thresh);
-    let sev = "Low";
-    if (cmp.max_delta_mm > 30) sev = "Critical";
-    else if (cmp.max_delta_mm > 15) sev = "High";
-    else if (cmp.max_delta_mm > thresh) sev = "Medium";
-    const detId = generateId("det");
-    const rec = {
-        detection_id: detId, mesh_id: active.meshId, asset_id: assetId,
-        detection_date: new Date().toISOString(), comparison_scan_date: new Date().toISOString(),
-        baseline_scan_date: active.mesh.scan_date, max_delta_mm: cmp.max_delta_mm,
-        mean_delta_mm: cmp.mean_delta_mm, std_delta_mm: cmp.std_delta_mm,
-        affected_point_count: cmp.affected_count, total_point_count: cmp.total_count,
-        affected_percentage: cmp.affected_percentage, hotspot_coordinates: cmp.hotspots,
-        threshold_mm: thresh, exceeded_threshold: cmp.exceeded, severity: sev,
-        deformation_direction: cmp.hotspots.length ? cmp.hotspots[0].direction : "unknown",
-        confidence_score: active.mesh.metadata?.estimated_coherence || null,
-        sensor_source: active.mesh.sensor_source || "Sentinel-1 C-Band SAR",
-        detection_mode: detection_mode || "legacy",
-        deformation_source: deformationSource,
-        deformation_meta: deformationMeta,
-        comparison_file_id: comparison_file_id || null,
-        comparison_filename: comparison_filename || null,
-        comparison_notes: comparison_notes || null,
-        acknowledged: false, resolved: false,
-        metadata: {
-            baseline_vertical_datum: active.mesh.vertical_datum,
-            baseline_point_count: bp.length,
-            baseline_resolution_meters: active.mesh.resolution_meters,
-            comparison_method: detection_mode === "satellite_insar"
-                ? "Sentinel-1 InSAR vertical displacement draped over golden mesh baseline."
-                : detection_mode === "comparison_upload"
-                ? "Cloud-to-cloud distance comparison against golden mesh baseline."
-                : "Point-to-point vertical delta against golden mesh baseline.",
-            deformation_source: deformationSource,
-            deformation_meta: deformationMeta
-        },
-        created_at: new Date().toISOString()
-    };
-    changeDetectionStore.set(detId, rec);
-    return {
-        success: true,
-        asset_id: assetId, has_baseline: true, detection_id: detId, baseline_mesh_id: active.meshId,
-        baseline_scan_date: active.mesh.scan_date, threshold_mm: thresh, exceeded_threshold: cmp.exceeded,
-        severity: sev, max_delta_mm: cmp.max_delta_mm, mean_delta_mm: cmp.mean_delta_mm,
-        std_delta_mm: cmp.std_delta_mm, affected_points: cmp.affected_count, total_points: cmp.total_count,
-        affected_percentage: cmp.affected_percentage, hotspots: cmp.hotspots.slice(0, 10),
-        detection_mode: detection_mode || "legacy",
-        deformation_source: deformationSource,
-        detection: rec,
-        message: cmp.exceeded
-            ? `Deformity risk detected: ${cmp.affected_count} of ${cmp.total_count} points exceed the ${thresh} mm threshold with a maximum delta of ${cmp.max_delta_mm} mm.`
-            : `All points are within the ${thresh} mm threshold against the golden mesh baseline.`
-    };
+const haversineMeters = (lat1, lng1, lat2, lng2) => {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
 const pointsToWKT = (points) => {
@@ -465,6 +162,38 @@ const pointsToZArray = (points) => {
     return points.map(p => p.z || 0);
 };
 
+const parseVerticalDatum = (value) => {
+    if (value === null || value === undefined) return 0;
+    const num = parseFloat(value);
+    if (!isNaN(num)) return num;
+    const known = { "WGS84": 0, "EGM96": 0, "EGM2008": 0, "NAVD88": 0, "MSL": 0 };
+    if (typeof value === "string" && known.hasOwnProperty(value.toUpperCase())) return known[value.toUpperCase()];
+    return 0;
+};
+
+const verticalDatumLabel = (value) => {
+    if (value === null || value === undefined) return "WGS84";
+    if (typeof value === "string" && isNaN(parseFloat(value))) return value;
+    return "WGS84";
+};
+
+const ensureUploadDir = () => {
+    try {
+        if (!fs.existsSync(MESH_UPLOAD_DIR)) {
+            fs.mkdirSync(MESH_UPLOAD_DIR, { recursive: true });
+        }
+    } catch (error) {
+    }
+};
+
+const ensureProcessedDir = () => {
+    try {
+        if (!fs.existsSync(MESH_PROCESSED_DIR)) {
+            fs.mkdirSync(MESH_PROCESSED_DIR, { recursive: true });
+        }
+    } catch (error) {}
+};
+
 const logAudit = async (orgid, username, action, entityType, entityId, oldValues, newValues, ipAddress, userAgent) => {
     try {
         await pool.query(
@@ -475,12 +204,12 @@ const logAudit = async (orgid, username, action, entityType, entityId, oldValues
     } catch {}
 };
 
-const haversineMeters = (lat1, lng1, lat2, lng2) => {
-    const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+const classifySeverity = (annRate, absDisp, coherence) => {
+    if (coherence !== null && coherence < 0.3) return { severity: "Low", confidence: "low", reason: "Coherence is below the reliable measurement threshold." };
+    if (annRate > 50 || absDisp > 30) return { severity: "Critical", confidence: coherence > 0.7 ? "high" : "medium", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year exceeds the critical threshold.` };
+    if (annRate > 20 || absDisp > 15) return { severity: "High", confidence: coherence > 0.6 ? "high" : "medium", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year exceeds the high severity threshold.` };
+    if (annRate > 10 || absDisp > 8) return { severity: "Medium", confidence: coherence > 0.5 ? "high" : "medium", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year indicates moderate ground movement.` };
+    return { severity: "Low", confidence: coherence > 0.5 ? "high" : "low", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year is within normal background levels.` };
 };
 
 const computeExposureScore = (asset, risk) => {
@@ -545,29 +274,344 @@ const enrichRisksWithAssetImpact = (risks, asset) => {
     });
 };
 
-const ensureUploadDir = () => {
+const queryDeformationData = async (lat, lng, radiusMeters) => {
     try {
-        if (!fs.existsSync(MESH_UPLOAD_DIR)) {
-            fs.mkdirSync(MESH_UPLOAD_DIR, { recursive: true });
-        }
-    } catch (err) {
-        logError("Failed to create mesh upload directory", err);
+        const result = await queryWithTimeout(
+            `SELECT *,
+             ST_Distance(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS distance_meters
+             FROM risk_events_cache
+             WHERE risk_category = 'Ground Deformation'
+             AND ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+             ORDER BY distance_meters ASC
+             LIMIT 50`,
+            [lng, lat, radiusMeters || 50000],
+            15000
+        );
+        return result.rows.map(r => ({
+            ...r,
+            metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) : (r.metadata || {})
+        }));
+    } catch (error) {
+        return [];
     }
 };
 
-const ensureProcessedDir = () => {
-    try {
-        if (!fs.existsSync(MESH_PROCESSED_DIR)) {
-            fs.mkdirSync(MESH_PROCESSED_DIR, { recursive: true });
+const extractDeformationDelta = (deformationEvents) => {
+    if (!deformationEvents || deformationEvents.length === 0) return null;
+    let totalDisplacementMm = 0;
+    let count = 0;
+    let source = "unknown";
+    for (const evt of deformationEvents) {
+        const meta = evt.metadata || {};
+        const dispMm = meta.recent_displacement_mm
+            || meta.displacement_mm
+            || meta.vertical_displacement_mm
+            || meta.los_displacement_mm
+            || null;
+        if (dispMm !== null && dispMm !== undefined) {
+            totalDisplacementMm += parseFloat(dispMm);
+            count++;
         }
-    } catch (err) {
-        logError("Failed to create mesh processed directory", err);
+        const rateMmYr = meta.velocity_mm_yr
+            || meta.deformation_rate_mm_yr
+            || meta.subsidence_rate_mm_yr
+            || null;
+        if (rateMmYr !== null && rateMmYr !== undefined && count === 0) {
+            const intervalDays = 12;
+            totalDisplacementMm += parseFloat(rateMmYr) * (intervalDays / 365.25);
+            count++;
+        }
+        if (meta.source) source = meta.source;
+        else if (evt.source) source = evt.source;
     }
+    if (count === 0) return null;
+    return {
+        displacement_mm: totalDisplacementMm / count,
+        event_count: deformationEvents.length,
+        matched_count: count,
+        source: source
+    };
 };
 
-const validateMeshFileExtension = (filename) => {
-    const lower = filename.toLowerCase();
-    return ALLOWED_MESH_EXTENSIONS.some(ext => lower.endsWith(ext));
+const compareBaseline = (mesh, incoming, threshMm) => {
+    const thresh = threshMm || DEFORM_THRESH_MM;
+    const bp = mesh.mesh_data && mesh.mesh_data.points ? mesh.mesh_data.points : [];
+    if (!bp.length) return { exceeded: false, max_delta_mm: 0, mean_delta_mm: 0, std_delta_mm: 0, affected_count: 0, total_count: 0, affected_percentage: 0, hotspots: [], deltas: [] };
+    const deltas = [];
+    const hotspots = [];
+    let sum = 0;
+    let sumSq = 0;
+    let maxD = 0;
+    let affected = 0;
+    for (let i = 0; i < bp.length; i++) {
+        const b = bp[i];
+        const m = incoming?.[i] || null;
+        let currentZ;
+        if (m && m.z !== undefined) {
+            currentZ = m.z;
+        } else {
+            currentZ = b.z;
+        }
+        const d = Math.abs(currentZ - b.z);
+        deltas.push({ lat: b.lat, lng: b.lng, baseline_z: b.z, current_z: currentZ, delta_mm: parseFloat(d.toFixed(3)) });
+        sum += d;
+        sumSq += d * d;
+        if (d > maxD) maxD = d;
+        if (d > thresh) {
+            affected++;
+            hotspots.push({ lat: b.lat, lng: b.lng, delta_mm: parseFloat(d.toFixed(3)), direction: currentZ < b.z ? "subsidence" : "uplift" });
+        }
+    }
+    const mean = bp.length ? sum / bp.length : 0;
+    const std = Math.sqrt(Math.max(0, bp.length ? sumSq / bp.length - mean * mean : 0));
+    const pct = bp.length ? (affected / bp.length) * 100 : 0;
+    return {
+        exceeded: affected > 0,
+        max_delta_mm: parseFloat(maxD.toFixed(3)),
+        mean_delta_mm: parseFloat(mean.toFixed(3)),
+        std_delta_mm: parseFloat(std.toFixed(3)),
+        affected_count: affected,
+        total_count: bp.length,
+        affected_percentage: parseFloat(pct.toFixed(2)),
+        hotspots: hotspots.sort((a, b) => b.delta_mm - a.delta_mm).slice(0, 50),
+        deltas
+    };
+};
+
+const runChangeDetection = async (assetId, options) => {
+    const {
+        incoming_points,
+        threshold_mm,
+        detection_mode,
+        mesh_id,
+        comparison_file_id,
+        comparison_filename,
+        comparison_notes
+    } = options || {};
+    const thresh = threshold_mm || DEFORM_THRESH_MM;
+    const meshes = [];
+    for (const [mid, m] of goldenMeshStore.entries()) {
+        if (m.asset_id === assetId && m.is_active && !m.deleted_at) meshes.push({ meshId: mid, mesh: m });
+    }
+    if (mesh_id) {
+        const specific = goldenMeshStore.get(mesh_id);
+        if (specific && specific.asset_id === assetId && !specific.deleted_at) {
+            const idx = meshes.findIndex(mm => mm.meshId === mesh_id);
+            if (idx >= 0) {
+                meshes.splice(0, meshes.length);
+                meshes.push({ meshId: mesh_id, mesh: specific });
+            }
+        }
+    }
+    if (!meshes.length) return { asset_id: assetId, has_baseline: false, message: "No active golden mesh baseline exists for this asset." };
+    meshes.sort((a, b) => new Date(b.mesh.scan_date) - new Date(a.mesh.scan_date));
+    const active = meshes[0];
+    const bp = active.mesh.mesh_data && active.mesh.mesh_data.points ? active.mesh.mesh_data.points : [];
+
+    let effectiveIncoming = incoming_points || null;
+    let deformationSource = "manual";
+    let deformationMeta = null;
+
+    if (detection_mode === "satellite_insar" && !effectiveIncoming) {
+        let assetLat = null;
+        let assetLng = null;
+        try {
+            const assetResult = await pool.query(
+                `SELECT latitude, longitude FROM risk_assets WHERE asset_id = $1 AND deleted_at IS NULL`,
+                [assetId]
+            );
+            if (assetResult.rows.length > 0) {
+                assetLat = assetResult.rows[0].latitude;
+                assetLng = assetResult.rows[0].longitude;
+            }
+        } catch (error) {}
+
+        if (assetLat !== null && assetLng !== null) {
+            const deformationEvents = await queryDeformationData(assetLat, assetLng, 50000);
+            const deformationDelta = extractDeformationDelta(deformationEvents);
+
+            if (deformationDelta && deformationDelta.displacement_mm !== 0) {
+                deformationSource = `Sentinel-1 InSAR (${deformationDelta.source})`;
+                deformationMeta = deformationDelta;
+                effectiveIncoming = bp.map(b => ({
+                    lat: b.lat,
+                    lng: b.lng,
+                    z: b.z + deformationDelta.displacement_mm
+                }));
+            } else {
+                deformationSource = "Sentinel-1 InSAR (no active deformation detected)";
+                effectiveIncoming = bp.map(b => ({
+                    lat: b.lat,
+                    lng: b.lng,
+                    z: b.z
+                }));
+            }
+        } else {
+            deformationSource = "Sentinel-1 InSAR (asset coordinates unavailable)";
+            effectiveIncoming = bp.map(b => ({
+                lat: b.lat,
+                lng: b.lng,
+                z: b.z
+            }));
+        }
+    } else if (detection_mode === "comparison_upload" && !effectiveIncoming) {
+        deformationSource = `Comparison scan upload: ${comparison_filename || comparison_file_id || "unknown"}`;
+
+        let assetLat = null;
+        let assetLng = null;
+        try {
+            const assetResult = await pool.query(
+                `SELECT latitude, longitude FROM risk_assets WHERE asset_id = $1 AND deleted_at IS NULL`,
+                [assetId]
+            );
+            if (assetResult.rows.length > 0) {
+                assetLat = assetResult.rows[0].latitude;
+                assetLng = assetResult.rows[0].longitude;
+            }
+        } catch (error) {}
+
+        if (assetLat !== null && assetLng !== null) {
+            const deformationEvents = await queryDeformationData(assetLat, assetLng, 50000);
+            const deformationDelta = extractDeformationDelta(deformationEvents);
+
+            if (deformationDelta && deformationDelta.displacement_mm !== 0) {
+                deformationMeta = deformationDelta;
+                effectiveIncoming = bp.map(b => ({
+                    lat: b.lat,
+                    lng: b.lng,
+                    z: b.z + deformationDelta.displacement_mm + (Math.random() - 0.5) * 0.5
+                }));
+            } else {
+                effectiveIncoming = bp.map(b => ({
+                    lat: b.lat,
+                    lng: b.lng,
+                    z: b.z + (Math.random() - 0.5) * 2
+                }));
+            }
+        } else {
+            effectiveIncoming = bp.map(b => ({
+                lat: b.lat,
+                lng: b.lng,
+                z: b.z + (Math.random() - 0.5) * 2
+            }));
+        }
+    } else if (!effectiveIncoming) {
+        let assetLat = null;
+        let assetLng = null;
+        try {
+            const assetResult = await pool.query(
+                `SELECT latitude, longitude FROM risk_assets WHERE asset_id = $1 AND deleted_at IS NULL`,
+                [assetId]
+            );
+            if (assetResult.rows.length > 0) {
+                assetLat = assetResult.rows[0].latitude;
+                assetLng = assetResult.rows[0].longitude;
+            }
+        } catch (error) {}
+
+        if (assetLat !== null && assetLng !== null) {
+            const deformationEvents = await queryDeformationData(assetLat, assetLng, 50000);
+            const deformationDelta = extractDeformationDelta(deformationEvents);
+
+            if (deformationDelta && deformationDelta.displacement_mm !== 0) {
+                deformationSource = `Dynamic risk data (${deformationDelta.source})`;
+                deformationMeta = deformationDelta;
+                effectiveIncoming = bp.map(b => ({
+                    lat: b.lat,
+                    lng: b.lng,
+                    z: b.z + deformationDelta.displacement_mm
+                }));
+            } else {
+                deformationSource = "Simulated (no deformation data available)";
+                effectiveIncoming = bp.map(b => ({
+                    lat: b.lat,
+                    lng: b.lng,
+                    z: b.z + (active.mesh.metadata?.known_rate_mm_yr || 0) * (12 / 365.25) + (Math.random() - 0.5) * 2
+                }));
+            }
+        } else {
+            deformationSource = "Simulated (asset coordinates unavailable)";
+            effectiveIncoming = bp.map(b => ({
+                lat: b.lat,
+                lng: b.lng,
+                z: b.z + (active.mesh.metadata?.known_rate_mm_yr || 0) * (12 / 365.25) + (Math.random() - 0.5) * 2
+            }));
+        }
+    }
+
+    const cmp = compareBaseline(active.mesh, effectiveIncoming, thresh);
+    let sev = "Low";
+    if (cmp.max_delta_mm > 30) sev = "Critical";
+    else if (cmp.max_delta_mm > 15) sev = "High";
+    else if (cmp.max_delta_mm > thresh) sev = "Medium";
+    const detId = generateId("det");
+    const rec = {
+        detection_id: detId,
+        mesh_id: active.meshId,
+        asset_id: assetId,
+        detection_date: new Date().toISOString(),
+        comparison_scan_date: new Date().toISOString(),
+        baseline_scan_date: active.mesh.scan_date,
+        max_delta_mm: cmp.max_delta_mm,
+        mean_delta_mm: cmp.mean_delta_mm,
+        std_delta_mm: cmp.std_delta_mm,
+        affected_point_count: cmp.affected_count,
+        total_point_count: cmp.total_count,
+        affected_percentage: cmp.affected_percentage,
+        hotspot_coordinates: cmp.hotspots,
+        threshold_mm: thresh,
+        exceeded_threshold: cmp.exceeded,
+        severity: sev,
+        deformation_direction: cmp.hotspots.length ? cmp.hotspots[0].direction : "unknown",
+        confidence_score: active.mesh.metadata?.estimated_coherence || null,
+        sensor_source: active.mesh.sensor_source || "Sentinel-1 C-Band SAR",
+        detection_mode: detection_mode || "legacy",
+        deformation_source: deformationSource,
+        deformation_meta: deformationMeta,
+        comparison_file_id: comparison_file_id || null,
+        comparison_filename: comparison_filename || null,
+        comparison_notes: comparison_notes || null,
+        acknowledged: false,
+        resolved: false,
+        metadata: {
+            baseline_vertical_datum: active.mesh.vertical_datum,
+            baseline_point_count: bp.length,
+            baseline_resolution_meters: active.mesh.resolution_meters,
+            comparison_method: detection_mode === "satellite_insar"
+                ? "Sentinel-1 InSAR vertical displacement draped over golden mesh baseline."
+                : detection_mode === "comparison_upload"
+                ? "Cloud-to-cloud distance comparison against golden mesh baseline."
+                : "Point-to-point vertical delta against golden mesh baseline.",
+            deformation_source: deformationSource,
+            deformation_meta: deformationMeta
+        },
+        created_at: new Date().toISOString()
+    };
+    changeDetectionStore.set(detId, rec);
+    return {
+        success: true,
+        asset_id: assetId,
+        has_baseline: true,
+        detection_id: detId,
+        baseline_mesh_id: active.meshId,
+        baseline_scan_date: active.mesh.scan_date,
+        threshold_mm: thresh,
+        exceeded_threshold: cmp.exceeded,
+        severity: sev,
+        max_delta_mm: cmp.max_delta_mm,
+        mean_delta_mm: cmp.mean_delta_mm,
+        std_delta_mm: cmp.std_delta_mm,
+        affected_points: cmp.affected_count,
+        total_points: cmp.total_count,
+        affected_percentage: cmp.affected_percentage,
+        hotspots: cmp.hotspots.slice(0, 10),
+        detection_mode: detection_mode || "legacy",
+        deformation_source: deformationSource,
+        detection: rec,
+        message: cmp.exceeded
+            ? `Deformity risk detected: ${cmp.affected_count} of ${cmp.total_count} points exceed the ${thresh} mm threshold with a maximum delta of ${cmp.max_delta_mm} mm.`
+            : `All points are within the ${thresh} mm threshold against the golden mesh baseline.`
+    };
 };
 
 const generateSignedUploadUrl = async (assetId, orgid, filename, contentType) => {
@@ -598,9 +642,7 @@ const generateSignedUploadUrl = async (assetId, orgid, filename, contentType) =>
                 max_size: MAX_MESH_FILE_SIZE,
                 storage_backend: "s3"
             };
-        } catch (err) {
-            logError("S3 signed URL generation failed, falling back to local", err);
-        }
+        } catch (error) {}
     }
 
     ensureUploadDir();
@@ -632,7 +674,7 @@ const queryUsgs3dep = async (lat, lng, radiusKm) => {
             const proto = USGS_3DEP_INDEX_URL.startsWith("https") ? https : http;
             const req = proto.get(USGS_3DEP_INDEX_URL, { timeout: 15000 }, (res) => {
                 if (res.statusCode !== 200) {
-                    reject(new Error(`USGS index returned status ${res.statusCode}`));
+                    reject(new Error(`USGS index returned status ${res.statusCode}.`));
                     return;
                 }
                 const chunks = [];
@@ -640,13 +682,16 @@ const queryUsgs3dep = async (lat, lng, radiusKm) => {
                 res.on("end", () => {
                     try {
                         resolve(JSON.parse(Buffer.concat(chunks).toString()));
-                    } catch (e) {
-                        reject(e);
+                    } catch (error) {
+                        reject(error);
                     }
                 });
             });
             req.on("error", reject);
-            req.on("timeout", () => { req.destroy(); reject(new Error("USGS index request timed out")); });
+            req.on("timeout", () => {
+                req.destroy();
+                reject(new Error("USGS index request timed out."));
+            });
         });
 
         if (!indexData || !indexData.features) return { available: false, reason: "USGS 3DEP index unavailable." };
@@ -683,9 +728,8 @@ const queryUsgs3dep = async (lat, lng, radiusKm) => {
             estimated_accuracy: "sub-meter",
             data_tier: "A"
         };
-    } catch (err) {
-        logError("USGS 3DEP query failed", err);
-        return { available: false, reason: `USGS 3DEP query failed: ${err.message}` };
+    } catch (error) {
+        return { available: false, reason: `USGS 3DEP query failed: ${error.message}` };
     }
 };
 
@@ -794,13 +838,16 @@ const callPdalWorker = (endpoint, method, body) => {
                 try {
                     const data = JSON.parse(Buffer.concat(chunks).toString());
                     resolve(data);
-                } catch (e) {
-                    reject(new Error("Failed to parse PDAL worker response"));
+                } catch (error) {
+                    reject(new Error("Failed to parse PDAL worker response."));
                 }
             });
         });
-        req.on("error", (e) => reject(e));
-        req.on("timeout", () => { req.destroy(); reject(new Error("PDAL worker request timed out")); });
+        req.on("error", (error) => reject(error));
+        req.on("timeout", () => {
+            req.destroy();
+            reject(new Error("PDAL worker request timed out."));
+        });
         if (postData) req.write(postData);
         req.end();
     });
@@ -820,20 +867,18 @@ const dispatchToPdalWorker = async (jobId, filePath, meshId, assetId, orgid) => 
         if (!workerResponse.success) {
             updateProcessingJob(jobId, {
                 status: MESH_PROCESSING_STATUS.FAILED,
-                error: workerResponse.error || "PDAL worker rejected the job"
+                error: workerResponse.error || "PDAL worker rejected the job."
             });
             return;
         }
 
         const workerJobId = workerResponse.job_id;
         pollPdalWorker(jobId, workerJobId, meshId, assetId, orgid);
-    } catch (err) {
-        logError("PDAL worker dispatch failed, falling back to simulated processing", err);
-        simulatePdalProcessing(jobId, filePath, meshId, assetId, orgid).catch(fallbackErr => {
-            logError("Fallback simulated processing also failed", fallbackErr);
+    } catch (error) {
+        simulatePdalProcessing(jobId, filePath, meshId, assetId, orgid).catch(fallbackError => {
             updateProcessingJob(jobId, {
                 status: MESH_PROCESSING_STATUS.FAILED,
-                error: fallbackErr.message
+                error: fallbackError.message
             });
         });
     }
@@ -848,7 +893,7 @@ const pollPdalWorker = (nodeJobId, workerJobId, meshId, assetId, orgid) => {
                 clearInterval(pollInterval);
                 updateProcessingJob(nodeJobId, {
                     status: MESH_PROCESSING_STATUS.FAILED,
-                    error: statusData.error || "Worker status check failed"
+                    error: statusData.error || "Worker status check failed."
                 });
                 return;
             }
@@ -903,10 +948,8 @@ const pollPdalWorker = (nodeJobId, workerJobId, meshId, assetId, orgid) => {
                             steps_remaining: [],
                             completed_at: new Date().toISOString()
                         });
-                        logInfo(`PDAL processing completed for job ${nodeJobId}, mesh ${meshId}, ${r.num_points} points`);
                     }
-                } catch (resultErr) {
-                    logError("Failed to fetch PDAL worker result", resultErr);
+                } catch (error) {
                     updateProcessingJob(nodeJobId, {
                         status: MESH_PROCESSING_STATUS.COMPLETED,
                         progress: 100,
@@ -917,13 +960,10 @@ const pollPdalWorker = (nodeJobId, workerJobId, meshId, assetId, orgid) => {
                 clearInterval(pollInterval);
                 updateProcessingJob(nodeJobId, {
                     status: MESH_PROCESSING_STATUS.FAILED,
-                    error: wj.error || "PDAL processing failed"
+                    error: wj.error || "PDAL processing failed."
                 });
-                logError(`PDAL processing failed for job ${nodeJobId}`, new Error(wj.error || "Unknown"));
             }
-        } catch (pollErr) {
-            logError("PDAL worker poll error", pollErr);
-        }
+        } catch (error) {}
     }, 2000);
 
     setTimeout(() => {
@@ -932,7 +972,7 @@ const pollPdalWorker = (nodeJobId, workerJobId, meshId, assetId, orgid) => {
         if (job && job.status !== MESH_PROCESSING_STATUS.COMPLETED && job.status !== MESH_PROCESSING_STATUS.FAILED) {
             updateProcessingJob(nodeJobId, {
                 status: MESH_PROCESSING_STATUS.FAILED,
-                error: "Processing timed out after 1 hour"
+                error: "Processing timed out after 1 hour."
             });
         }
     }, 3600000);
@@ -984,8 +1024,6 @@ const simulatePdalProcessing = async (jobId, filePath, meshId, assetId, orgid) =
         steps_remaining: [],
         completed_at: new Date().toISOString()
     });
-
-    logInfo(`Mesh processing completed (simulated) for job ${jobId}, mesh ${meshId}`);
 };
 
 router.get("/risk/assets/impact-analysis/:assetId", async (req, res) => {
@@ -1109,9 +1147,18 @@ router.post("/risk/assets/bulk", async (req, res) => {
         const errors = [];
         for (let i = 0; i < assets.length; i++) {
             const asset = assets[i];
-            if (!asset.name || !asset.asset_type || asset.latitude === undefined || asset.longitude === undefined) { errors.push({ index: i, message: "Missing required fields." }); continue; }
-            if (!validateAssetType(asset.asset_type)) { errors.push({ index: i, message: "Invalid asset type." }); continue; }
-            if (!validateCoordinates(asset.latitude, asset.longitude)) { errors.push({ index: i, message: "Invalid coordinates." }); continue; }
+            if (!asset.name || !asset.asset_type || asset.latitude === undefined || asset.longitude === undefined) {
+                errors.push({ index: i, message: "Missing required fields." });
+                continue;
+            }
+            if (!validateAssetType(asset.asset_type)) {
+                errors.push({ index: i, message: "Invalid asset type." });
+                continue;
+            }
+            if (!validateCoordinates(asset.latitude, asset.longitude)) {
+                errors.push({ index: i, message: "Invalid coordinates." });
+                continue;
+            }
             const assetId = generateId("ast");
             const result = await client.query(
                 `INSERT INTO risk_assets (asset_id, orgid, created_by, name, description, asset_type, priority, status, latitude, longitude, elevation_meters, address_street, address_city, address_state, address_country, address_postal_code, metadata, tags, image_url, external_id)
@@ -1140,13 +1187,42 @@ router.get("/risk/assets", async (req, res) => {
         let params = [orgid];
         let pi = 2;
 
-        if (asset_type) { query += ` AND asset_type = $${pi}`; params.push(asset_type); pi++; }
-        if (priority) { query += ` AND priority = $${pi}`; params.push(priority); pi++; }
-        if (status) { query += ` AND status = $${pi}`; params.push(status); pi++; }
-        if (tags) { const tagArray = tags.split(",").map(t => t.trim()); query += ` AND tags && $${pi}`; params.push(tagArray); pi++; }
-        if (search) { query += ` AND (name ILIKE $${pi} OR description ILIKE $${pi} OR address_city ILIKE $${pi})`; params.push(`%${search}%`); pi++; }
-        if (min_risk_score !== undefined) { query += ` AND risk_score >= $${pi}`; params.push(parseFloat(min_risk_score)); pi++; }
-        if (max_risk_score !== undefined) { query += ` AND risk_score <= $${pi}`; params.push(parseFloat(max_risk_score)); pi++; }
+        if (asset_type) {
+            query += ` AND asset_type = $${pi}`;
+            params.push(asset_type);
+            pi++;
+        }
+        if (priority) {
+            query += ` AND priority = $${pi}`;
+            params.push(priority);
+            pi++;
+        }
+        if (status) {
+            query += ` AND status = $${pi}`;
+            params.push(status);
+            pi++;
+        }
+        if (tags) {
+            const tagArray = tags.split(",").map(t => t.trim());
+            query += ` AND tags && $${pi}`;
+            params.push(tagArray);
+            pi++;
+        }
+        if (search) {
+            query += ` AND (name ILIKE $${pi} OR description ILIKE $${pi} OR address_city ILIKE $${pi})`;
+            params.push(`%${search}%`);
+            pi++;
+        }
+        if (min_risk_score !== undefined) {
+            query += ` AND risk_score >= $${pi}`;
+            params.push(parseFloat(min_risk_score));
+            pi++;
+        }
+        if (max_risk_score !== undefined) {
+            query += ` AND risk_score <= $${pi}`;
+            params.push(parseFloat(max_risk_score));
+            pi++;
+        }
         if (min_lat !== undefined && max_lat !== undefined && min_lng !== undefined && max_lng !== undefined) {
             query += ` AND latitude >= $${pi} AND latitude <= $${pi + 1} AND longitude >= $${pi + 2} AND longitude <= $${pi + 3}`;
             params.push(parseFloat(min_lat), parseFloat(max_lat), parseFloat(min_lng), parseFloat(max_lng));
@@ -1165,7 +1241,9 @@ router.get("/risk/assets", async (req, res) => {
         const countResult = await pool.query(`SELECT COUNT(*) FROM risk_assets WHERE orgid = $1 AND deleted_at IS NULL`, [orgid]);
 
         return res.status(200).json({
-            success: true, message: "Assets retrieved successfully.", assets: result.rows,
+            success: true,
+            message: "Assets retrieved successfully.",
+            assets: result.rows,
             pagination: { page: pageNum, limit: limitNum, total: parseInt(countResult.rows[0].count), totalPages: Math.ceil(parseInt(countResult.rows[0].count) / limitNum) }
         });
     } catch {
@@ -1186,7 +1264,19 @@ router.get("/risk/assets/stats/:orgid", async (req, res) => {
             pool.query(`SELECT * FROM risk_assets WHERE orgid = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 5`, [orgid]),
             pool.query(`SELECT * FROM risk_assets WHERE orgid = $1 AND deleted_at IS NULL AND risk_score >= 70 ORDER BY risk_score DESC LIMIT 10`, [orgid])
         ]);
-        return res.status(200).json({ success: true, message: "Asset statistics retrieved successfully.", stats: { total: parseInt(totalRes.rows[0].total), by_type: byTypeRes.rows, by_priority: byPriorityRes.rows, by_status: byStatusRes.rows, risk_distribution: riskDistRes.rows[0], recent_assets: recentRes.rows, high_risk_assets: highRiskRes.rows } });
+        return res.status(200).json({
+            success: true,
+            message: "Asset statistics retrieved successfully.",
+            stats: {
+                total: parseInt(totalRes.rows[0].total),
+                by_type: byTypeRes.rows,
+                by_priority: byPriorityRes.rows,
+                by_status: byStatusRes.rows,
+                risk_distribution: riskDistRes.rows[0],
+                recent_assets: recentRes.rows,
+                high_risk_assets: highRiskRes.rows
+            }
+        });
     } catch {
         return res.status(500).json({ success: false, message: "An error occurred while retrieving asset statistics." });
     }
@@ -1215,7 +1305,7 @@ router.post("/risk/assets/golden-mesh/upload-url", async (req, res) => {
     if (!validateMeshFileExtension(filename)) {
         return res.status(400).json({
             success: false,
-            message: `Invalid file type. Accepted formats: ${ALLOWED_MESH_EXTENSIONS.join(", ")}`,
+            message: `Invalid file type. Accepted formats: ${ALLOWED_MESH_EXTENSIONS.join(", ")}.`,
             allowed_extensions: ALLOWED_MESH_EXTENSIONS
         });
     }
@@ -1245,7 +1335,6 @@ router.post("/risk/assets/golden-mesh/upload-url", async (req, res) => {
             }
         });
     } catch (error) {
-        logError("Upload URL generation", error);
         return res.status(500).json({ success: false, message: "Failed to generate upload URL." });
     }
 });
@@ -1285,8 +1374,7 @@ router.post("/risk/assets/golden-mesh/upload/:fileId", async (req, res) => {
                 file_size: totalSize,
                 storage_backend: "local"
             });
-        } catch (err) {
-            logError("File write failed", err);
+        } catch (error) {
             return res.status(500).json({ success: false, message: "Failed to write uploaded file." });
         }
     });
@@ -1318,7 +1406,6 @@ router.post("/risk/assets/golden-mesh/discover", async (req, res) => {
             lat = assetResult.rows[0].latitude;
             lng = assetResult.rows[0].longitude;
         } catch (error) {
-            logError("Asset lookup for discovery", error);
             return res.status(500).json({ success: false, message: "Failed to look up asset coordinates." });
         }
     }
@@ -1364,25 +1451,9 @@ router.post("/risk/assets/golden-mesh/discover", async (req, res) => {
             coordinates: { latitude: lat, longitude: lng }
         });
     } catch (error) {
-        logError("Baseline discovery", error);
         return res.status(500).json({ success: false, message: "Baseline discovery failed." });
     }
 });
-
-const parseVerticalDatum = (value) => {
-    if (value === null || value === undefined) return 0;
-    const num = parseFloat(value);
-    if (!isNaN(num)) return num;
-    const known = { "WGS84": 0, "EGM96": 0, "EGM2008": 0, "NAVD88": 0, "MSL": 0 };
-    if (typeof value === "string" && known.hasOwnProperty(value.toUpperCase())) return known[value.toUpperCase()];
-    return 0;
-};
-
-const verticalDatumLabel = (value) => {
-    if (value === null || value === undefined) return "WGS84";
-    if (typeof value === "string" && isNaN(parseFloat(value))) return value;
-    return "WGS84";
-};
 
 router.post("/risk/assets/golden-mesh/synthesize", async (req, res) => {
     const { asset_id, orgid, username, source_type, latitude, longitude, radius_km, resolution_meters, vertical_datum, sensor_source, notes, usgs_resource_url } = req.body;
@@ -1406,7 +1477,6 @@ router.post("/risk/assets/golden-mesh/synthesize", async (req, res) => {
             lat = assetResult.rows[0].latitude;
             lng = assetResult.rows[0].longitude;
         } catch (error) {
-            logError("Asset lookup for synthesis", error);
             return res.status(500).json({ success: false, message: "Failed to look up asset coordinates." });
         }
     }
@@ -1510,9 +1580,13 @@ router.post("/risk/assets/golden-mesh/synthesize", async (req, res) => {
             );
             await client.query("COMMIT");
             client.release();
-        } catch (dbError) {
-            if (client) { try { await client.query("ROLLBACK"); client.release(); } catch {} }
-            logError("Synthesized mesh DB insert", dbError);
+        } catch (error) {
+            if (client) {
+                try {
+                    await client.query("ROLLBACK");
+                    client.release();
+                } catch {}
+            }
         }
 
         for (const [mid, m] of goldenMeshStore.entries()) {
@@ -1523,21 +1597,33 @@ router.post("/risk/assets/golden-mesh/synthesize", async (req, res) => {
         }
 
         goldenMeshStore.set(meshId, {
-            mesh_id: meshId, asset_id, orgid, created_by: username, scan_date: scanDate,
+            mesh_id: meshId,
+            asset_id,
+            orgid,
+            created_by: username,
+            scan_date: scanDate,
             mesh_data: { points: pts, point_count: pts.length },
-            mesh_file_url: null, mesh_format: "synthesized",
-            vertical_datum: vDatumLabel, horizontal_datum: "WGS84",
-            coordinate_system: "EPSG:4326", resolution_meters: effectiveResolution,
-            point_count: pts.length, bounding_box: bb,
-            sensor_source: effectiveSensorSource, processing_level: "auto_synthesized",
+            mesh_file_url: null,
+            mesh_format: "synthesized",
+            vertical_datum: vDatumLabel,
+            horizontal_datum: "WGS84",
+            coordinate_system: "EPSG:4326",
+            resolution_meters: effectiveResolution,
+            point_count: pts.length,
+            bounding_box: bb,
+            sensor_source: effectiveSensorSource,
+            processing_level: "auto_synthesized",
             accuracy_vertical_mm: accuracyV ? accuracyV * 1000 : null,
             accuracy_horizontal_mm: accuracyH ? accuracyH * 1000 : null,
-            is_active: true, superseded_by: null,
+            is_active: true,
+            superseded_by: null,
             notes: notes || `Auto-synthesized baseline from ${effectiveSource}. Data tier: ${dataTier}.`,
             metadata: { source_type: effectiveSource, data_tier: dataTier, radius_km: effectiveRadius, auto_generated: true, vertical_datum_label: vDatumLabel },
             baseline_source: effectiveSource,
             processing_status: MESH_PROCESSING_STATUS.COMPLETED,
-            created_at: new Date().toISOString(), updated_at: new Date().toISOString(), deleted_at: null
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            deleted_at: null
         });
 
         await logAudit(orgid, username, "SYNTHESIZE_BASELINE", "golden_mesh", meshId, null, { source_type: effectiveSource, data_tier: dataTier, point_count: pts.length }, req.ip, req.get("User-Agent"));
@@ -1545,9 +1631,12 @@ router.post("/risk/assets/golden-mesh/synthesize", async (req, res) => {
         return res.status(201).json({
             success: true,
             message: `Baseline synthesized successfully from ${effectiveSource}.`,
-            mesh_id: meshId, asset_id,
-            source_type: effectiveSource, data_tier: dataTier,
-            point_count: pts.length, bounding_box: bb,
+            mesh_id: meshId,
+            asset_id,
+            source_type: effectiveSource,
+            data_tier: dataTier,
+            point_count: pts.length,
+            bounding_box: bb,
             resolution_meters: effectiveResolution,
             accuracy: { horizontal_m: accuracyH, vertical_m: accuracyV },
             scan_date: scanDate,
@@ -1558,7 +1647,6 @@ router.post("/risk/assets/golden-mesh/synthesize", async (req, res) => {
                 : "This baseline uses high-resolution USGS 3DEP LiDAR data."
         });
     } catch (error) {
-        logError("Baseline synthesis", error);
         return res.status(500).json({ success: false, message: "Failed to synthesize baseline." });
     }
 });
@@ -1589,27 +1677,58 @@ router.get("/risk/assets/golden-mesh/processing/:jobId", async (req, res) => {
 });
 
 router.get("/risk/assets/golden-mesh/detections/:assetId", async (req, res) => {
-    const aid = req.params.assetId, onlyExc = req.query.exceeded_only === "true";
+    const aid = req.params.assetId;
+    const onlyExc = req.query.exceeded_only === "true";
     const dets = [];
     for (const [, d] of changeDetectionStore.entries()) {
         if (d.asset_id === aid && (!onlyExc || d.exceeded_threshold)) dets.push(d);
     }
     dets.sort((a, b) => new Date(b.detection_date) - new Date(a.detection_date));
-    return res.status(200).json({ success: true, message: `Retrieved ${dets.length} change detection records for asset ${aid}.`, asset_id: aid, total_detections: dets.length, exceeded_count: dets.filter(d => d.exceeded_threshold).length, detections: dets });
+    return res.status(200).json({
+        success: true,
+        message: `Retrieved ${dets.length} change detection records for asset ${aid}.`,
+        asset_id: aid,
+        total_detections: dets.length,
+        exceeded_count: dets.filter(d => d.exceeded_threshold).length,
+        detections: dets
+    });
 });
 
 router.post("/risk/assets/golden-mesh/detections/:detectionId/acknowledge", async (req, res) => {
     const det = changeDetectionStore.get(req.params.detectionId);
     if (!det) return res.status(404).json({ success: false, message: "Change detection record not found." });
-    det.acknowledged = true; det.acknowledged_by = req.body.acknowledged_by || req.body.username || "system"; det.acknowledged_at = new Date().toISOString(); det.acknowledgment_status = "acknowledged"; det.acknowledgment_notes = req.body.notes || null; det.updated_at = new Date().toISOString();
-    return res.status(200).json({ success: true, message: "Change detection acknowledged successfully.", detection_id: req.params.detectionId, acknowledged_by: det.acknowledged_by, acknowledged_at: det.acknowledged_at });
+    det.acknowledged = true;
+    det.acknowledged_by = req.body.acknowledged_by || req.body.username || "system";
+    det.acknowledged_at = new Date().toISOString();
+    det.acknowledgment_status = "acknowledged";
+    det.acknowledgment_notes = req.body.notes || null;
+    det.updated_at = new Date().toISOString();
+    return res.status(200).json({
+        success: true,
+        message: "Change detection acknowledged successfully.",
+        detection_id: req.params.detectionId,
+        acknowledged_by: det.acknowledged_by,
+        acknowledged_at: det.acknowledged_at
+    });
 });
 
 router.post("/risk/assets/golden-mesh/detections/:detectionId/resolve", async (req, res) => {
     const det = changeDetectionStore.get(req.params.detectionId);
     if (!det) return res.status(404).json({ success: false, message: "Change detection record not found." });
-    det.resolved = true; det.resolved_by = req.body.resolved_by || req.body.username || "system"; det.resolved_at = new Date().toISOString(); det.resolution_notes = req.body.notes || req.body.resolution_notes || null; det.acknowledgment_status = "resolved"; det.updated_at = new Date().toISOString();
-    return res.status(200).json({ success: true, message: "Change detection resolved successfully.", detection_id: req.params.detectionId, resolved_by: det.resolved_by, resolved_at: det.resolved_at, resolution_notes: det.resolution_notes });
+    det.resolved = true;
+    det.resolved_by = req.body.resolved_by || req.body.username || "system";
+    det.resolved_at = new Date().toISOString();
+    det.resolution_notes = req.body.notes || req.body.resolution_notes || null;
+    det.acknowledgment_status = "resolved";
+    det.updated_at = new Date().toISOString();
+    return res.status(200).json({
+        success: true,
+        message: "Change detection resolved successfully.",
+        detection_id: req.params.detectionId,
+        resolved_by: det.resolved_by,
+        resolved_at: det.resolved_at,
+        resolution_notes: det.resolution_notes
+    });
 });
 
 router.post("/risk/assets/golden-mesh/change-detection", async (req, res) => {
@@ -1644,7 +1763,6 @@ router.post("/risk/assets/golden-mesh/change-detection", async (req, res) => {
         });
         return res.status(result.has_baseline === false ? 404 : 200).json(result);
     } catch (error) {
-        logError("Change detection.", error);
         return res.status(500).json({ success: false, message: "Failed to run change detection." });
     }
 });
@@ -1716,9 +1834,13 @@ router.post("/risk/assets/golden-mesh", async (req, res) => {
             );
             await client.query("COMMIT");
             client.release();
-        } catch (dbError) {
-            if (client) { try { await client.query("ROLLBACK"); client.release(); } catch {} }
-            logError("Golden mesh binary creation DB", dbError);
+        } catch (error) {
+            if (client) {
+                try {
+                    await client.query("ROLLBACK");
+                    client.release();
+                } catch {}
+            }
         }
 
         for (const [mid, m] of goldenMeshStore.entries()) {
@@ -1744,24 +1866,33 @@ router.post("/risk/assets/golden-mesh", async (req, res) => {
         }
 
         const memoryEntry = {
-            mesh_id: meshId, asset_id, orgid, created_by, scan_date: effectiveScanDate,
+            mesh_id: meshId,
+            asset_id,
+            orgid,
+            created_by,
+            scan_date: effectiveScanDate,
             mesh_data: { points: [], point_count: 0, pending_processing: true },
             mesh_file_url: mesh_file_url || (mesh_file_id ? `/mesh-storage/${mesh_file_id}` : null),
             mesh_format: mesh_format || "binary",
-            vertical_datum: vDatumLabel, horizontal_datum: horizontal_datum || "WGS84",
+            vertical_datum: vDatumLabel,
+            horizontal_datum: horizontal_datum || "WGS84",
             coordinate_system: coordinate_system || "EPSG:4326",
             resolution_meters: resolution_meters || null,
-            point_count: 0, bounding_box: null,
+            point_count: 0,
+            bounding_box: null,
             sensor_source: sensor_source || null,
             processing_level: processing_level || "raw_upload",
             accuracy_vertical_mm: accuracy_vertical_mm || (vertical_accuracy_m ? vertical_accuracy_m * 1000 : null),
             accuracy_horizontal_mm: accuracy_horizontal_mm || (horizontal_accuracy_m ? horizontal_accuracy_m * 1000 : null),
-            is_active: true, superseded_by: null,
-            notes: notes || `Binary upload: ${original_filename || "unknown"}`,
+            is_active: true,
+            superseded_by: null,
+            notes: notes || `Binary upload: ${original_filename || "unknown"}.`,
             metadata: metadata || { original_filename: original_filename || null, upload_method: "binary_pipeline", point_density_per_sqm: point_density_per_sqm || null, vertical_datum_label: vDatumLabel },
             baseline_source: BASELINE_SOURCE_TYPES.MANUAL_UPLOAD,
             processing_status: MESH_PROCESSING_STATUS.PENDING,
-            created_at: new Date().toISOString(), updated_at: new Date().toISOString(), deleted_at: null
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            deleted_at: null
         };
         goldenMeshStore.set(meshId, memoryEntry);
 
@@ -1774,15 +1905,15 @@ router.post("/risk/assets/golden-mesh", async (req, res) => {
 
         const filePathForProcessing = resolvedFilePath || memoryEntry.mesh_file_url;
 
-        dispatchToPdalWorker(job.job_id, filePathForProcessing, meshId, asset_id, orgid).catch(err => {
-            logError("Background mesh processing failed", err);
-            updateProcessingJob(job.job_id, { status: MESH_PROCESSING_STATUS.FAILED, error: err.message });
+        dispatchToPdalWorker(job.job_id, filePathForProcessing, meshId, asset_id, orgid).catch(error => {
+            updateProcessingJob(job.job_id, { status: MESH_PROCESSING_STATUS.FAILED, error: error.message });
         });
 
         return res.status(201).json({
             success: true,
             message: "Golden mesh baseline created. Binary file queued for processing.",
-            mesh_id: meshId, asset_id,
+            mesh_id: meshId,
+            asset_id,
             scan_date: effectiveScanDate,
             vertical_datum: vDatumLabel,
             is_active: true,
@@ -1852,9 +1983,13 @@ router.post("/risk/assets/golden-mesh", async (req, res) => {
             );
             await client.query("COMMIT");
             client.release();
-        } catch (dbError) {
-            if (client) { try { await client.query("ROLLBACK"); client.release(); } catch {} }
-            logError("Golden mesh legacy creation DB", dbError);
+        } catch (error) {
+            if (client) {
+                try {
+                    await client.query("ROLLBACK");
+                    client.release();
+                } catch {}
+            }
         }
 
         for (const [mid, m] of goldenMeshStore.entries()) {
@@ -1865,25 +2000,45 @@ router.post("/risk/assets/golden-mesh", async (req, res) => {
         }
 
         goldenMeshStore.set(meshId, {
-            mesh_id: meshId, asset_id, orgid, created_by, scan_date: effectiveScanDate,
-            mesh_data, mesh_file_url: mesh_file_url || null, mesh_format: mesh_format || "json_legacy",
-            vertical_datum: vDatumLabel, horizontal_datum: horizontal_datum || "WGS84",
-            coordinate_system: coordinate_system || "EPSG:4326", resolution_meters: resolution_meters || null,
-            point_count: pts.length, bounding_box: bb, sensor_source: sensor_source || null,
+            mesh_id: meshId,
+            asset_id,
+            orgid,
+            created_by,
+            scan_date: effectiveScanDate,
+            mesh_data,
+            mesh_file_url: mesh_file_url || null,
+            mesh_format: mesh_format || "json_legacy",
+            vertical_datum: vDatumLabel,
+            horizontal_datum: horizontal_datum || "WGS84",
+            coordinate_system: coordinate_system || "EPSG:4326",
+            resolution_meters: resolution_meters || null,
+            point_count: pts.length,
+            bounding_box: bb,
+            sensor_source: sensor_source || null,
             processing_level: processing_level || null,
             accuracy_vertical_mm: accuracy_vertical_mm || (vertical_accuracy_m ? vertical_accuracy_m * 1000 : null),
             accuracy_horizontal_mm: accuracy_horizontal_mm || (horizontal_accuracy_m ? horizontal_accuracy_m * 1000 : null),
-            is_active: true, superseded_by: null, notes: notes || null, metadata: metadata || {},
+            is_active: true,
+            superseded_by: null,
+            notes: notes || null,
+            metadata: metadata || {},
             baseline_source: BASELINE_SOURCE_TYPES.LEGACY_JSON,
             processing_status: MESH_PROCESSING_STATUS.COMPLETED,
-            created_at: new Date().toISOString(), updated_at: new Date().toISOString(), deleted_at: null
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            deleted_at: null
         });
 
         return res.status(201).json({
             success: true,
             message: "Golden mesh baseline created successfully (legacy JSON).",
-            mesh_id: meshId, asset_id, point_count: pts.length, bounding_box: bb,
-            scan_date: effectiveScanDate, vertical_datum: vDatumLabel, is_active: true,
+            mesh_id: meshId,
+            asset_id,
+            point_count: pts.length,
+            bounding_box: bb,
+            scan_date: effectiveScanDate,
+            vertical_datum: vDatumLabel,
+            is_active: true,
             storage_format: "PostGIS MultiPointZ",
             created_at: new Date().toISOString(),
             upgrade_note: "Consider uploading a binary .las/.laz file for better performance with large datasets."
@@ -1926,9 +2081,13 @@ router.post("/risk/assets/golden-mesh", async (req, res) => {
         );
         await client.query("COMMIT");
         client.release();
-    } catch (dbError) {
-        if (client) { try { await client.query("ROLLBACK"); client.release(); } catch {} }
-        logError("Golden mesh placeholder creation DB", dbError);
+    } catch (error) {
+        if (client) {
+            try {
+                await client.query("ROLLBACK");
+                client.release();
+            } catch {}
+        }
     }
 
     for (const [mid, m] of goldenMeshStore.entries()) {
@@ -1939,27 +2098,43 @@ router.post("/risk/assets/golden-mesh", async (req, res) => {
     }
 
     goldenMeshStore.set(meshId, {
-        mesh_id: meshId, asset_id, orgid, created_by, scan_date: effectiveScanDate,
-        mesh_data: null, mesh_file_url: null, mesh_format: "placeholder",
-        vertical_datum: vDatumLabel, horizontal_datum: horizontal_datum || "WGS84",
-        coordinate_system: coordinate_system || "EPSG:4326", resolution_meters: resolution_meters || null,
-        point_count: 0, bounding_box: null, sensor_source: sensor_source || null,
+        mesh_id: meshId,
+        asset_id,
+        orgid,
+        created_by,
+        scan_date: effectiveScanDate,
+        mesh_data: null,
+        mesh_file_url: null,
+        mesh_format: "placeholder",
+        vertical_datum: vDatumLabel,
+        horizontal_datum: horizontal_datum || "WGS84",
+        coordinate_system: coordinate_system || "EPSG:4326",
+        resolution_meters: resolution_meters || null,
+        point_count: 0,
+        bounding_box: null,
+        sensor_source: sensor_source || null,
         processing_level: processing_level || null,
         accuracy_vertical_mm: accuracy_vertical_mm || (vertical_accuracy_m ? vertical_accuracy_m * 1000 : null),
         accuracy_horizontal_mm: accuracy_horizontal_mm || (horizontal_accuracy_m ? horizontal_accuracy_m * 1000 : null),
-        is_active: true, superseded_by: null,
+        is_active: true,
+        superseded_by: null,
         notes: notes || "Baseline registered. Upload a .las/.laz file or synthesize from public data.",
         metadata: metadata || { horizontal_accuracy_m: horizontal_accuracy_m || null, vertical_accuracy_m: vertical_accuracy_m || null, point_density_per_sqm: point_density_per_sqm || null, vertical_datum_label: vDatumLabel },
         baseline_source: "placeholder",
         processing_status: MESH_PROCESSING_STATUS.PENDING,
-        created_at: new Date().toISOString(), updated_at: new Date().toISOString(), deleted_at: null
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        deleted_at: null
     });
 
     return res.status(201).json({
         success: true,
         message: "Golden mesh baseline registered. Upload a binary scan file or use Synthesize Baseline to populate.",
-        mesh_id: meshId, asset_id,
-        scan_date: effectiveScanDate, vertical_datum: vDatumLabel, is_active: true,
+        mesh_id: meshId,
+        asset_id,
+        scan_date: effectiveScanDate,
+        vertical_datum: vDatumLabel,
+        is_active: true,
         next_steps: [
             "Upload a .las or .laz file via the upload endpoint.",
             "Or use POST /risk/assets/golden-mesh/synthesize to auto-generate from public data."
@@ -1969,7 +2144,8 @@ router.post("/risk/assets/golden-mesh", async (req, res) => {
 });
 
 router.get("/risk/assets/golden-mesh/:assetId", async (req, res) => {
-    const aid = req.params.assetId, inclPts = req.query.include_points === "true";
+    const aid = req.params.assetId;
+    const inclPts = req.query.include_points === "true";
     try {
         let sql;
         if (inclPts) {
@@ -1985,7 +2161,8 @@ router.get("/risk/assets/golden-mesh/:assetId", async (req, res) => {
             const mc = { ...row, bounding_box: parseJson(row.bounding_box), metadata: parseJson(row.metadata) };
             if (inclPts && row.point_coords) {
                 const pts = row.point_coords.map((coord, i) => ({
-                    lat: coord.y, lng: coord.x,
+                    lat: coord.y,
+                    lng: coord.x,
                     z: row.z_vals && row.z_vals[i] != null ? row.z_vals[i] : coord.z
                 }));
                 mc.mesh_data = { points: pts, point_count: pts.length };
@@ -2006,17 +2183,21 @@ router.get("/risk/assets/golden-mesh/:assetId", async (req, res) => {
         return res.status(200).json({
             success: true,
             message: `Retrieved ${meshes.length} golden mesh baselines for asset ${aid}.`,
-            asset_id: aid, total_baselines: meshes.length,
+            asset_id: aid,
+            total_baselines: meshes.length,
             storage_format: "PostGIS MultiPointZ + Binary (COPC)",
             active_baseline: active ? {
-                mesh_id: active.mesh_id, scan_date: active.scan_date, point_count: active.point_count,
-                vertical_datum: active.vertical_datum, processing_status: active.processing_status,
-                baseline_source: active.baseline_source, has_binary_file: active.has_binary_file
+                mesh_id: active.mesh_id,
+                scan_date: active.scan_date,
+                point_count: active.point_count,
+                vertical_datum: active.vertical_datum,
+                processing_status: active.processing_status,
+                baseline_source: active.baseline_source,
+                has_binary_file: active.has_binary_file
             } : null,
             meshes: meshes
         });
     } catch (error) {
-        logError("Golden mesh retrieval.", error);
         const meshes = [];
         for (const [, m] of goldenMeshStore.entries()) {
             if (m.asset_id === aid && !m.deleted_at) {
@@ -2030,10 +2211,14 @@ router.get("/risk/assets/golden-mesh/:assetId", async (req, res) => {
         return res.status(200).json({
             success: true,
             message: `Retrieved ${meshes.length} golden mesh baselines for asset ${aid} (from memory fallback).`,
-            asset_id: aid, total_baselines: meshes.length,
+            asset_id: aid,
+            total_baselines: meshes.length,
             active_baseline: active ? {
-                mesh_id: active.mesh_id, scan_date: active.scan_date, point_count: active.point_count,
-                vertical_datum: active.vertical_datum, processing_status: active.processing_status,
+                mesh_id: active.mesh_id,
+                scan_date: active.scan_date,
+                point_count: active.point_count,
+                vertical_datum: active.vertical_datum,
+                processing_status: active.processing_status,
                 baseline_source: active.baseline_source
             } : null,
             meshes: meshes
@@ -2051,18 +2236,43 @@ router.delete("/risk/assets/golden-mesh/:meshId", async (req, res) => {
         if (result.rowCount === 0) {
             const m = goldenMeshStore.get(mid);
             if (!m) return res.status(404).json({ success: false, message: "Golden mesh baseline not found." });
-            m.deleted_at = new Date().toISOString(); m.is_active = false; m.updated_at = new Date().toISOString();
-            return res.status(200).json({ success: true, message: "Golden mesh baseline deleted successfully (memory only).", mesh_id: mid, asset_id: m.asset_id, deleted_at: m.deleted_at });
+            m.deleted_at = new Date().toISOString();
+            m.is_active = false;
+            m.updated_at = new Date().toISOString();
+            return res.status(200).json({
+                success: true,
+                message: "Golden mesh baseline deleted successfully (memory only).",
+                mesh_id: mid,
+                asset_id: m.asset_id,
+                deleted_at: m.deleted_at
+            });
         }
         const m = goldenMeshStore.get(mid);
-        if (m) { m.deleted_at = new Date().toISOString(); m.is_active = false; m.updated_at = new Date().toISOString(); }
-        return res.status(200).json({ success: true, message: "Golden mesh baseline deleted successfully.", mesh_id: mid, asset_id: result.rows[0].asset_id, deleted_at: new Date().toISOString() });
+        if (m) {
+            m.deleted_at = new Date().toISOString();
+            m.is_active = false;
+            m.updated_at = new Date().toISOString();
+        }
+        return res.status(200).json({
+            success: true,
+            message: "Golden mesh baseline deleted successfully.",
+            mesh_id: mid,
+            asset_id: result.rows[0].asset_id,
+            deleted_at: new Date().toISOString()
+        });
     } catch (error) {
-        logError("Golden mesh deletion.", error);
         const m = goldenMeshStore.get(mid);
         if (!m) return res.status(404).json({ success: false, message: "Golden mesh baseline not found." });
-        m.deleted_at = new Date().toISOString(); m.is_active = false; m.updated_at = new Date().toISOString();
-        return res.status(200).json({ success: true, message: "Golden mesh baseline deleted successfully (memory fallback).", mesh_id: mid, asset_id: m.asset_id, deleted_at: m.deleted_at });
+        m.deleted_at = new Date().toISOString();
+        m.is_active = false;
+        m.updated_at = new Date().toISOString();
+        return res.status(200).json({
+            success: true,
+            message: "Golden mesh baseline deleted successfully (memory fallback).",
+            mesh_id: mid,
+            asset_id: m.asset_id,
+            deleted_at: m.deleted_at
+        });
     }
 });
 
@@ -2078,7 +2288,14 @@ router.get("/risk/assets/:assetId", async (req, res) => {
             pool.query(`SELECT * FROM risk_asset_history WHERE asset_id = $1 ORDER BY recorded_at DESC LIMIT 100`, [assetId]),
             pool.query(`SELECT * FROM risk_alerts WHERE asset_id = $1 AND deleted_at IS NULL`, [assetId])
         ]);
-        return res.status(200).json({ success: true, message: "Asset retrieved successfully.", asset: result.rows[0], zones: zonesRes.rows, history: historyRes.rows, alerts: alertsRes.rows });
+        return res.status(200).json({
+            success: true,
+            message: "Asset retrieved successfully.",
+            asset: result.rows[0],
+            zones: zonesRes.rows,
+            history: historyRes.rows,
+            alerts: alertsRes.rows
+        });
     } catch {
         return res.status(500).json({ success: false, message: "An error occurred while retrieving the asset." });
     }
@@ -2092,13 +2309,28 @@ router.get("/risk/assets/:assetId/history", async (req, res) => {
         const existingResult = await pool.query(`SELECT asset_id FROM risk_assets WHERE asset_id = $1 AND orgid = $2 AND deleted_at IS NULL`, [assetId, orgid]);
         if (existingResult.rows.length === 0) return res.status(404).json({ success: false, message: "Asset not found." });
         let query = `SELECT * FROM risk_asset_history WHERE asset_id = $1 AND orgid = $2`;
-        let params = [assetId, orgid]; let pi = 3;
-        if (start_date) { query += ` AND recorded_at >= ${pi}`; params.push(start_date); pi++; }
-        if (end_date) { query += ` AND recorded_at <= ${pi}`; params.push(end_date); pi++; }
+        let params = [assetId, orgid];
+        let pi = 3;
+        if (start_date) {
+            query += ` AND recorded_at >= ${pi}`;
+            params.push(start_date);
+            pi++;
+        }
+        if (end_date) {
+            query += ` AND recorded_at <= ${pi}`;
+            params.push(end_date);
+            pi++;
+        }
         query += ` ORDER BY recorded_at DESC LIMIT ${pi}`;
         params.push(Math.min(parseInt(limit) || 100, 1000));
         const result = await pool.query(query, params);
-        return res.status(200).json({ success: true, message: "Asset history retrieved successfully.", asset_id: assetId, count: result.rows.length, history: result.rows });
+        return res.status(200).json({
+            success: true,
+            message: "Asset history retrieved successfully.",
+            asset_id: assetId,
+            count: result.rows.length,
+            history: result.rows
+        });
     } catch {
         return res.status(500).json({ success: false, message: "An error occurred while retrieving asset history." });
     }
@@ -2117,18 +2349,52 @@ router.put("/risk/assets/:assetId", async (req, res) => {
         const existingResult = await pool.query(`SELECT * FROM risk_assets WHERE asset_id = $1 AND orgid = $2 AND deleted_at IS NULL`, [assetId, orgid]);
         if (existingResult.rows.length === 0) return res.status(404).json({ success: false, message: "Asset not found." });
         const oldValues = existingResult.rows[0];
-        const updateFields = []; const updateValues = []; let pi = 1;
-        const addField = (fieldName, value) => { if (value !== undefined) { updateFields.push(`${fieldName} = ${pi}`); updateValues.push(value); pi++; } };
-        addField("name", name); addField("description", description); addField("asset_type", asset_type);
-        addField("priority", priority); addField("status", status); addField("latitude", latitude);
-        addField("longitude", longitude); addField("elevation_meters", elevation_meters);
-        addField("address_street", address_street); addField("address_city", address_city);
-        addField("address_state", address_state); addField("address_country", address_country);
-        addField("address_postal_code", address_postal_code); addField("image_url", image_url); addField("external_id", external_id);
-        if (metadata !== undefined) { updateFields.push(`metadata = ${pi}`); updateValues.push(JSON.stringify(metadata)); pi++; }
-        if (risk_score !== undefined) { updateFields.push(`risk_score = ${pi}`); updateValues.push(risk_score); pi++; updateFields.push(`last_assessment_at = NOW()`); }
-        if (risk_factors !== undefined) { updateFields.push(`risk_factors = ${pi}`); updateValues.push(JSON.stringify(risk_factors)); pi++; }
-        if (tags !== undefined) { updateFields.push(`tags = ${pi}`); updateValues.push(tags); pi++; }
+        const updateFields = [];
+        const updateValues = [];
+        let pi = 1;
+        const addField = (fieldName, value) => {
+            if (value !== undefined) {
+                updateFields.push(`${fieldName} = ${pi}`);
+                updateValues.push(value);
+                pi++;
+            }
+        };
+        addField("name", name);
+        addField("description", description);
+        addField("asset_type", asset_type);
+        addField("priority", priority);
+        addField("status", status);
+        addField("latitude", latitude);
+        addField("longitude", longitude);
+        addField("elevation_meters", elevation_meters);
+        addField("address_street", address_street);
+        addField("address_city", address_city);
+        addField("address_state", address_state);
+        addField("address_country", address_country);
+        addField("address_postal_code", address_postal_code);
+        addField("image_url", image_url);
+        addField("external_id", external_id);
+        if (metadata !== undefined) {
+            updateFields.push(`metadata = ${pi}`);
+            updateValues.push(JSON.stringify(metadata));
+            pi++;
+        }
+        if (risk_score !== undefined) {
+            updateFields.push(`risk_score = ${pi}`);
+            updateValues.push(risk_score);
+            pi++;
+            updateFields.push(`last_assessment_at = NOW()`);
+        }
+        if (risk_factors !== undefined) {
+            updateFields.push(`risk_factors = ${pi}`);
+            updateValues.push(JSON.stringify(risk_factors));
+            pi++;
+        }
+        if (tags !== undefined) {
+            updateFields.push(`tags = ${pi}`);
+            updateValues.push(tags);
+            pi++;
+        }
         if (updateFields.length === 0) return res.status(400).json({ success: false, message: "No fields to update." });
         updateFields.push(`updated_at = NOW()`);
         updateValues.push(assetId, orgid);
@@ -2204,14 +2470,34 @@ router.post("/risk/assets/nearby", async (req, res) => {
     if (radius_meters > 500000) return res.status(400).json({ success: false, message: "Radius cannot exceed 500 kilometers." });
     try {
         let query = `SELECT *, (6371000 * acos(cos(radians($2)) * cos(radians(latitude)) * cos(radians(longitude) - radians($3)) + sin(radians($2)) * sin(radians(latitude)))) AS distance_meters FROM risk_assets WHERE orgid = $1 AND deleted_at IS NULL AND (6371000 * acos(cos(radians($2)) * cos(radians(latitude)) * cos(radians(longitude) - radians($3)) + sin(radians($2)) * sin(radians(latitude)))) <= $4`;
-        let params = [orgid, latitude, longitude, radius_meters]; let pi = 5;
-        if (asset_type) { query += ` AND asset_type = ${pi}`; params.push(asset_type); pi++; }
-        if (priority) { query += ` AND priority = ${pi}`; params.push(priority); pi++; }
-        if (status) { query += ` AND status = ${pi}`; params.push(status); pi++; }
+        let params = [orgid, latitude, longitude, radius_meters];
+        let pi = 5;
+        if (asset_type) {
+            query += ` AND asset_type = ${pi}`;
+            params.push(asset_type);
+            pi++;
+        }
+        if (priority) {
+            query += ` AND priority = ${pi}`;
+            params.push(priority);
+            pi++;
+        }
+        if (status) {
+            query += ` AND status = ${pi}`;
+            params.push(status);
+            pi++;
+        }
         query += ` ORDER BY distance_meters ASC LIMIT ${pi}`;
         params.push(Math.min(parseInt(limit) || 100, 500));
         const result = await pool.query(query, params);
-        return res.status(200).json({ success: true, message: "Nearby assets retrieved successfully.", center: { latitude, longitude }, radius_meters, count: result.rows.length, assets: result.rows });
+        return res.status(200).json({
+            success: true,
+            message: "Nearby assets retrieved successfully.",
+            center: { latitude, longitude },
+            radius_meters,
+            count: result.rows.length,
+            assets: result.rows
+        });
     } catch {
         return res.status(500).json({ success: false, message: "An error occurred while retrieving nearby assets." });
     }

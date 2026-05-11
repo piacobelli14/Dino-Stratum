@@ -41,59 +41,6 @@ const MAPKIT_TOKEN = typeof import.meta !== "undefined" && import.meta.env?.VITE
 
 let mapkitGlobalInitialized = false;
 
-function loadMapKitJS() {
-  return new Promise((resolve, reject) => {
-    if (window.mapkit && mapkitGlobalInitialized) {
-      resolve(window.mapkit);
-      return;
-    }
-    if (document.querySelector('script[src*="apple-mapkit"]')) {
-      const check = setInterval(() => {
-        if (window.mapkit) {
-          clearInterval(check);
-          if (!mapkitGlobalInitialized) {
-            window.mapkit.init({ authorizationCallback: done => done(MAPKIT_TOKEN) });
-            mapkitGlobalInitialized = true;
-          }
-          resolve(window.mapkit);
-        }
-      }, 100);
-      setTimeout(() => {
-        clearInterval(check);
-        reject(new Error("MapKit JS load timeout."));
-      }, 10000);
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js";
-    script.crossOrigin = "anonymous";
-    const timeout = setTimeout(() => reject(new Error("MapKit JS load timeout.")), 10000);
-    script.addEventListener("load", () => {
-      clearTimeout(timeout);
-      try {
-        window.mapkit.init({ authorizationCallback: done => done(MAPKIT_TOKEN) });
-        mapkitGlobalInitialized = true;
-        resolve(window.mapkit);
-      } catch (error) {
-        reject(error);
-      }
-    });
-    script.addEventListener("error", () => {
-      clearTimeout(timeout);
-      reject(new Error("MapKit JS script load failed."));
-    });
-    document.head.appendChild(script);
-  });
-}
-
-function zoomToAppleSpan(zoom) {
-  return 360 / Math.pow(2, zoom);
-}
-
-function appleRegionToZoom(region) {
-  return Math.max(0, Math.min(Math.log2(360 / Math.max(region.span.latitudeDelta, 0.0001)), 22));
-}
-
 const ASSET_TYPES = {
   Pipeline: { color: "#FF5722", priority: "Critical" },
   Port: { color: "#2196F3", priority: "High" },
@@ -238,67 +185,90 @@ const TOPO_STYLE = {
   glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf"
 };
 
-function getRiskCategoryIcon(cat) {
-  return RISK_ICON_MAP[cat?.toLowerCase()] || faTriangleExclamation;
+function loadScript(src, id) {
+  return new Promise((resolve, reject) => {
+    if (document.getElementById(id)) {
+      const c = setInterval(() => {
+        if (window.maplibregl) {
+          clearInterval(c);
+          resolve();
+        }
+      }, 100);
+      setTimeout(() => {
+        clearInterval(c);
+        reject(new Error("Script load timeout for: " + id + "."));
+      }, 15000);
+      return;
+    }
+    const s = document.createElement("script");
+    s.id = id;
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error("Script load failed for: " + id + "."));
+    document.head.appendChild(s);
+  });
 }
 
-function getRiskColor(s) {
-  if (s > 70) return "#FF6B6B";
-  if (s > 50) return "#FF9500";
-  return "#4ECDC4";
+function loadCSS(href, id) {
+  if (document.getElementById(id)) return;
+  const l = document.createElement("link");
+  l.id = id;
+  l.rel = "stylesheet";
+  l.href = href;
+  document.head.appendChild(l);
 }
 
-function getRiskColorFromScore(s) {
-  if (s >= 80) return "#FF1744";
-  if (s >= 60) return "#FF6B6B";
-  if (s >= 40) return "#FF9500";
-  if (s >= 20) return "#FFEA00";
-  return "#00E676";
+function loadMapKitJS() {
+  return new Promise((resolve, reject) => {
+    if (window.mapkit && mapkitGlobalInitialized) {
+      resolve(window.mapkit);
+      return;
+    }
+    if (document.querySelector('script[src*="apple-mapkit"]')) {
+      const check = setInterval(() => {
+        if (window.mapkit) {
+          clearInterval(check);
+          if (!mapkitGlobalInitialized) {
+            window.mapkit.init({ authorizationCallback: done => done(MAPKIT_TOKEN) });
+            mapkitGlobalInitialized = true;
+          }
+          resolve(window.mapkit);
+        }
+      }, 100);
+      setTimeout(() => {
+        clearInterval(check);
+        reject(new Error("MapKit JS load timeout."));
+      }, 10000);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js";
+    script.crossOrigin = "anonymous";
+    const timeout = setTimeout(() => reject(new Error("MapKit JS load timeout.")), 10000);
+    script.addEventListener("load", () => {
+      clearTimeout(timeout);
+      try {
+        window.mapkit.init({ authorizationCallback: done => done(MAPKIT_TOKEN) });
+        mapkitGlobalInitialized = true;
+        resolve(window.mapkit);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    script.addEventListener("error", () => {
+      clearTimeout(timeout);
+      reject(new Error("MapKit JS script load failed."));
+    });
+    document.head.appendChild(script);
+  });
 }
 
-function getDeformationSeverityColor(sev) {
-  return ({
-    critical: "#FF1744",
-    high: "#FF9100",
-    moderate: "#FFEA00",
-    low: "#00E676",
-    negligible: "#4ECDC4"
-  }[sev?.toLowerCase()] || "#9E9E9E");
+function zoomToAppleSpan(zoom) {
+  return 360 / Math.pow(2, zoom);
 }
 
-function formatNumber(num) {
-  if (num == null) return "N/A";
-  if (typeof num === "string") return num;
-  const tiers = [[1e9, "B"], [1e6, "M"], [1e3, "K"]];
-  for (const [t, s] of tiers) {
-    if (num >= t) return `${(num / t).toFixed(t === 1e3 ? 1 : 2)}${s}`;
-  }
-  return num.toLocaleString();
-}
-
-function formatRiskTime(ts) {
-  if (!ts) return "Unknown";
-  try {
-    return new Date(ts).toLocaleString();
-  } catch {
-    return ts;
-  }
-}
-
-function getRelativeTime(ts) {
-  if (!ts) return "";
-  try {
-    const ms = Date.now() - new Date(ts).getTime();
-    const m = Math.floor(ms / 60000);
-    const h = Math.floor(ms / 3600000);
-    const d = Math.floor(ms / 86400000);
-    if (m < 60) return `${m}m ago`;
-    if (h < 24) return `${h}h ago`;
-    if (d < 30) return `${d}d ago`;
-    return new Date(ts).toLocaleDateString();
-  } catch {
-    return "";
-  }
+function appleRegionToZoom(region) {
+  return Math.max(0, Math.min(Math.log2(360 / Math.max(region.span.latitudeDelta, 0.0001)), 22));
 }
 
 function radiusKmToFitZoom(r) {
@@ -384,37 +354,67 @@ function buildRiskCommandCenterUrl(asset) {
   return `/risk-command-center?${p.toString()}`;
 }
 
-function loadScript(src, id) {
-  return new Promise((resolve, reject) => {
-    if (document.getElementById(id)) {
-      const c = setInterval(() => {
-        if (window.maplibregl) {
-          clearInterval(c);
-          resolve();
-        }
-      }, 100);
-      setTimeout(() => {
-        clearInterval(c);
-        reject(new Error("Script load timeout for: " + id + "."));
-      }, 15000);
-      return;
-    }
-    const s = document.createElement("script");
-    s.id = id;
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error("Script load failed for: " + id + "."));
-    document.head.appendChild(s);
-  });
+function getRiskCategoryIcon(cat) {
+  return RISK_ICON_MAP[cat?.toLowerCase()] || faTriangleExclamation;
 }
 
-function loadCSS(href, id) {
-  if (document.getElementById(id)) return;
-  const l = document.createElement("link");
-  l.id = id;
-  l.rel = "stylesheet";
-  l.href = href;
-  document.head.appendChild(l);
+function getRiskColor(s) {
+  if (s > 70) return "#FF6B6B";
+  if (s > 50) return "#FF9500";
+  return "#4ECDC4";
+}
+
+function getRiskColorFromScore(s) {
+  if (s >= 80) return "#FF1744";
+  if (s >= 60) return "#FF6B6B";
+  if (s >= 40) return "#FF9500";
+  if (s >= 20) return "#FFEA00";
+  return "#00E676";
+}
+
+function getDeformationSeverityColor(sev) {
+  return ({
+    critical: "#FF1744",
+    high: "#FF9100",
+    moderate: "#FFEA00",
+    low: "#00E676",
+    negligible: "#4ECDC4"
+  }[sev?.toLowerCase()] || "#9E9E9E");
+}
+
+function formatNumber(num) {
+  if (num == null) return "N/A";
+  if (typeof num === "string") return num;
+  const tiers = [[1e9, "B"], [1e6, "M"], [1e3, "K"]];
+  for (const [t, s] of tiers) {
+    if (num >= t) return `${(num / t).toFixed(t === 1e3 ? 1 : 2)}${s}`;
+  }
+  return num.toLocaleString();
+}
+
+function formatRiskTime(ts) {
+  if (!ts) return "Unknown";
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return ts;
+  }
+}
+
+function getRelativeTime(ts) {
+  if (!ts) return "";
+  try {
+    const ms = Date.now() - new Date(ts).getTime();
+    const m = Math.floor(ms / 60000);
+    const h = Math.floor(ms / 3600000);
+    const d = Math.floor(ms / 86400000);
+    if (m < 60) return `${m}m ago`;
+    if (h < 24) return `${h}h ago`;
+    if (d < 30) return `${d}d ago`;
+    return new Date(ts).toLocaleDateString();
+  } catch {
+    return "";
+  }
 }
 
 function Modal({ open, onClose, title, size, children }) {
@@ -951,14 +951,14 @@ function AssetsOverviewMap({ assets, selectedAssetId, onAssetClick, onAssetHover
         {!mapReady && !mapError && (
           <div className="amMinimapLoading">
             <FontAwesomeIcon icon={faSpinner} spin />
-            <span>Initializing global asset map</span>
+            <span>Initializing global asset map.</span>
           </div>
         )}
         {mapReady && !assets?.length && !isLoading && (
           <div className="amOverviewMapEmpty">
             <FontAwesomeIcon icon={faBuilding} />
-            <span>No assets to display</span>
-            <small>Register your first asset to see it on the map</small>
+            <span>No assets to display.</span>
+            <small>Register your first asset to see it on the map.</small>
           </div>
         )}
       </div>
@@ -1289,7 +1289,7 @@ function LocationPickerMap({ latitude, longitude, onLocationChange }) {
     <div className="amLocationPickerContainer">
       <div className="amLocationPickerHeader">
         <FontAwesomeIcon icon={faLocationDot} />
-        <span>Click map or drag pin to set location</span>
+        <span>Click map or drag pin to set location.</span>
       </div>
       <div className="amLocationPickerBody">
         <div ref={wrapperRef} className="amLocationPickerCanvas" style={{ position: "relative" }} />
@@ -1297,7 +1297,7 @@ function LocationPickerMap({ latitude, longitude, onLocationChange }) {
         {!mapReady && !mapError && (
           <div className="amMinimapLoading">
             <FontAwesomeIcon icon={faSpinner} spin />
-            <span>Loading map</span>
+            <span>Loading map.</span>
           </div>
         )}
       </div>
@@ -1761,7 +1761,7 @@ function RiskAssessmentDashboard({ asset, risks, isLoading, radiusKm }) {
   if (isLoading) {
     return (
       <div className="amRibLoading">
-        <FontAwesomeIcon icon={faSpinner} spin /> Analyzing nearby risks...
+        <FontAwesomeIcon icon={faSpinner} spin /> Analyzing nearby risks.
       </div>
     );
   }
@@ -1770,7 +1770,7 @@ function RiskAssessmentDashboard({ asset, risks, isLoading, radiusKm }) {
     return (
       <div className="amRibEmpty">
         <FontAwesomeIcon icon={faShieldHalved} />
-        <span>No risks detected within {radiusKm} km</span>
+        <span>No risks detected within {radiusKm} km.</span>
       </div>
     );
   }
@@ -2544,7 +2544,7 @@ function AssetMinimap({ asset, nearbyRisks, isLoading, onExpandToRCC, radiusKm, 
         {!mapReady && !mapError && (
           <div className="amMinimapLoading">
             <FontAwesomeIcon icon={faSpinner} spin />
-            <span>Loading map</span>
+            <span>Loading map.</span>
           </div>
         )}
       </div>
@@ -2566,7 +2566,7 @@ function MeshFileUploader({ onFileSelected, onFileClear, selectedFile, uploadPro
     if (!file) return null;
     const name = file.name.toLowerCase();
     const valid = ALLOWED_MESH_EXTENSIONS.some(ext => name.endsWith(ext));
-    if (!valid) return `Invalid file type. Accepted: ${ALLOWED_MESH_EXTENSIONS.join(", ")}`;
+    if (!valid) return `Invalid file type. Accepted: ${ALLOWED_MESH_EXTENSIONS.join(", ")}.`;
     if (file.size > 2 * 1024 * 1024 * 1024) return "File exceeds 2 GB limit.";
     return null;
   }, []);
@@ -2632,8 +2632,8 @@ function MeshFileUploader({ onFileSelected, onFileClear, selectedFile, uploadPro
             style={{ display: "none" }}
           />
           <FontAwesomeIcon icon={faCloudArrowUp} className="amMeshDropZoneIcon" />
-          <div className="amMeshDropZoneText">Drag & drop a point cloud file here</div>
-          <div className="amMeshDropZoneSubtext">or click to browse</div>
+          <div className="amMeshDropZoneText">Drag & drop a point cloud file here.</div>
+          <div className="amMeshDropZoneSubtext">Or click to browse.</div>
           <div className="amMeshDropZoneFormats">Accepted: .las, .laz, .copc.laz, .ply, .xyz, .tif</div>
         </div>
       ) : (
@@ -2662,12 +2662,12 @@ function MeshFileUploader({ onFileSelected, onFileClear, selectedFile, uploadPro
           )}
           {uploadStatus === "processing" && (
             <div className="amMeshProcessingStatus">
-              <FontAwesomeIcon icon={faCircleNotch} spin /> Validating point cloud
+              <FontAwesomeIcon icon={faCircleNotch} spin /> Validating point cloud.
             </div>
           )}
           {uploadStatus === "completed" && (
             <div className="amMeshProcessingComplete">
-              <FontAwesomeIcon icon={faCheck} /> Processing complete
+              <FontAwesomeIcon icon={faCheck} /> Processing complete.
             </div>
           )}
           {uploadStatus === "error" && (
@@ -3107,9 +3107,9 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
           };
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) resolve();
-            else reject(new Error(`Upload failed: ${xhr.status}`));
+            else reject(new Error("Upload failed with status " + xhr.status + "."));
           };
-          xhr.onerror = () => reject(new Error("Upload network error"));
+          xhr.onerror = () => reject(new Error("Upload network error occurred."));
           xhr.send(file);
         });
       } else {
@@ -3126,10 +3126,10 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
               if (resp.success) resolve(resp);
               else reject(new Error(resp.message));
             } catch {
-              reject(new Error("Upload parse error"));
+              reject(new Error("Upload response parse error."));
             }
           };
-          xhr.onerror = () => reject(new Error("Upload network error"));
+          xhr.onerror = () => reject(new Error("Upload network error occurred."));
           xhr.send(file);
         });
       }
@@ -3138,9 +3138,9 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
       setMeshUploadStatus("processing");
       setMeshFileId(uploadInfo.file_id);
       return uploadInfo;
-    } catch (err) {
+    } catch (error) {
       setMeshUploadStatus("error");
-      setMeshUploadError(err.message || "Upload failed");
+      setMeshUploadError(error.message || "Upload failed.");
       return null;
     }
   }, [orgid, username, apiFetch]);
@@ -3196,7 +3196,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
           mesh_id: meshId,
           asset_id: goldenMeshAssetId,
           detection_mode: "satellite_insar",
-          comparison_notes: detectionComparisonNotes || "Autonomous Sentinel-1 InSAR sync"
+          comparison_notes: detectionComparisonNotes || "Autonomous Sentinel-1 InSAR sync."
         })
       });
       if (data.success) {
@@ -3208,8 +3208,8 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
       } else {
         showNotification(data.message || "Failed to run satellite sync.", "error");
       }
-    } catch (err) {
-      showNotification(err.message || "A network error occurred during satellite sync.", "error");
+    } catch (error) {
+      showNotification(error.message || "A network error occurred during satellite sync.", "error");
     } finally {
       setIsRunningDetection(false);
     }
@@ -3250,9 +3250,9 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
           };
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) resolve();
-            else reject(new Error(`Upload failed: ${xhr.status}`));
+            else reject(new Error("Upload failed with status " + xhr.status + "."));
           };
-          xhr.onerror = () => reject(new Error("Upload network error"));
+          xhr.onerror = () => reject(new Error("Upload network error occurred."));
           xhr.send(comparisonUploadFile);
         });
       } else {
@@ -3269,10 +3269,10 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
               if (resp.success) resolve(resp);
               else reject(new Error(resp.message));
             } catch {
-              reject(new Error("Upload parse error"));
+              reject(new Error("Upload response parse error."));
             }
           };
-          xhr.onerror = () => reject(new Error("Upload network error"));
+          xhr.onerror = () => reject(new Error("Upload network error occurred."));
           xhr.send(comparisonUploadFile);
         });
       }
@@ -3290,7 +3290,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
           detection_mode: "comparison_upload",
           comparison_file_id: uploadInfo.file_id,
           comparison_filename: comparisonUploadFile.name,
-          comparison_notes: detectionComparisonNotes || `Comparison scan: ${comparisonUploadFile.name}`
+          comparison_notes: detectionComparisonNotes || `Comparison scan: ${comparisonUploadFile.name}.`
         })
       });
       if (data.success) {
@@ -3305,9 +3305,9 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
         setComparisonUploadStatus("error");
         showNotification(data.message || "Failed to run comparison detection.", "error");
       }
-    } catch (err) {
+    } catch (error) {
       setComparisonUploadStatus("error");
-      showNotification(err.message || "A network error occurred during comparison upload.", "error");
+      showNotification(error.message || "A network error occurred during comparison upload.", "error");
     } finally {
       setIsRunningDetection(false);
     }
@@ -3329,7 +3329,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
         showNotification(data.message || "Discovery failed.", "error");
       }
     } catch {
-      showNotification("Discovery network error.", "error");
+      showNotification("Discovery network error occurred.", "error");
     } finally {
       setIsDiscovering(false);
     }
@@ -3356,7 +3356,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
         showNotification(data.message || "Synthesis failed.", "error");
       }
     } catch {
-      showNotification("Synthesis network error.", "error");
+      showNotification("Synthesis network error occurred.", "error");
     } finally {
       setIsSynthesizing(false);
     }

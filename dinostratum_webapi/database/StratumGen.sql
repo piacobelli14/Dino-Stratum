@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS postgis;
+
 DROP TABLE IF EXISTS risk_assets CASCADE;
 CREATE TABLE risk_assets (
     asset_id TEXT PRIMARY KEY,
@@ -11,6 +13,9 @@ CREATE TABLE risk_assets (
     latitude DOUBLE PRECISION NOT NULL,
     longitude DOUBLE PRECISION NOT NULL,
     elevation_meters DOUBLE PRECISION,
+    geometry_type TEXT DEFAULT 'Point',
+    geometry_coordinates JSONB,
+    geom GEOGRAPHY(GEOMETRY, 4326),
     address_street TEXT,
     address_city TEXT,
     address_state TEXT,
@@ -23,6 +28,7 @@ CREATE TABLE risk_assets (
     tags TEXT[],
     image_url TEXT,
     external_id TEXT,
+    owner_orgid TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     deleted_at TIMESTAMPTZ
@@ -37,6 +43,31 @@ DROP INDEX IF EXISTS idx_risk_assets_risk_score;
 CREATE INDEX idx_risk_assets_risk_score ON risk_assets (risk_score DESC);
 DROP INDEX IF EXISTS idx_risk_assets_tags;
 CREATE INDEX idx_risk_assets_tags ON risk_assets USING GIN (tags);
+DROP INDEX IF EXISTS idx_risk_assets_geom;
+CREATE INDEX idx_risk_assets_geom ON risk_assets USING GIST (geom);
+DROP INDEX IF EXISTS idx_risk_assets_owner_orgid;
+CREATE INDEX idx_risk_assets_owner_orgid ON risk_assets (owner_orgid);
+
+DROP TABLE IF EXISTS asset_dependencies CASCADE;
+CREATE TABLE asset_dependencies (
+    dependency_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES risk_assets(asset_id) ON DELETE CASCADE,
+    depends_on_asset_id TEXT NOT NULL REFERENCES risk_assets(asset_id) ON DELETE CASCADE,
+    dependency_type TEXT DEFAULT 'feeds',
+    criticality TEXT DEFAULT 'Medium',
+    description TEXT,
+    metadata JSONB DEFAULT '{}',
+    created_by TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (asset_id, depends_on_asset_id)
+);
+DROP INDEX IF EXISTS idx_asset_dependencies_asset;
+CREATE INDEX idx_asset_dependencies_asset ON asset_dependencies (asset_id);
+DROP INDEX IF EXISTS idx_asset_dependencies_depends_on;
+CREATE INDEX idx_asset_dependencies_depends_on ON asset_dependencies (depends_on_asset_id);
+DROP INDEX IF EXISTS idx_asset_dependencies_type;
+CREATE INDEX idx_asset_dependencies_type ON asset_dependencies (dependency_type, criticality);
 
 DROP TABLE IF EXISTS asset_golden_mesh CASCADE;
 CREATE TABLE asset_golden_mesh (
@@ -77,7 +108,7 @@ CREATE INDEX idx_asset_golden_mesh_scan_date ON asset_golden_mesh (scan_date DES
 DROP INDEX IF EXISTS idx_asset_golden_mesh_geom;
 CREATE INDEX idx_asset_golden_mesh_geom ON asset_golden_mesh USING GIST (mesh_geom);
 
-DROP TABLE IF EXISTS deformation_change_detections; 
+DROP TABLE IF EXISTS deformation_change_detections;
 CREATE TABLE deformation_change_detections (
     detection_id TEXT PRIMARY KEY,
     mesh_id TEXT NOT NULL REFERENCES asset_golden_mesh(mesh_id) ON DELETE CASCADE,
@@ -127,7 +158,7 @@ CREATE INDEX idx_deformation_detections_orgid ON deformation_change_detections (
 DROP INDEX IF EXISTS idx_deformation_detections_severity;
 CREATE INDEX idx_deformation_detections_severity ON deformation_change_detections (severity, exceeded_threshold, detection_date DESC);
 
-DROP TABLE IF EXISTS risk_zones CASCADE; 
+DROP TABLE IF EXISTS risk_zones CASCADE;
 CREATE TABLE risk_zones (
     zone_id TEXT PRIMARY KEY,
     orgid TEXT NOT NULL,
@@ -159,7 +190,7 @@ CREATE INDEX idx_risk_zones_category ON risk_zones (risk_category, severity);
 DROP INDEX IF EXISTS idx_risk_zones_location;
 CREATE INDEX idx_risk_zones_location ON risk_zones (center_latitude, center_longitude);
 
-DROP TABLE IF EXISTS risk_asset_zone_links; 
+DROP TABLE IF EXISTS risk_asset_zone_links;
 CREATE TABLE risk_asset_zone_links (
     link_id TEXT PRIMARY KEY,
     asset_id TEXT NOT NULL REFERENCES risk_assets(asset_id) ON DELETE CASCADE,
@@ -172,7 +203,7 @@ CREATE TABLE risk_asset_zone_links (
 DROP INDEX IF EXISTS idx_risk_asset_zone_links;
 CREATE INDEX idx_risk_asset_zone_links ON risk_asset_zone_links (asset_id, zone_id);
 
-DROP TABLE IF EXISTS risk_alerts CASCADE; 
+DROP TABLE IF EXISTS risk_alerts CASCADE;
 CREATE TABLE risk_alerts (
     alert_id TEXT PRIMARY KEY,
     orgid TEXT NOT NULL,
@@ -183,6 +214,7 @@ CREATE TABLE risk_alerts (
     risk_category TEXT,
     asset_id TEXT REFERENCES risk_assets(asset_id) ON DELETE SET NULL,
     zone_id TEXT REFERENCES risk_zones(zone_id) ON DELETE SET NULL,
+    saved_view_id TEXT,
     condition_field TEXT NOT NULL,
     condition_operator TEXT NOT NULL,
     condition_value DOUBLE PRECISION NOT NULL,
@@ -192,6 +224,7 @@ CREATE TABLE risk_alerts (
     cooldown_minutes INTEGER DEFAULT 60,
     last_triggered_at TIMESTAMPTZ,
     trigger_count INTEGER DEFAULT 0,
+    source_config JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     deleted_at TIMESTAMPTZ
@@ -202,8 +235,12 @@ DROP INDEX IF EXISTS idx_risk_alerts_asset;
 CREATE INDEX idx_risk_alerts_asset ON risk_alerts (asset_id);
 DROP INDEX IF EXISTS idx_risk_alerts_zone;
 CREATE INDEX idx_risk_alerts_zone ON risk_alerts (zone_id);
+DROP INDEX IF EXISTS idx_risk_alerts_type;
+CREATE INDEX idx_risk_alerts_type ON risk_alerts (alert_type, enabled, created_at DESC);
+DROP INDEX IF EXISTS idx_risk_alerts_saved_view;
+CREATE INDEX idx_risk_alerts_saved_view ON risk_alerts (saved_view_id);
 
-DROP TABLE IF EXISTS risk_alert_history; 
+DROP TABLE IF EXISTS risk_alert_history;
 CREATE TABLE risk_alert_history (
     history_id TEXT PRIMARY KEY,
     alert_id TEXT NOT NULL REFERENCES risk_alerts(alert_id) ON DELETE CASCADE,
@@ -226,7 +263,7 @@ CREATE INDEX idx_risk_alert_history_alert ON risk_alert_history (alert_id, trigg
 DROP INDEX IF EXISTS idx_risk_alert_history_orgid;
 CREATE INDEX idx_risk_alert_history_orgid ON risk_alert_history (orgid, resolved, triggered_at DESC);
 
-DROP TABLE IF EXISTS risk_events; 
+DROP TABLE IF EXISTS risk_events;
 CREATE TABLE risk_events (
     event_id TEXT PRIMARY KEY,
     orgid TEXT NOT NULL,
@@ -246,6 +283,7 @@ CREATE TABLE risk_events (
     source TEXT,
     source_id TEXT,
     source_url TEXT,
+    visibility TEXT DEFAULT 'public',
     event_start_at TIMESTAMPTZ,
     event_end_at TIMESTAMPTZ,
     metadata JSONB DEFAULT '{}',
@@ -265,8 +303,10 @@ DROP INDEX IF EXISTS idx_risk_events_time;
 CREATE INDEX idx_risk_events_time ON risk_events (event_start_at, event_end_at);
 DROP INDEX IF EXISTS idx_risk_events_affected_assets;
 CREATE INDEX idx_risk_events_affected_assets ON risk_events USING GIN (affected_asset_ids);
+DROP INDEX IF EXISTS idx_risk_events_visibility;
+CREATE INDEX idx_risk_events_visibility ON risk_events (visibility);
 
-DROP TABLE IF EXISTS risk_asset_history; 
+DROP TABLE IF EXISTS risk_asset_history;
 CREATE TABLE risk_asset_history (
     history_id TEXT PRIMARY KEY,
     asset_id TEXT NOT NULL REFERENCES risk_assets(asset_id) ON DELETE CASCADE,
@@ -283,7 +323,7 @@ CREATE INDEX idx_risk_asset_history_asset ON risk_asset_history (asset_id, recor
 DROP INDEX IF EXISTS idx_risk_asset_history_orgid;
 CREATE INDEX idx_risk_asset_history_orgid ON risk_asset_history (orgid, recorded_at DESC);
 
-DROP TABLE IF EXISTS risk_data_sources; 
+DROP TABLE IF EXISTS risk_data_sources;
 CREATE TABLE risk_data_sources (
     source_id TEXT PRIMARY KEY,
     orgid TEXT NOT NULL,
@@ -312,7 +352,7 @@ CREATE INDEX idx_risk_data_sources_orgid ON risk_data_sources (orgid, enabled, d
 DROP INDEX IF EXISTS idx_risk_data_sources_type;
 CREATE INDEX idx_risk_data_sources_type ON risk_data_sources (source_type, provider);
 
-DROP TABLE IF EXISTS risk_audit_logs; 
+DROP TABLE IF EXISTS risk_audit_logs;
 CREATE TABLE risk_audit_logs (
     log_id TEXT PRIMARY KEY,
     orgid TEXT NOT NULL,
@@ -330,8 +370,6 @@ DROP INDEX IF EXISTS idx_risk_audit_logs_orgid;
 CREATE INDEX idx_risk_audit_logs_orgid ON risk_audit_logs (orgid, created_at DESC);
 DROP INDEX IF EXISTS idx_risk_audit_logs_entity;
 CREATE INDEX idx_risk_audit_logs_entity ON risk_audit_logs (entity_type, entity_id, created_at DESC);
-
-CREATE EXTENSION IF NOT EXISTS postgis;
 
 DROP TABLE IF EXISTS risk_events_cache;
 CREATE TABLE risk_events_cache (
@@ -360,6 +398,8 @@ CREATE TABLE risk_events_cache (
     population_impact JSONB,
     coordinates JSONB,
     radius_meters DOUBLE PRECISION,
+    visibility TEXT DEFAULT 'public',
+    orgid TEXT,
     ingested_at TIMESTAMPTZ DEFAULT NOW()
 );
 DROP INDEX IF EXISTS idx_risk_events_cache_geom;
@@ -374,6 +414,12 @@ DROP INDEX IF EXISTS idx_risk_events_cache_source;
 CREATE INDEX idx_risk_events_cache_source ON risk_events_cache (source, source_id);
 DROP INDEX IF EXISTS idx_risk_events_cache_expires;
 CREATE INDEX idx_risk_events_cache_expires ON risk_events_cache (expires_at);
+DROP INDEX IF EXISTS idx_risk_events_cache_visibility;
+CREATE INDEX idx_risk_events_cache_visibility ON risk_events_cache (visibility);
+DROP INDEX IF EXISTS idx_risk_events_cache_orgid;
+CREATE INDEX idx_risk_events_cache_orgid ON risk_events_cache (orgid);
+DROP INDEX IF EXISTS idx_risk_events_cache_time_category;
+CREATE INDEX idx_risk_events_cache_time_category ON risk_events_cache (event_time DESC, risk_category);
 
 DROP TABLE IF EXISTS ingestion_runs;
 CREATE TABLE ingestion_runs (
@@ -389,7 +435,8 @@ CREATE TABLE ingestion_runs (
 DROP INDEX IF EXISTS idx_ingestion_runs_status;
 CREATE INDEX idx_ingestion_runs_status ON ingestion_runs (status, started_at DESC);
 
-DROP TABLE IF EXISTS intel_briefings;
+DROP TABLE IF EXISTS intel_briefing_feedback CASCADE;
+DROP TABLE IF EXISTS intel_briefings CASCADE;
 CREATE TABLE intel_briefings (
     briefing_id TEXT PRIMARY KEY,
     risk_id TEXT NOT NULL,
@@ -401,6 +448,14 @@ CREATE TABLE intel_briefings (
     ai_briefing JSONB DEFAULT '{}',
     media_counts JSONB DEFAULT '{}',
     research_counts JSONB DEFAULT '{}',
+    source_bundle JSONB DEFAULT '{}',
+    confidence_level TEXT,
+    confidence_score INTEGER DEFAULT 0,
+    scope TEXT DEFAULT 'viewport',
+    asset_count INTEGER DEFAULT 0,
+    viewport_bbox JSONB,
+    risk_latitude DOUBLE PRECISION,
+    risk_longitude DOUBLE PRECISION,
     generation_time_ms INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -410,6 +465,52 @@ DROP INDEX IF EXISTS idx_intel_briefings_orgid;
 CREATE INDEX idx_intel_briefings_orgid ON intel_briefings (orgid, created_at DESC);
 DROP INDEX IF EXISTS idx_intel_briefings_category;
 CREATE INDEX idx_intel_briefings_category ON intel_briefings (risk_category, severity, created_at DESC);
+DROP INDEX IF EXISTS idx_intel_briefings_confidence;
+CREATE INDEX idx_intel_briefings_confidence ON intel_briefings (confidence_level, confidence_score DESC);
+DROP INDEX IF EXISTS idx_intel_briefings_scope;
+CREATE INDEX idx_intel_briefings_scope ON intel_briefings (scope, created_at DESC);
+DROP INDEX IF EXISTS idx_intel_briefings_geom;
+CREATE INDEX idx_intel_briefings_geom ON intel_briefings (risk_latitude, risk_longitude);
+DROP INDEX IF EXISTS idx_intel_briefings_org_created;
+CREATE INDEX idx_intel_briefings_org_created ON intel_briefings (orgid, scope, created_at DESC);
+
+CREATE TABLE intel_briefing_feedback (
+    feedback_id TEXT PRIMARY KEY,
+    briefing_id TEXT,
+    risk_id TEXT,
+    orgid TEXT NOT NULL,
+    submitted_by TEXT NOT NULL,
+    flag_reason TEXT,
+    flag_category TEXT,
+    comments TEXT,
+    source_bundle_snapshot JSONB,
+    ai_summary_snapshot JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+DROP INDEX IF EXISTS idx_intel_feedback_briefing;
+CREATE INDEX idx_intel_feedback_briefing ON intel_briefing_feedback (briefing_id, created_at DESC);
+DROP INDEX IF EXISTS idx_intel_feedback_orgid;
+CREATE INDEX idx_intel_feedback_orgid ON intel_briefing_feedback (orgid, created_at DESC);
+DROP INDEX IF EXISTS idx_intel_feedback_category;
+CREATE INDEX idx_intel_feedback_category ON intel_briefing_feedback (flag_category, created_at DESC);
+DROP INDEX IF EXISTS idx_intel_feedback_risk;
+CREATE INDEX idx_intel_feedback_risk ON intel_briefing_feedback (risk_id, created_at DESC);
+
+DROP TABLE IF EXISTS intel_user_settings CASCADE;
+CREATE TABLE intel_user_settings (
+    settings_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    orgid TEXT NOT NULL,
+    sources_enabled JSONB DEFAULT '{}',
+    default_scope TEXT DEFAULT 'viewport',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (username, orgid)
+);
+DROP INDEX IF EXISTS idx_intel_user_settings_lookup;
+CREATE INDEX idx_intel_user_settings_lookup ON intel_user_settings (username, orgid);
+DROP INDEX IF EXISTS idx_intel_user_settings_orgid;
+CREATE INDEX idx_intel_user_settings_orgid ON intel_user_settings (orgid);
 
 DROP TABLE IF EXISTS risk_user_areas;
 CREATE TABLE risk_user_areas (
@@ -437,3 +538,19 @@ DROP INDEX IF EXISTS idx_risk_user_areas_orgid;
 CREATE INDEX idx_risk_user_areas_orgid ON risk_user_areas (orgid);
 DROP INDEX IF EXISTS idx_risk_user_areas_geom;
 CREATE INDEX idx_risk_user_areas_geom ON risk_user_areas USING GIST (geom);
+
+DROP TABLE IF EXISTS risk_user_views;
+CREATE TABLE risk_user_views (
+    view_id TEXT PRIMARY KEY,
+    orgid TEXT NOT NULL,
+    username TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    view_data JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+DROP INDEX IF EXISTS idx_risk_user_views_org_user;
+CREATE INDEX idx_risk_user_views_org_user ON risk_user_views (orgid, username, updated_at DESC);
+DROP INDEX IF EXISTS idx_risk_user_views_name;
+CREATE INDEX idx_risk_user_views_name ON risk_user_views (orgid, name);

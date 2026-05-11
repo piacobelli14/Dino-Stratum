@@ -1,15 +1,15 @@
 const express = require("express");
-const router = express.Router();
 const crypto = require("crypto");
 const { pool } = require("../../config/db");
 
+const router = express.Router();
+
 const QUERY_TIMEOUT_MS = 15000;
 
-const generateId = (prefix) => `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
+const SELECT_AREA_COLUMNS = "area_id, orgid, username, name, mode, address, latitude, longitude, radius_km, min_lat, max_lat, min_lng, max_lng, filter_active, metadata, created_at, updated_at";
 
-const logError = (context, error) => {
-    const cause = error.cause ? ` (${error.cause.code || error.cause.message})` : "";
-    process.stderr.write(`[FAIL] ${context}: ${error.message}${cause}.\n`);
+const generateId = (prefix) => {
+    return `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
 };
 
 const withTimeout = (promise, ms, label) => {
@@ -18,7 +18,7 @@ const withTimeout = (promise, ms, label) => {
             reject(new Error(`${label} timed out after ${ms} milliseconds.`));
         }, ms);
         promise.then(
-            (val) => { clearTimeout(timer); resolve(val); },
+            (value) => { clearTimeout(timer); resolve(value); },
             (error) => { clearTimeout(timer); reject(error); }
         );
     });
@@ -34,7 +34,9 @@ const parseJson = (value) => {
     try { return JSON.parse(value); } catch { return value; }
 };
 
-const validateMode = (mode) => mode === "point_radius" || mode === "bbox";
+const validateMode = (mode) => {
+    return mode === "point_radius" || mode === "bbox";
+};
 
 const validatePointRadius = (body) => {
     const lat = parseFloat(body.latitude);
@@ -51,7 +53,7 @@ const validateBbox = (body) => {
     const maxLat = parseFloat(body.max_lat);
     const minLng = parseFloat(body.min_lng);
     const maxLng = parseFloat(body.max_lng);
-    if ([minLat, maxLat, minLng, maxLng].some((v) => isNaN(v))) return null;
+    if ([minLat, maxLat, minLng, maxLng].some((value) => isNaN(value))) return null;
     if (minLat >= maxLat || minLng >= maxLng) return null;
     if (minLat < -90 || maxLat > 90 || minLng < -180 || maxLng > 180) return null;
     return { min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng };
@@ -79,12 +81,10 @@ const rowToArea = (row) => {
     };
 };
 
-const SELECT_AREA_COLUMNS = "area_id, orgid, username, name, mode, address, latitude, longitude, radius_km, min_lat, max_lat, min_lng, max_lng, filter_active, metadata, created_at, updated_at";
-
 router.get("/risk/user/area", async (req, res) => {
     const { orgid, username } = req.query;
     if (!orgid || !username) {
-        return res.status(400).json({ success: false, message: "orgid and username query parameters are required." });
+        return res.status(400).json({ success: false, message: "Orgid and username query parameters are required." });
     }
     try {
         const result = await queryWithTimeout(
@@ -107,7 +107,6 @@ router.get("/risk/user/area", async (req, res) => {
             message: "User area retrieved successfully."
         });
     } catch (error) {
-        logError("Get user area.", error);
         return res.status(500).json({ success: false, message: "Failed to retrieve user area." });
     }
 });
@@ -115,10 +114,10 @@ router.get("/risk/user/area", async (req, res) => {
 router.put("/risk/user/area", async (req, res) => {
     const { orgid, username, mode, name, address, filter_active } = req.body;
     if (!orgid || !username) {
-        return res.status(400).json({ success: false, message: "orgid and username are required." });
+        return res.status(400).json({ success: false, message: "Orgid and username are required." });
     }
     if (!validateMode(mode)) {
-        return res.status(400).json({ success: false, message: "mode must be 'point_radius' or 'bbox'." });
+        return res.status(400).json({ success: false, message: "Mode must be 'point_radius' or 'bbox'." });
     }
 
     let pointRadius = null;
@@ -193,7 +192,6 @@ router.put("/risk/user/area", async (req, res) => {
             message: "User area saved successfully."
         });
     } catch (error) {
-        logError("Save user area.", error);
         return res.status(500).json({ success: false, message: "Failed to save user area." });
     }
 });
@@ -201,10 +199,10 @@ router.put("/risk/user/area", async (req, res) => {
 router.patch("/risk/user/area/filter", async (req, res) => {
     const { orgid, username, filter_active } = req.body;
     if (!orgid || !username) {
-        return res.status(400).json({ success: false, message: "orgid and username are required." });
+        return res.status(400).json({ success: false, message: "Orgid and username are required." });
     }
     if (filter_active === undefined || filter_active === null) {
-        return res.status(400).json({ success: false, message: "filter_active is required." });
+        return res.status(400).json({ success: false, message: "Filter_active is required." });
     }
     try {
         const result = await queryWithTimeout(
@@ -220,7 +218,6 @@ router.patch("/risk/user/area/filter", async (req, res) => {
             message: "Filter state updated."
         });
     } catch (error) {
-        logError("Update filter state.", error);
         return res.status(500).json({ success: false, message: "Failed to update filter state." });
     }
 });
@@ -228,7 +225,7 @@ router.patch("/risk/user/area/filter", async (req, res) => {
 router.delete("/risk/user/area", async (req, res) => {
     const { orgid, username } = req.query;
     if (!orgid || !username) {
-        return res.status(400).json({ success: false, message: "orgid and username query parameters are required." });
+        return res.status(400).json({ success: false, message: "Orgid and username query parameters are required." });
     }
     try {
         const result = await queryWithTimeout(
@@ -241,7 +238,6 @@ router.delete("/risk/user/area", async (req, res) => {
             message: result.rows.length ? "User area deleted." : "No saved area to delete."
         });
     } catch (error) {
-        logError("Delete user area.", error);
         return res.status(500).json({ success: false, message: "Failed to delete user area." });
     }
 });
@@ -252,7 +248,7 @@ router.get("/risk/user/area/risks", async (req, res) => {
     const category = req.query.category || null;
     const limit = Math.min(parseInt(req.query.limit, 10) || 200, 2000);
     if (!orgid || !username) {
-        return res.status(400).json({ success: false, message: "orgid and username query parameters are required." });
+        return res.status(400).json({ success: false, message: "Orgid and username query parameters are required." });
     }
     try {
         const areaResult = await queryWithTimeout(
@@ -291,22 +287,22 @@ router.get("/risk/user/area/risks", async (req, res) => {
         params.push(limit);
 
         const result = await queryWithTimeout(sql, params);
-        const risks = result.rows.map((r) => ({
-            ...r,
-            recommendations: parseJson(r.recommendations),
-            metadata: parseJson(r.metadata),
-            properties: parseJson(r.properties),
-            golden_mesh_detection: parseJson(r.golden_mesh_detection),
-            population_impact: parseJson(r.population_impact),
-            geometry_coordinates: parseJson(r.geometry_coordinates),
-            coordinates: parseJson(r.coordinates)
+        const risks = result.rows.map((row) => ({
+            ...row,
+            recommendations: parseJson(row.recommendations),
+            metadata: parseJson(row.metadata),
+            properties: parseJson(row.properties),
+            golden_mesh_detection: parseJson(row.golden_mesh_detection),
+            population_impact: parseJson(row.population_impact),
+            geometry_coordinates: parseJson(row.geometry_coordinates),
+            coordinates: parseJson(row.coordinates)
         }));
 
         const sevCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
         const catCounts = {};
-        for (const r of risks) {
-            if (sevCounts[r.severity] !== undefined) sevCounts[r.severity]++;
-            catCounts[r.risk_category] = (catCounts[r.risk_category] || 0) + 1;
+        for (const risk of risks) {
+            if (sevCounts[risk.severity] !== undefined) sevCounts[risk.severity]++;
+            catCounts[risk.risk_category] = (catCounts[risk.risk_category] || 0) + 1;
         }
 
         return res.status(200).json({
@@ -330,7 +326,6 @@ router.get("/risk/user/area/risks", async (req, res) => {
             message: `Found ${risks.length} risk events within saved area.`
         });
     } catch (error) {
-        logError("Query risks within user area.", error);
         return res.status(500).json({ success: false, message: "Failed to query risks within user area." });
     }
 });

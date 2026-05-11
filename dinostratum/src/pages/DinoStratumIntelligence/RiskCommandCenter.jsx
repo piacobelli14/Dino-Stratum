@@ -10,7 +10,9 @@ import {
   faTornado, faPersonShelter, faKitMedical, faEye, faEyeSlash, faCrosshairs,
   faShieldHalved, faDatabase, faRuler, faCubes, faCodeCompare, faClipboardCheck,
   faCircleCheck, faBullseye, faUpload, faHeartPulse, faGears,
-  faServer, faCircleInfo, faBroom, faMapPin, faDrawPolygon
+  faServer, faCircleInfo, faBroom, faMapPin, faDrawPolygon,
+  faBookmark, faStar,
+  faFire as faHeat, faBolt, faLock, faUnlock
 } from "@fortawesome/free-solid-svg-icons";
 import Nav from "../../helpers/Nav.jsx";
 import "../../styles/mainStyles/Intelligence/RiskCommandCenter.css";
@@ -24,6 +26,22 @@ const APPLE_MAPS_ZOOM_THRESHOLD = 6;
 
 const RISK_EVENT_TTL_MS = 24 * 60 * 60 * 1000;
 
+const VISIBILITY_PUBLIC = "public";
+const VISIBILITY_ORG_PRIVATE = "org-private";
+
+const ASSET_LAYER_MODE_ALL = "all";
+const ASSET_LAYER_MODE_OWNED = "owned";
+const ASSET_LAYER_MODE_HIDDEN = "hidden";
+
+const HEATMAP_RADIUS_PIXELS = 60;
+const HEATMAP_INTENSITY = 1;
+const HEATMAP_THRESHOLD = 0.03;
+
+const SAVED_VIEWS_STORAGE_KEY = "riskSavedViews";
+const SAVED_VIEWS_MAX = 50;
+const USER_AREA_STORAGE_KEY = "riskUserArea";
+const AREA_FILTER_ACTIVE_STORAGE_KEY = "riskAreaFilterActive";
+
 const PRIORITY_OPTIONS = ["Critical", "High", "Medium", "Low"];
 
 const SEVERITY_COLORS = {
@@ -31,6 +49,13 @@ const SEVERITY_COLORS = {
   High: "#FF9100",
   Medium: "#FFEA00",
   Low: "#00E676"
+};
+
+const SEVERITY_WEIGHTS_LOCAL = {
+  Critical: 100,
+  High: 75,
+  Medium: 40,
+  Low: 15
 };
 
 const RISK_CATEGORIES = {
@@ -67,14 +92,29 @@ const RISK_INTELLIGENCE_CATEGORIES = [
 ];
 
 const RISK_ICON_MAP = {
-  seismic: faMountain, wildfire: faFire, flood: faWater, weather: faCloud, tornado: faCloud,
-  hurricane: faHurricane, volcanic: faVolcano, "air quality": faSmog, tsunami: faHouseTsunami,
-  space: faSatellite, drought: faTemperatureHigh, "ground deformation": faLayerGroup
+  seismic: faMountain,
+  wildfire: faFire,
+  flood: faWater,
+  weather: faCloud,
+  tornado: faCloud,
+  hurricane: faHurricane,
+  volcanic: faVolcano,
+  "air quality": faSmog,
+  tsunami: faHouseTsunami,
+  space: faSatellite,
+  drought: faTemperatureHigh,
+  "ground deformation": faLayerGroup
 };
 
 const EMPTY_RISK_DATA = {
-  earthquakes: [], wildfires: [], weather: [], floods: [],
-  volcanoes: [], air_quality: [], ground_deformation: [], global_disasters: []
+  earthquakes: [],
+  wildfires: [],
+  weather: [],
+  floods: [],
+  volcanoes: [],
+  air_quality: [],
+  ground_deformation: [],
+  global_disasters: []
 };
 
 const ASSET_TYPES = {
@@ -97,20 +137,50 @@ const ASSET_TYPES = {
 };
 
 const INITIAL_NEARBY_FORM = {
-  latitude: "", longitude: "", radius_km: "100",
-  category: "", severity: "", source: "", limit: "50"
+  latitude: "",
+  longitude: "",
+  radius_km: "100",
+  category: "",
+  severity: "",
+  source: "",
+  limit: "50"
 };
 
 const INITIAL_AREA_FORM = {
-  mode: "point_radius", name: "", address: "",
-  latitude: "", longitude: "", radius_km: "100",
-  min_lat: "", max_lat: "", min_lng: "", max_lng: ""
+  mode: "point_radius",
+  name: "",
+  address: "",
+  latitude: "",
+  longitude: "",
+  radius_km: "100",
+  min_lat: "",
+  max_lat: "",
+  min_lng: "",
+  max_lng: ""
 };
 
-const USER_AREA_STORAGE_KEY = "riskUserArea";
-const AREA_FILTER_ACTIVE_STORAGE_KEY = "riskAreaFilterActive";
+const INITIAL_SAVE_VIEW_FORM = {
+  name: "",
+  description: "",
+  include_filters: true,
+  include_layers: true
+};
+
+const OVERPASS_MIRRORS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.openstreetmap.fr/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter"
+];
+
+const OVERPASS_CACHE = new Map();
+const OVERPASS_PENDING = new Map();
+const OVERPASS_CACHE_MAX_ENTRIES = 200;
+const OVERPASS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const ASSET_PIN_ICON_CACHE = new Map();
+
+let overpassMirrorOffset = 0;
 
 function makeAssetPinIcon(fillColor, borderColor) {
   const key = fillColor + "|" + borderColor;
@@ -155,7 +225,9 @@ function formatNumber(num) {
   if (num == null) return "N/A";
   if (typeof num === "string") return num;
   const tiers = [[1e9, "B"], [1e6, "M"], [1e3, "K"]];
-  for (const [t, s] of tiers) if (num >= t) return `${(num / t).toFixed(t === 1e3 ? 1 : 2)}${s}`;
+  for (const [t, s] of tiers) {
+    if (num >= t) return `${(num / t).toFixed(t === 1e3 ? 1 : 2)}${s}`;
+  }
   return num.toLocaleString();
 }
 
@@ -186,19 +258,27 @@ function formatDuration(ms) {
 
 function formatRiskTime(ts) {
   if (!ts) return "Unknown";
-  try { return new Date(ts).toLocaleString(); } catch { return ts; }
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return ts;
+  }
 }
 
 function getRelativeTime(ts) {
   if (!ts) return "";
   try {
     const ms = Date.now() - new Date(ts).getTime();
-    const m = Math.floor(ms / 60000), h = Math.floor(ms / 3600000), d = Math.floor(ms / 86400000);
+    const m = Math.floor(ms / 60000);
+    const h = Math.floor(ms / 3600000);
+    const d = Math.floor(ms / 86400000);
     if (m < 60) return `${m}m ago`;
     if (h < 24) return `${h}h ago`;
     if (d < 30) return `${d}d ago`;
     return new Date(ts).toLocaleDateString();
-  } catch { return ""; }
+  } catch {
+    return "";
+  }
 }
 
 const getRiskCategoryIcon = (cat) => RISK_ICON_MAP[cat?.toLowerCase()] || faTriangleExclamation;
@@ -207,12 +287,22 @@ const severityColorFn = (sev) => ({ critical: "#FF1744", high: "#FF9100", medium
 const deformationSeverityColor = (sev) => ({ critical: "#FF1744", high: "#FF9100", moderate: "#FFEA00", low: "#00E676", negligible: "#4ECDC4" }[sev?.toLowerCase()] || "#9E9E9E");
 const healthStatusColor = (s) => ["healthy", "ok", "connected", "available"].includes(s) ? "#00E676" : ["degraded", "warning", "slow"].includes(s) ? "#FFEA00" : "#FF1744";
 
-const getTimezoneFromCoords = (lat, lng) => { const o = Math.round(lng / 15); return `UTC${o >= 0 ? "+" : ""}${o} (estimated)`; };
-const getClimateZone = (lat) => { const a = Math.abs(lat); return a < 10 ? "Tropical" : a < 23.5 ? "Subtropical" : a < 35 ? "Warm Temperate" : a < 50 ? "Cool Temperate" : a < 66.5 ? "Subarctic/Subantarctic" : "Polar"; };
+const getTimezoneFromCoords = (lat, lng) => {
+  const o = Math.round(lng / 15);
+  return `UTC${o >= 0 ? "+" : ""}${o} (estimated)`;
+};
+
+const getClimateZone = (lat) => {
+  const a = Math.abs(lat);
+  return a < 10 ? "Tropical" : a < 23.5 ? "Subtropical" : a < 35 ? "Warm Temperate" : a < 50 ? "Cool Temperate" : a < 66.5 ? "Subarctic/Subantarctic" : "Polar";
+};
+
 const getHemisphere = (lat, lng) => `${lat >= 0 ? "Northern" : "Southern"} & ${lng >= 0 ? "Eastern" : "Western"}`;
 
 function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371000, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
@@ -220,7 +310,12 @@ function haversine(lat1, lon1, lat2, lon2) {
 function getBoundsFromArea(area) {
   if (!area) return null;
   if (area.mode === "bbox") {
-    return { min_lat: area.min_lat, max_lat: area.max_lat, min_lng: area.min_lng, max_lng: area.max_lng };
+    return {
+      min_lat: area.min_lat,
+      max_lat: area.max_lat,
+      min_lng: area.min_lng,
+      max_lng: area.max_lng
+    };
   }
   if (area.mode === "point_radius") {
     const latD = area.radius_km / 111;
@@ -265,39 +360,60 @@ function calculatePolygonArea(coords) {
   const R = 6371000;
   const cLat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
   const cosLat = Math.cos(cLat * Math.PI / 180);
-  const pts = coords.map(c => ({ x: (c.lng - coords[0].lng) * Math.PI / 180 * R * cosLat, y: (c.lat - coords[0].lat) * Math.PI / 180 * R }));
+  const pts = coords.map(c => ({
+    x: (c.lng - coords[0].lng) * Math.PI / 180 * R * cosLat,
+    y: (c.lat - coords[0].lat) * Math.PI / 180 * R
+  }));
   let area = 0;
-  for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; area += pts[i].x * pts[j].y - pts[j].x * pts[i].y; }
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    area += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+  }
   return Math.abs(area) / 2;
 }
 
 function calculatePerimeter(coords) {
   if (!coords || coords.length < 2) return 0;
   let total = 0;
-  for (let i = 0; i < coords.length; i++) { const j = (i + 1) % coords.length; total += haversine(coords[i].lat, coords[i].lng, coords[j].lat, coords[j].lng); }
+  for (let i = 0; i < coords.length; i++) {
+    const j = (i + 1) % coords.length;
+    total += haversine(coords[i].lat, coords[i].lng, coords[j].lat, coords[j].lng);
+  }
   return total;
 }
 
 function calculateBoundingBox(coords) {
-  if (!coords?.length) return { width: 0, height: 0, minLat: 0, maxLat: 0, minLng: 0, maxLng: 0 };
-  const lats = coords.map(c => c.lat), lngs = coords.map(c => c.lng);
-  const minLat = Math.min(...lats), maxLat = Math.max(...lats), minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  if (!coords?.length) {
+    return { width: 0, height: 0, minLat: 0, maxLat: 0, minLng: 0, maxLng: 0 };
+  }
+  const lats = coords.map(c => c.lat);
+  const lngs = coords.map(c => c.lng);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
   return {
     width: haversine((minLat + maxLat) / 2, minLng, (minLat + maxLat) / 2, maxLng),
     height: haversine(minLat, (minLng + maxLng) / 2, maxLat, (minLng + maxLng) / 2),
-    minLat, maxLat, minLng, maxLng
+    minLat,
+    maxLat,
+    minLng,
+    maxLng
   };
 }
 
 function calculateDetailedDimensions(coords) {
   if (!coords || coords.length < 3) return null;
   const bbox = calculateBoundingBox(coords);
-  const midLat = (bbox.minLat + bbox.maxLat) / 2, midLng = (bbox.minLng + bbox.maxLng) / 2;
+  const midLat = (bbox.minLat + bbox.maxLat) / 2;
+  const midLng = (bbox.minLng + bbox.maxLng) / 2;
   const northSouth = haversine(bbox.minLat, midLng, bbox.maxLat, midLng);
   const eastWest = haversine(midLat, bbox.minLng, midLat, bbox.maxLng);
   const diagonal = haversine(bbox.minLat, bbox.minLng, bbox.maxLat, bbox.maxLng);
   const nwDiagonal = haversine(bbox.minLat, bbox.maxLng, bbox.maxLat, bbox.minLng);
-  let maxEdge = 0, minEdge = Infinity, edgeLengths = [];
+  let maxEdge = 0;
+  let minEdge = Infinity;
+  const edgeLengths = [];
   for (let i = 0; i < coords.length; i++) {
     const j = (i + 1) % coords.length;
     const len = haversine(coords[i].lat, coords[i].lng, coords[j].lat, coords[j].lng);
@@ -307,31 +423,48 @@ function calculateDetailedDimensions(coords) {
   }
   const area = calculatePolygonArea(coords);
   return {
-    northSouth, eastWest, diagonal, neDiagonal: diagonal, nwDiagonal, maxEdge,
+    northSouth,
+    eastWest,
+    diagonal,
+    neDiagonal: diagonal,
+    nwDiagonal,
+    maxEdge,
     minEdge: minEdge === Infinity ? 0 : minEdge,
     avgEdge: edgeLengths.length > 0 ? edgeLengths.reduce((a, b) => a + b, 0) / edgeLengths.length : 0,
     equivalentDiameter: Math.sqrt(area / Math.PI) * 2,
-    aspectRatio: eastWest > 0 ? northSouth / eastWest : 1, bbox
+    aspectRatio: eastWest > 0 ? northSouth / eastWest : 1,
+    bbox
   };
 }
 
 function getCentroid(coords) {
   if (!coords?.length) return { lat: 0, lng: 0 };
-  return { lat: coords.reduce((s, c) => s + c.lat, 0) / coords.length, lng: coords.reduce((s, c) => s + c.lng, 0) / coords.length };
+  return {
+    lat: coords.reduce((s, c) => s + c.lat, 0) / coords.length,
+    lng: coords.reduce((s, c) => s + c.lng, 0) / coords.length
+  };
 }
 
 function pointInPolygon(point, polygon) {
   if (!polygon || polygon.length < 3) return false;
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].lng, yi = polygon[i].lat, xj = polygon[j].lng, yj = polygon[j].lat;
-    if (((yi > point.lat) !== (yj > point.lat)) && (point.lng < (xj - xi) * (point.lat - yi) / (yj - yi) + xi)) inside = !inside;
+    const xi = polygon[i].lng;
+    const yi = polygon[i].lat;
+    const xj = polygon[j].lng;
+    const yj = polygon[j].lat;
+    if (((yi > point.lat) !== (yj > point.lat)) && (point.lng < (xj - xi) * (point.lat - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
   }
   return inside;
 }
 
 function distanceToLineSegment(point, a, b) {
-  const px = point.lng - a.lng, py = point.lat - a.lat, bx = b.lng - a.lng, by = b.lat - a.lat;
+  const px = point.lng - a.lng;
+  const py = point.lat - a.lat;
+  const bx = b.lng - a.lng;
+  const by = b.lat - a.lat;
   const lenSq = bx * bx + by * by;
   const t = Math.max(0, Math.min(1, lenSq > 0 ? (px * bx + py * by) / lenSq : -1));
   return haversine(point.lat, point.lng, a.lat + t * by, a.lng + t * bx);
@@ -340,7 +473,9 @@ function distanceToLineSegment(point, a, b) {
 function distanceToPolygon(point, polygon) {
   if (!polygon?.length) return Infinity;
   let min = Infinity;
-  for (let i = 0; i < polygon.length; i++) min = Math.min(min, distanceToLineSegment(point, polygon[i], polygon[(i + 1) % polygon.length]));
+  for (let i = 0; i < polygon.length; i++) {
+    min = Math.min(min, distanceToLineSegment(point, polygon[i], polygon[(i + 1) % polygon.length]));
+  }
   return min;
 }
 
@@ -418,21 +553,34 @@ function computeRiskSummary(riskData) {
   return summary;
 }
 
+function getRiskVisibility(risk) {
+  if (!risk) return VISIBILITY_PUBLIC;
+  if (risk.visibility) return risk.visibility;
+  if (risk.is_private || risk.org_private) return VISIBILITY_ORG_PRIVATE;
+  if (risk.orgid && risk.source && risk.source.startsWith("ORG_")) return VISIBILITY_ORG_PRIVATE;
+  return VISIBILITY_PUBLIC;
+}
+
 function loadScript(src, id) {
   return new Promise((resolve, reject) => {
     if (document.getElementById(id)) {
       const check = setInterval(() => {
         if ((id === "deckgl-script" && window.deck) || (id === "maplibre-script" && window.maplibregl) || (id === "deckgl-mapbox-script" && window.deck?.MapboxOverlay)) {
-          clearInterval(check); resolve();
+          clearInterval(check);
+          resolve();
         }
       }, 100);
-      setTimeout(() => { clearInterval(check); reject(new Error("Script load timeout: " + id)); }, 15000);
+      setTimeout(() => {
+        clearInterval(check);
+        reject(new Error("Script load timed out: " + id + "."));
+      }, 15000);
       return;
     }
     const script = document.createElement("script");
-    script.id = id; script.src = src;
+    script.id = id;
+    script.src = src;
     script.onload = resolve;
-    script.onerror = () => reject(new Error("Script load failed: " + id));
+    script.onerror = () => reject(new Error("Script load failed: " + id + "."));
     document.head.appendChild(script);
   });
 }
@@ -440,23 +588,11 @@ function loadScript(src, id) {
 function loadCSS(href, id) {
   if (document.getElementById(id)) return;
   const link = document.createElement("link");
-  link.id = id; link.rel = "stylesheet"; link.href = href;
+  link.id = id;
+  link.rel = "stylesheet";
+  link.href = href;
   document.head.appendChild(link);
 }
-
-const OVERPASS_MIRRORS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
-  "https://overpass.openstreetmap.fr/api/interpreter",
-  "https://overpass.private.coffee/api/interpreter"
-];
-
-const OVERPASS_CACHE = new Map();
-const OVERPASS_PENDING = new Map();
-const OVERPASS_CACHE_MAX_ENTRIES = 200;
-const OVERPASS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-
-let overpassMirrorOffset = 0;
 
 function hashOverpassQuery(query) {
   let hash = 2166136261;
@@ -516,7 +652,7 @@ async function overpassFetch(query, opts = {}) {
           return data;
         }
         if (r.status !== 429 && r.status < 500) return null;
-      } catch (err) {
+      } catch (error) {
         clearTimeout(timer);
       }
     }
@@ -537,17 +673,28 @@ function getFeatureName(tags) {
   if (tags.name) return tags.name;
   const mappings = [
     ["building", v => v === "yes" ? (tags["addr:housename"] || (tags["addr:housenumber"] ? `Building ${tags["addr:housenumber"]}`.trim() : "Building")) : v.charAt(0).toUpperCase() + v.slice(1).replace(/_/g, " ")],
-    ["natural"], ["landuse"], ["leisure"], ["man_made"], ["amenity"],
+    ["natural"],
+    ["landuse"],
+    ["leisure"],
+    ["man_made"],
+    ["amenity"],
     ["shop", v => "Shop: " + v.charAt(0).toUpperCase() + v.slice(1)],
-    ["tourism"], ["historic"], ["water", v => "Water: " + v], ["place"]
+    ["tourism"],
+    ["historic"],
+    ["water", v => "Water: " + v],
+    ["place"]
   ];
-  for (const [key, fmt] of mappings) { if (tags[key]) return fmt ? fmt(tags[key]) : tags[key].charAt(0).toUpperCase() + tags[key].slice(1).replace(/_/g, " "); }
+  for (const [key, fmt] of mappings) {
+    if (tags[key]) return fmt ? fmt(tags[key]) : tags[key].charAt(0).toUpperCase() + tags[key].slice(1).replace(/_/g, " ");
+  }
   return "Feature";
 }
 
 function getFeatureType(tags) {
   if (!tags) return "unknown";
-  for (const k of ["building", "natural", "landuse", "leisure", "man_made", "amenity", "shop", "tourism", "historic", "water", "place", "boundary"]) { if (tags[k]) return k; }
+  for (const k of ["building", "natural", "landuse", "leisure", "man_made", "amenity", "shop", "tourism", "historic", "water", "place", "boundary"]) {
+    if (tags[k]) return k;
+  }
   return "other";
 }
 
@@ -575,6 +722,40 @@ function loadStoredAreaFilterActive() {
   } catch {
     return false;
   }
+}
+
+function loadStoredSavedViews() {
+  try {
+    const raw = localStorage.getItem(SAVED_VIEWS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(v => v && typeof v === "object" && v.view_id);
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedViewsLocal(views) {
+  try {
+    localStorage.setItem(SAVED_VIEWS_STORAGE_KEY, JSON.stringify(views.slice(0, SAVED_VIEWS_MAX)));
+  } catch { }
+}
+
+function generateViewId() {
+  return "view_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+}
+
+function describeSavedView(view) {
+  if (!view) return "";
+  if (view.name && view.name.trim()) return view.name.trim();
+  if (view.bounds) {
+    return `BBox ${view.bounds.min_lat.toFixed(1)}/${view.bounds.min_lng.toFixed(1)} → ${view.bounds.max_lat.toFixed(1)}/${view.bounds.max_lng.toFixed(1)}`;
+  }
+  if (view.center) {
+    return `${view.center.lat.toFixed(2)}°, ${view.center.lng.toFixed(2)}° @ ${view.zoom?.toFixed(1) || "?"}`;
+  }
+  return "Saved View";
 }
 
 function MetaField({ label, value, wide, highlight, color, small, scrollable, children }) {
@@ -904,11 +1085,16 @@ function renderGlobalDisasterMetadata(m) {
 }
 
 const METADATA_RENDERERS = {
-  seismic: renderEarthquakeMetadata, wildfire: renderWildfireMetadata,
-  weather: renderWeatherMetadata, tornado: renderWeatherMetadata,
-  hurricane: renderWeatherMetadata, space: renderWeatherMetadata,
-  flood: renderFloodMetadata, volcanic: renderVolcanoMetadata,
-  "air quality": renderAirQualityMetadata, "ground deformation": renderGroundDeformationMetadata
+  seismic: renderEarthquakeMetadata,
+  wildfire: renderWildfireMetadata,
+  weather: renderWeatherMetadata,
+  tornado: renderWeatherMetadata,
+  hurricane: renderWeatherMetadata,
+  space: renderWeatherMetadata,
+  flood: renderFloodMetadata,
+  volcanic: renderVolcanoMetadata,
+  "air quality": renderAirQualityMetadata,
+  "ground deformation": renderGroundDeformationMetadata
 };
 
 const getMetadataRenderer = (cat) => METADATA_RENDERERS[cat?.toLowerCase()] || renderGlobalDisasterMetadata;
@@ -936,6 +1122,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const [showLabels, setShowLabels] = useState(true);
   const [showBuildings, setShowBuildings] = useState(true);
   const [showAssetMarkers, setShowAssetMarkers] = useState(true);
+  const [assetLayerMode, setAssetLayerMode] = useState(ASSET_LAYER_MODE_ALL);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showVisibilityBadges, setShowVisibilityBadges] = useState(true);
 
   const [assets, setAssets] = useState([]);
   const [selectedAsset, setSelectedAsset] = useState(null);
@@ -948,14 +1137,23 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const [riskIntelligenceLoading, setRiskIntelligenceLoading] = useState(false);
   const [riskIntelligenceError, setRiskIntelligenceError] = useState(null);
   const [riskLayersVisible, setRiskLayersVisible] = useState({
-    earthquakes: true, wildfires: true, weather: true, floods: true,
-    volcanoes: true, air_quality: true, ground_deformation: true, global_disasters: true
+    earthquakes: true,
+    wildfires: true,
+    weather: true,
+    floods: true,
+    volcanoes: true,
+    air_quality: true,
+    ground_deformation: true,
+    global_disasters: true
   });
   const [selectedRiskEvent, setSelectedRiskEvent] = useState(null);
   const [riskEventExpired, setRiskEventExpired] = useState(false);
   const [riskIntelligenceSummary, setRiskIntelligenceSummary] = useState({ total: 0, critical: 0, high: 0, medium: 0, low: 0 });
   const [riskDataSources, setRiskDataSources] = useState([]);
   const [riskIntelligenceLastUpdated, setRiskIntelligenceLastUpdated] = useState(null);
+
+  const [savedViews, setSavedViews] = useState(loadStoredSavedViews);
+  const [saveViewFormData, setSaveViewFormData] = useState({ ...INITIAL_SAVE_VIEW_FORM });
 
   const [userArea, setUserArea] = useState(loadStoredArea);
   const [areaFilterActive, setAreaFilterActive] = useState(loadStoredAreaFilterActive);
@@ -999,8 +1197,13 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const [activeModal, setActiveModal] = useState(null);
 
   const [expandedRiskSections, setExpandedRiskSections] = useState({
-    overview: true, metadata: true, impact: true,
-    recommendations: true, technical: false, source: false, goldenMeshDetection: true
+    overview: true,
+    metadata: true,
+    impact: true,
+    recommendations: true,
+    technical: false,
+    source: false,
+    goldenMeshDetection: true
   });
 
   const [deckLayersVersion, setDeckLayersVersion] = useState(0);
@@ -1037,8 +1240,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const streamingSummaryRef = useRef({ total: 0, critical: 0, high: 0, medium: 0, low: 0 });
   const nearbyStreamRef = useRef(null);
   const ingestionStreamRef = useRef(null);
+  const showHeatmapRef = useRef(false);
 
   const pendingAppleMarkerRefreshRef = useRef(false);
+  const flyToUserAreaRef = useRef(null);
 
   const showNotification = useCallback((message, type = "success") => {
     const setter = type === "success" ? setApiSuccess : setApiError;
@@ -1059,11 +1264,23 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const getVisibleBounds = useCallback(() => {
     if (activeProvider === MAP_PROVIDER_APPLE && appleMapRef.current) {
       const r = appleMapRef.current.region;
-      return { min_lat: r.center.latitude - r.span.latitudeDelta / 2, max_lat: r.center.latitude + r.span.latitudeDelta / 2, min_lng: r.center.longitude - r.span.longitudeDelta / 2, max_lng: r.center.longitude + r.span.longitudeDelta / 2 };
+      return {
+        min_lat: r.center.latitude - r.span.latitudeDelta / 2,
+        max_lat: r.center.latitude + r.span.latitudeDelta / 2,
+        min_lng: r.center.longitude - r.span.longitudeDelta / 2,
+        max_lng: r.center.longitude + r.span.longitudeDelta / 2
+      };
     }
     if (activeProvider === MAP_PROVIDER_DECKGL && deckglMapRef.current) {
       const b = deckglMapRef.current.getBounds();
-      if (b) return { min_lat: b.getSouth(), max_lat: b.getNorth(), min_lng: b.getWest(), max_lng: b.getEast() };
+      if (b) {
+        return {
+          min_lat: b.getSouth(),
+          max_lat: b.getNorth(),
+          min_lng: b.getWest(),
+          max_lng: b.getEast()
+        };
+      }
     }
     return null;
   }, [activeProvider]);
@@ -1074,19 +1291,27 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   }, []);
 
   const extractGeometry = useCallback((el) => {
-    if (el.type === "way" && el.geometry) return el.geometry.map(p => ({ lat: p.lat, lng: p.lon }));
+    if (el.type === "way" && el.geometry) {
+      return el.geometry.map(p => ({ lat: p.lat, lng: p.lon }));
+    }
     if (el.type === "relation" && el.members) {
       const outerMembers = el.members.filter(m => m.role === "outer" && m.geometry);
       const geomMembers = outerMembers.length > 0 ? outerMembers : el.members.filter(m => m.geometry);
       if (geomMembers.length === 0) return null;
-      if (outerMembers.length === 0) { const coords = []; geomMembers.forEach(m => m.geometry.forEach(p => coords.push({ lat: p.lat, lng: p.lon }))); return coords; }
+      if (outerMembers.length === 0) {
+        const coords = [];
+        geomMembers.forEach(m => m.geometry.forEach(p => coords.push({ lat: p.lat, lng: p.lon })));
+        return coords;
+      }
       const segments = geomMembers.map(m => m.geometry.map(p => ({ lat: p.lat, lng: p.lon })));
       if (segments.length === 1) return segments[0];
       const assembled = [...segments[0]];
       const used = new Set([0]);
       while (used.size < segments.length) {
         const lastPt = assembled[assembled.length - 1];
-        let bestIdx = -1, bestDist = Infinity, bestReverse = false;
+        let bestIdx = -1;
+        let bestDist = Infinity;
+        let bestReverse = false;
         for (let i = 0; i < segments.length; i++) {
           if (used.has(i)) continue;
           const seg = segments[i];
@@ -1106,7 +1331,15 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   const extractAddressFromTags = useCallback((tags) => {
     if (!tags) return null;
-    const tagMap = { housenumber: "addr:housenumber", housename: "addr:housename", street: "addr:street", city: "addr:city", state: "addr:state", postcode: "addr:postcode", country: "addr:country" };
+    const tagMap = {
+      housenumber: "addr:housenumber",
+      housename: "addr:housename",
+      street: "addr:street",
+      city: "addr:city",
+      state: "addr:state",
+      postcode: "addr:postcode",
+      country: "addr:country"
+    };
     const addr = {};
     Object.entries(tagMap).forEach(([k, t]) => { if (tags[t]) addr[k] = tags[t]; });
     return Object.keys(addr).length > 0 ? addr : null;
@@ -1115,36 +1348,84 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const extractBuildingDetails = useCallback((tags) => {
     if (!tags) return null;
     const details = {};
-    const tagMap = { "building:levels": "levels", "building:material": "material", height: "height", architect: "architect", operator: "operator", website: "website", phone: "phone", opening_hours: "hours" };
+    const tagMap = {
+      "building:levels": "levels",
+      "building:material": "material",
+      height: "height",
+      architect: "architect",
+      operator: "operator",
+      website: "website",
+      phone: "phone",
+      opening_hours: "hours"
+    };
     if (tags.building && tags.building !== "yes") details.buildingType = tags.building;
     Object.entries(tagMap).forEach(([t, k]) => { if (tags[t]) details[k] = tags[t]; });
     return Object.keys(details).length > 0 ? details : null;
   }, []);
 
   const fetchAssets = useCallback(async () => {
-    setIsLoadingAssets(true); setApiError(null);
+    setIsLoadingAssets(true);
+    setApiError(null);
     try {
       const params = new URLSearchParams({ orgid, limit: "100", sort_by: "risk_score", sort_order: "desc" });
       const data = await apiFetch(`${API_BASE_URL}/risk/assets?${params}`);
       if (data.success) {
-        setAssets(data.assets.map(a => ({ ...a, lat: a.latitude, lng: a.longitude, type: a.asset_type, riskLevel: a.risk_score || 0 })));
-      } else showNotification(data.message || "Failed to fetch assets.", "error");
-    } catch { showNotification("Network error occurred while fetching assets.", "error"); }
-    finally { setIsLoadingAssets(false); }
+        setAssets(data.assets.map(a => ({
+          ...a,
+          lat: a.latitude,
+          lng: a.longitude,
+          type: a.asset_type,
+          riskLevel: a.risk_score || 0,
+          geometry_type: a.geometry_type || "Point",
+          geometry_coordinates: a.geometry_coordinates || null,
+          dependencies: Array.isArray(a.dependencies) ? a.dependencies : [],
+          dependents: Array.isArray(a.dependents) ? a.dependents : [],
+          owner_orgid: a.owner_orgid || a.orgid || orgid
+        })));
+      } else {
+        showNotification(data.message || "Failed to fetch assets.", "error");
+      }
+    } catch (error) {
+      showNotification("Network error occurred while fetching assets.", "error");
+    } finally {
+      setIsLoadingAssets(false);
+    }
   }, [orgid, showNotification, apiFetch]);
 
   const fetchAssetDetails = useCallback(async (assetId) => {
     try {
       const data = await apiFetch(`${API_BASE_URL}/risk/assets/${assetId}?orgid=${orgid}`);
       if (data.success) {
-        setDetailedAsset({ ...data.asset, lat: data.asset.latitude, lng: data.asset.longitude, type: data.asset.asset_type, riskLevel: data.asset.risk_score || 0, zones: data.zones, history: data.history, alerts: data.alerts });
+        setDetailedAsset({
+          ...data.asset,
+          lat: data.asset.latitude,
+          lng: data.asset.longitude,
+          type: data.asset.asset_type,
+          riskLevel: data.asset.risk_score || 0,
+          zones: data.zones,
+          history: data.history,
+          alerts: data.alerts,
+          dependencies: Array.isArray(data.asset.dependencies) ? data.asset.dependencies : [],
+          dependents: Array.isArray(data.asset.dependents) ? data.asset.dependents : []
+        });
         setAlertCount(data.alerts?.length || 0);
-      } else showNotification(data.message || "Failed to fetch asset details.", "error");
-    } catch { showNotification("Network error occurred while fetching asset details.", "error"); }
+      } else {
+        showNotification(data.message || "Failed to fetch asset details.", "error");
+      }
+    } catch (error) {
+      showNotification("Network error occurred while fetching asset details.", "error");
+    }
   }, [orgid, showNotification, apiFetch]);
 
   const categorizeRisk = useCallback((risk) => {
-    const categoryMap = { seismic: "earthquakes", wildfire: "wildfires", flood: "floods", volcanic: "volcanoes", "air quality": "air_quality", "ground deformation": "ground_deformation" };
+    const categoryMap = {
+      seismic: "earthquakes",
+      wildfire: "wildfires",
+      flood: "floods",
+      volcanic: "volcanoes",
+      "air quality": "air_quality",
+      "ground deformation": "ground_deformation"
+    };
     const cat = risk.risk_category?.toLowerCase();
     return categoryMap[cat] || (["weather", "tornado", "hurricane", "space"].includes(cat) ? "weather" : "global_disasters");
   }, []);
@@ -1209,14 +1490,16 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     if (bounds) Object.entries(bounds).forEach(([k, v]) => params.append(k, v.toString()));
     const enabled = Object.entries(riskLayersVisible).filter(([, v]) => v).map(([k]) => k);
     if (enabled.length > 0) params.append("categories", enabled.join(","));
+    if (orgid) params.append("orgid", orgid);
+    if (username) params.append("username", username);
 
     const url = `${API_BASE_URL}/risk/intelligence/stream?${params}`;
     const evtSource = new EventSource(url);
     riskStreamRef.current = evtSource;
 
-    evtSource.addEventListener("source_data", (e) => {
+    evtSource.addEventListener("source_data", (event) => {
       try {
-        const payload = JSON.parse(e.data);
+        const payload = JSON.parse(event.data);
         const risks = payload.risks || [];
         if (!risks.length) return;
         const ref = streamingDataRef.current;
@@ -1226,6 +1509,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           if (isRiskEventExpired(risk)) continue;
           if (areaFilter && !isPointInArea(risk.latitude, risk.longitude, areaFilter)) continue;
           risk._ingested_at = risk._ingested_at || now;
+          if (!risk.visibility) risk.visibility = getRiskVisibility(risk);
           const bucket = categorizeRisk(risk);
           if (ref[bucket]) ref[bucket].push(risk);
           sumRef.total++;
@@ -1240,7 +1524,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         setRiskIntelligenceSummary({ ...sumRef });
         setAlertCount(sumRef.critical);
         setRiskIntelligenceLastUpdated(new Date());
-      } catch { }
+      } catch (error) { }
     });
 
     evtSource.addEventListener("stream_completed", () => {
@@ -1250,9 +1534,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     });
 
     evtSource.addEventListener("stream_started", () => { });
-
     evtSource.addEventListener("source_started", () => { });
-
     evtSource.addEventListener("source_completed", () => { });
 
     evtSource.onerror = () => {
@@ -1265,10 +1547,13 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         riskStreamRef.current = null;
       }
     };
-  }, [riskLayersVisible, categorizeRisk]);
+  }, [riskLayersVisible, categorizeRisk, orgid, username]);
 
   const fetchRiskDataSources = useCallback(async () => {
-    try { const data = await apiFetch(`${API_BASE_URL}/risk/intelligence/sources`); if (data.success) setRiskDataSources(data.sources); } catch { }
+    try {
+      const data = await apiFetch(`${API_BASE_URL}/risk/intelligence/sources`);
+      if (data.success) setRiskDataSources(data.sources);
+    } catch (error) { }
   }, [apiFetch]);
 
   const fetchNearbyRisks = useCallback(async (params = {}) => {
@@ -1280,8 +1565,17 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     setNearbyRisks(null);
 
     const qp = new URLSearchParams();
-    const paramMapping = { latitude: "lat", longitude: "lng", radius_km: "radius_km", category: "category", severity: "severity", source: "source", limit: "limit" };
+    const paramMapping = {
+      latitude: "lat",
+      longitude: "lng",
+      radius_km: "radius_km",
+      category: "category",
+      severity: "severity",
+      source: "source",
+      limit: "limit"
+    };
     Object.entries(paramMapping).forEach(([k, v]) => { if (params[k]) qp.append(v, params[k].toString()); });
+    if (orgid) qp.append("orgid", orgid);
 
     return new Promise((resolve) => {
       const collectedRisks = [];
@@ -1290,9 +1584,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       const evtSource = new EventSource(url);
       nearbyStreamRef.current = evtSource;
 
-      evtSource.addEventListener("nearby_data", (e) => {
+      evtSource.addEventListener("nearby_data", (event) => {
         try {
-          const payload = JSON.parse(e.data);
+          const payload = JSON.parse(event.data);
           const batch = payload.batch || [];
           collectedRisks.push(...batch);
           for (const risk of batch) {
@@ -1308,10 +1602,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
             streaming: true,
             batches_received: (payload.batch_index || 0) + 1
           });
-        } catch { }
+        } catch (error) { }
       });
 
-      evtSource.addEventListener("stream_completed", (e) => {
+      evtSource.addEventListener("stream_completed", () => {
         setIsLoadingNearby(false);
         evtSource.close();
         nearbyStreamRef.current = null;
@@ -1325,11 +1619,11 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         resolve(result);
       });
 
-      evtSource.addEventListener("stream_error", (e) => {
+      evtSource.addEventListener("stream_error", (event) => {
         try {
-          const payload = JSON.parse(e.data);
+          const payload = JSON.parse(event.data);
           showNotification(payload.message || "Failed to fetch nearby risks.", "error");
-        } catch {
+        } catch (error) {
           showNotification("Failed to fetch nearby risks.", "error");
         }
         setIsLoadingNearby(false);
@@ -1352,13 +1646,19 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         }
       };
     });
-  }, [showNotification]);
+  }, [showNotification, orgid]);
 
   const fetchIngestionStatus = useCallback(async () => {
     setIsLoadingIngestionStatus(true);
-    try { const data = await apiFetch(`${API_BASE_URL}/risk/intelligence/ingest/status`); if (data.success) setIngestionStatus(data); else showNotification(data.message || "Failed to fetch ingestion status.", "error"); }
-    catch { showNotification("Network error occurred while fetching ingestion status.", "error"); }
-    finally { setIsLoadingIngestionStatus(false); }
+    try {
+      const data = await apiFetch(`${API_BASE_URL}/risk/intelligence/ingest/status`);
+      if (data.success) setIngestionStatus(data);
+      else showNotification(data.message || "Failed to fetch ingestion status.", "error");
+    } catch (error) {
+      showNotification("Network error occurred while fetching ingestion status.", "error");
+    } finally {
+      setIsLoadingIngestionStatus(false);
+    }
   }, [showNotification, apiFetch]);
 
   const fetchCleanupStatus = useCallback(async () => {
@@ -1367,9 +1667,11 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       const data = await apiFetch(`${API_BASE_URL}/risk/intelligence/cleanup/status`);
       if (data.success) setCleanupStatus(data);
       else showNotification(data.message || "Failed to fetch cleanup status.", "error");
+    } catch (error) {
+      showNotification("Network error occurred while fetching cleanup status.", "error");
+    } finally {
+      setIsLoadingCleanupStatus(false);
     }
-    catch { showNotification("Network error occurred while fetching cleanup status.", "error"); }
-    finally { setIsLoadingCleanupStatus(false); }
   }, [showNotification, apiFetch]);
 
   const triggerCleanup = useCallback(async () => {
@@ -1384,9 +1686,11 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       } else {
         showNotification(data.message || "Failed to trigger cleanup.", "error");
       }
+    } catch (error) {
+      showNotification("Network error occurred while triggering cleanup.", "error");
+    } finally {
+      setIsTriggeringCleanup(false);
     }
-    catch { showNotification("Network error occurred while triggering cleanup.", "error"); }
-    finally { setIsTriggeringCleanup(false); }
   }, [showNotification, apiFetchWithStatus, fetchCleanupStatus]);
 
   const fetchHealthStatus = useCallback(async () => {
@@ -1424,8 +1728,11 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           cache_entries: data.cache_entries
         } : null
       });
-    } catch { showNotification("Network error occurred while fetching health status.", "error"); }
-    finally { setIsLoadingHealth(false); }
+    } catch (error) {
+      showNotification("Network error occurred while fetching health status.", "error");
+    } finally {
+      setIsLoadingHealth(false);
+    }
   }, [showNotification, apiFetch]);
 
   const refreshRiskIntelligence = useCallback(() => {
@@ -1446,19 +1753,29 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     setIsAssessingLocation(true);
     try {
       const { status, data } = await apiFetchWithStatus(`${API_BASE_URL}/risk/intelligence/assess-location`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ latitude, longitude, radius_km: radiusKm, categories: ["earthquakes", "wildfires", "weather", "floods", "volcanoes", "ground_deformation"] })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ latitude, longitude, radius_km: radiusKm, orgid, categories: ["earthquakes", "wildfires", "weather", "floods", "volcanoes", "ground_deformation"] })
       });
       if (status === 404) {
         showNotification("This risk event has expired or been removed from the database. Refreshing data.", "error");
         refreshRiskIntelligence();
         return null;
       }
-      if (data.success) { setLocationAssessment(data); setActiveModal("locationAssess"); return data; }
-      showNotification(data.message || "Failed to assess location risk.", "error"); return null;
-    } catch { showNotification("Network error occurred while assessing location risk.", "error"); return null; }
-    finally { setIsAssessingLocation(false); }
-  }, [showNotification, apiFetchWithStatus, refreshRiskIntelligence]);
+      if (data.success) {
+        setLocationAssessment(data);
+        setActiveModal("locationAssess");
+        return data;
+      }
+      showNotification(data.message || "Failed to assess location risk.", "error");
+      return null;
+    } catch (error) {
+      showNotification("Network error occurred while assessing location risk.", "error");
+      return null;
+    } finally {
+      setIsAssessingLocation(false);
+    }
+  }, [showNotification, apiFetchWithStatus, refreshRiskIntelligence, orgid]);
 
   const connectIngestionStream = useCallback(() => {
     if (ingestionStreamRef.current) return;
@@ -1469,29 +1786,29 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       setIngestionStreamConnected(true);
     });
 
-    evtSource.addEventListener("ingestion_started", (e) => {
+    evtSource.addEventListener("ingestion_started", (event) => {
       try {
-        const payload = JSON.parse(e.data);
+        const payload = JSON.parse(event.data);
         setIngestionProgress([{ type: "started", ...payload }]);
         showNotification("Ingestion cycle started.");
-      } catch { }
+      } catch (error) { }
     });
 
-    evtSource.addEventListener("ingestion_progress", (e) => {
+    evtSource.addEventListener("ingestion_progress", (event) => {
       try {
-        const payload = JSON.parse(e.data);
+        const payload = JSON.parse(event.data);
         setIngestionProgress(prev => [...prev, { type: "progress", ...payload }]);
-      } catch { }
+      } catch (error) { }
     });
 
-    evtSource.addEventListener("ingestion_completed", (e) => {
+    evtSource.addEventListener("ingestion_completed", (event) => {
       try {
-        const payload = JSON.parse(e.data);
+        const payload = JSON.parse(event.data);
         setIngestionProgress(prev => [...prev, { type: "completed", ...payload }]);
         showNotification(`Ingestion completed: ${payload.total_ingested || 0} events ingested.`);
         fetchIngestionStatus();
         refreshRiskIntelligence();
-      } catch { }
+      } catch (error) { }
     });
 
     evtSource.onerror = () => {
@@ -1512,17 +1829,30 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   const openNearbyQueryModal = useCallback((lat = null, lng = null) => {
     setNearbyFormData({ ...INITIAL_NEARBY_FORM, ...(lat != null && lng != null ? { latitude: lat.toFixed(6), longitude: lng.toFixed(6) } : {}) });
-    setNearbyRisks(null); setActiveModal("nearbyQuery");
+    setNearbyRisks(null);
+    setActiveModal("nearbyQuery");
   }, []);
 
   const handleFormChange = useCallback((setter) => (field, value) => setter(prev => ({ ...prev, [field]: value })), []);
   const handleNearbyFormChange = handleFormChange(setNearbyFormData);
   const handleAreaFormChange = handleFormChange(setAreaFormData);
+  const handleSaveViewFormChange = handleFormChange(setSaveViewFormData);
 
-  const handleNearbyQuerySubmit = useCallback((e) => {
-    e.preventDefault();
-    if (!nearbyFormData.latitude || !nearbyFormData.longitude) { showNotification("Latitude and longitude are required for nearby query.", "error"); return; }
-    fetchNearbyRisks({ latitude: parseFloat(nearbyFormData.latitude), longitude: parseFloat(nearbyFormData.longitude), radius_km: parseFloat(nearbyFormData.radius_km) || 100, category: nearbyFormData.category || undefined, severity: nearbyFormData.severity || undefined, source: nearbyFormData.source || undefined, limit: parseInt(nearbyFormData.limit) });
+  const handleNearbyQuerySubmit = useCallback((event) => {
+    event.preventDefault();
+    if (!nearbyFormData.latitude || !nearbyFormData.longitude) {
+      showNotification("Latitude and longitude are required for nearby query.", "error");
+      return;
+    }
+    fetchNearbyRisks({
+      latitude: parseFloat(nearbyFormData.latitude),
+      longitude: parseFloat(nearbyFormData.longitude),
+      radius_km: parseFloat(nearbyFormData.radius_km) || 100,
+      category: nearbyFormData.category || undefined,
+      severity: nearbyFormData.severity || undefined,
+      source: nearbyFormData.source || undefined,
+      limit: parseInt(nearbyFormData.limit)
+    });
   }, [nearbyFormData, fetchNearbyRisks, showNotification]);
 
   const fetchAreaFromBackend = useCallback(async () => {
@@ -1533,7 +1863,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         setUserArea(data.area);
         setAreaFilterActive(!!data.filter_active);
       }
-    } catch { }
+    } catch (error) { }
   }, [orgid, username, apiFetch]);
 
   const saveAreaToBackend = useCallback(async (area, filterActive) => {
@@ -1547,7 +1877,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       if (status !== 200 || !data?.success) {
         showNotification(data?.message || "Failed to save area to server. Saved locally only.", "error");
       }
-    } catch {
+    } catch (error) {
       showNotification("Network error saving area to server. Saved locally only.", "error");
     }
   }, [orgid, username, apiFetchWithStatus, showNotification]);
@@ -1556,7 +1886,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     if (!orgid || !username) return;
     try {
       await apiFetch(`${API_BASE_URL}/risk/user/area?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`, { method: "DELETE" });
-    } catch { }
+    } catch (error) { }
   }, [orgid, username, apiFetch]);
 
   const updateFilterStateOnBackend = useCallback(async (filterActive) => {
@@ -1567,7 +1897,45 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgid, username, filter_active: !!filterActive })
       });
-    } catch { }
+    } catch (error) { }
+  }, [orgid, username, apiFetch]);
+
+  const fetchSavedViewsFromBackend = useCallback(async () => {
+    if (!orgid || !username) return;
+    try {
+      const data = await apiFetch(`${API_BASE_URL}/risk/user/views?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`);
+      if (data?.success && Array.isArray(data.views)) {
+        const local = loadStoredSavedViews();
+        const merged = [];
+        const seenIds = new Set();
+        for (const v of data.views) {
+          if (!seenIds.has(v.view_id)) { seenIds.add(v.view_id); merged.push(v); }
+        }
+        for (const v of local) {
+          if (!seenIds.has(v.view_id)) { seenIds.add(v.view_id); merged.push(v); }
+        }
+        setSavedViews(merged);
+        persistSavedViewsLocal(merged);
+      }
+    } catch (error) { }
+  }, [orgid, username, apiFetch]);
+
+  const persistSavedViewToBackend = useCallback(async (view) => {
+    if (!orgid || !username || !view) return;
+    try {
+      await apiFetch(`${API_BASE_URL}/risk/user/views`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgid, username, ...view })
+      });
+    } catch (error) { }
+  }, [orgid, username, apiFetch]);
+
+  const removeSavedViewFromBackend = useCallback(async (viewId) => {
+    if (!orgid || !username || !viewId) return;
+    try {
+      await apiFetch(`${API_BASE_URL}/risk/user/views/${encodeURIComponent(viewId)}?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`, { method: "DELETE" });
+    } catch (error) { }
   }, [orgid, username, apiFetch]);
 
   const openMyAreaModal = useCallback(() => {
@@ -1625,7 +1993,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         name: prev.name?.trim() ? prev.name : friendlyName
       }));
       showNotification(`Geocoded to ${place.display_name?.substring(0, 80) || `${lat}, ${lng}`}.`);
-    } catch {
+    } catch (error) {
       showNotification("Failed to geocode address. Check your network.", "error");
     } finally {
       setIsGeocodingArea(false);
@@ -1654,6 +2022,28 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       max_lng: bounds.max_lng.toFixed(6)
     }));
   }, [getVisibleBounds, showNotification]);
+
+  const navigateToLocationDeferred = useCallback((lat, lng, zoom, name) => {
+    if (deckglMapRef.current && activeProvider === MAP_PROVIDER_DECKGL) {
+      deckglMapRef.current.flyTo({ center: [lng, lat], zoom, duration: 1500 });
+    } else if (appleMapRef.current && activeProvider === MAP_PROVIDER_APPLE && window.mapkit) {
+      const span = 360 / Math.pow(2, zoom);
+      appleMapRef.current.setRegionAnimated(new window.mapkit.CoordinateRegion(new window.mapkit.Coordinate(lat, lng), new window.mapkit.CoordinateSpan(span, span)), true);
+    }
+    setCurrentLocation(name || `${lat.toFixed(2)}°, ${lng.toFixed(2)}°`);
+  }, [activeProvider]);
+
+  const fitToBoundsDeferred = useCallback((area) => {
+    if (deckglMapRef.current && activeProvider === MAP_PROVIDER_DECKGL) {
+      deckglMapRef.current.fitBounds([[area.min_lng, area.min_lat], [area.max_lng, area.max_lat]], { padding: 50, duration: 1500 });
+    } else if (appleMapRef.current && activeProvider === MAP_PROVIDER_APPLE && window.mapkit) {
+      const cLat = (area.min_lat + area.max_lat) / 2;
+      const cLng = (area.min_lng + area.max_lng) / 2;
+      const span = Math.max(area.max_lat - area.min_lat, area.max_lng - area.min_lng) * 1.3;
+      appleMapRef.current.setRegionAnimated(new window.mapkit.CoordinateRegion(new window.mapkit.Coordinate(cLat, cLng), new window.mapkit.CoordinateSpan(span, span)), true);
+    }
+    setCurrentLocation(area.name || "Custom Area");
+  }, [activeProvider]);
 
   const handleSaveArea = useCallback((activateImmediately = true) => {
     let area = null;
@@ -1717,29 +2107,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     } else {
       setTimeout(() => fitToBoundsDeferred(area), 100);
     }
-  }, [areaFormData, showNotification, saveAreaToBackend]);
-
-  const navigateToLocationDeferred = useCallback((lat, lng, zoom, name) => {
-    if (deckglMapRef.current && activeProvider === MAP_PROVIDER_DECKGL) {
-      deckglMapRef.current.flyTo({ center: [lng, lat], zoom, duration: 1500 });
-    } else if (appleMapRef.current && activeProvider === MAP_PROVIDER_APPLE && window.mapkit) {
-      const span = 360 / Math.pow(2, zoom);
-      appleMapRef.current.setRegionAnimated(new window.mapkit.CoordinateRegion(new window.mapkit.Coordinate(lat, lng), new window.mapkit.CoordinateSpan(span, span)), true);
-    }
-    setCurrentLocation(name || `${lat.toFixed(2)}°, ${lng.toFixed(2)}°`);
-  }, [activeProvider]);
-
-  const fitToBoundsDeferred = useCallback((area) => {
-    if (deckglMapRef.current && activeProvider === MAP_PROVIDER_DECKGL) {
-      deckglMapRef.current.fitBounds([[area.min_lng, area.min_lat], [area.max_lng, area.max_lat]], { padding: 50, duration: 1500 });
-    } else if (appleMapRef.current && activeProvider === MAP_PROVIDER_APPLE && window.mapkit) {
-      const cLat = (area.min_lat + area.max_lat) / 2;
-      const cLng = (area.min_lng + area.max_lng) / 2;
-      const span = Math.max(area.max_lat - area.min_lat, area.max_lng - area.min_lng) * 1.3;
-      appleMapRef.current.setRegionAnimated(new window.mapkit.CoordinateRegion(new window.mapkit.Coordinate(cLat, cLng), new window.mapkit.CoordinateSpan(span, span)), true);
-    }
-    setCurrentLocation(area.name || "Custom Area");
-  }, [activeProvider]);
+  }, [areaFormData, showNotification, saveAreaToBackend, navigateToLocationDeferred, fitToBoundsDeferred]);
 
   const clearUserArea = useCallback(() => {
     setUserArea(null);
@@ -1748,8 +2116,6 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     deleteAreaFromBackend();
     showNotification("Cleared preferred area. Showing global alerts.");
   }, [showNotification, deleteAreaFromBackend]);
-
-  const flyToUserAreaRef = useRef(null);
 
   const toggleAreaFilter = useCallback(() => {
     if (!userArea) {
@@ -1767,37 +2133,163 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   useEffect(() => {
     fetchAreaFromBackend();
-  }, [fetchAreaFromBackend]);
+    fetchSavedViewsFromBackend();
+  }, [fetchAreaFromBackend, fetchSavedViewsFromBackend]);
 
   const toggleRiskLayer = useCallback((cat) => setRiskLayersVisible(prev => ({ ...prev, [cat]: !prev[cat] })), []);
   const toggleRiskSection = useCallback((s) => setExpandedRiskSections(prev => ({ ...prev, [s]: !prev[s] })), []);
 
+  const captureCurrentView = useCallback(() => {
+    const bounds = getVisibleBounds();
+    return {
+      center: { lat: mapCenter.lat, lng: mapCenter.lng },
+      zoom: mapZoom,
+      pitch: mapPitch,
+      bearing: mapBearing,
+      bounds,
+      provider: activeProvider
+    };
+  }, [getVisibleBounds, mapCenter, mapZoom, mapPitch, mapBearing, activeProvider]);
+
+  const openSaveViewModal = useCallback(() => {
+    setSaveViewFormData({ ...INITIAL_SAVE_VIEW_FORM, name: `View ${new Date().toLocaleString()}` });
+    setActiveModal("saveView");
+  }, []);
+
+  const handleSaveCurrentView = useCallback(() => {
+    const name = saveViewFormData.name?.trim();
+    if (!name) {
+      showNotification("Enter a name for the saved view.", "error");
+      return;
+    }
+    const camera = captureCurrentView();
+    const view = {
+      view_id: generateViewId(),
+      name,
+      description: saveViewFormData.description?.trim() || "",
+      created_at: new Date().toISOString(),
+      camera,
+      center: camera.center,
+      zoom: camera.zoom,
+      pitch: camera.pitch,
+      bearing: camera.bearing,
+      bounds: camera.bounds,
+      filters: saveViewFormData.include_filters ? {
+        area_filter_active: areaFilterActive,
+        user_area: userArea,
+        risk_layers_visible: { ...riskLayersVisible }
+      } : null,
+      layers: saveViewFormData.include_layers ? {
+        show_3d_terrain: show3DTerrain,
+        show_satellite: showSatellite,
+        show_buildings: showBuildings,
+        show_asset_markers: showAssetMarkers,
+        asset_layer_mode: assetLayerMode,
+        show_heatmap: showHeatmap,
+        show_visibility_badges: showVisibilityBadges
+      } : null
+    };
+    const next = [view, ...savedViews].slice(0, SAVED_VIEWS_MAX);
+    setSavedViews(next);
+    persistSavedViewsLocal(next);
+    persistSavedViewToBackend(view);
+    setActiveModal(null);
+    showNotification(`Saved view: ${name}.`);
+  }, [saveViewFormData, captureCurrentView, areaFilterActive, userArea, riskLayersVisible, show3DTerrain, showSatellite, showBuildings, showAssetMarkers, assetLayerMode, showHeatmap, showVisibilityBadges, savedViews, persistSavedViewToBackend, showNotification]);
+
+  const applySavedView = useCallback((view) => {
+    if (!view) return;
+    const camera = view.camera || { center: view.center, zoom: view.zoom, pitch: view.pitch, bearing: view.bearing };
+    if (camera?.center && camera.zoom != null) {
+      navigateToLocationDeferred(camera.center.lat, camera.center.lng, camera.zoom, view.name);
+    }
+    if (view.filters) {
+      if (view.filters.risk_layers_visible) setRiskLayersVisible(view.filters.risk_layers_visible);
+      if (view.filters.user_area !== undefined) {
+        setUserArea(view.filters.user_area);
+        if (view.filters.user_area) {
+          saveAreaToBackend(view.filters.user_area, !!view.filters.area_filter_active);
+        }
+      }
+      if (view.filters.area_filter_active !== undefined) setAreaFilterActive(!!view.filters.area_filter_active);
+    }
+    if (view.layers) {
+      if (view.layers.show_3d_terrain !== undefined) setShow3DTerrain(!!view.layers.show_3d_terrain);
+      if (view.layers.show_satellite !== undefined) setShowSatellite(!!view.layers.show_satellite);
+      if (view.layers.show_buildings !== undefined) setShowBuildings(!!view.layers.show_buildings);
+      if (view.layers.show_asset_markers !== undefined) setShowAssetMarkers(!!view.layers.show_asset_markers);
+      if (view.layers.asset_layer_mode) setAssetLayerMode(view.layers.asset_layer_mode);
+      if (view.layers.show_heatmap !== undefined) setShowHeatmap(!!view.layers.show_heatmap);
+      if (view.layers.show_visibility_badges !== undefined) setShowVisibilityBadges(!!view.layers.show_visibility_badges);
+    }
+    setActiveModal(null);
+    showNotification(`Applied saved view: ${describeSavedView(view)}.`);
+  }, [navigateToLocationDeferred, saveAreaToBackend, showNotification]);
+
+  const deleteSavedView = useCallback((viewId) => {
+    const next = savedViews.filter(v => v.view_id !== viewId);
+    setSavedViews(next);
+    persistSavedViewsLocal(next);
+    removeSavedViewFromBackend(viewId);
+    showNotification("Deleted saved view.");
+  }, [savedViews, removeSavedViewFromBackend, showNotification]);
+
   const fetchReverseGeocode = useCallback(async (lat, lng) => {
-    try { const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&extratags=1&namedetails=1`, { headers: { "User-Agent": "RiskCommandCenter/1.0" } }); return r.ok ? r.json() : null; } catch { return null; }
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&extratags=1&namedetails=1`, { headers: { "User-Agent": "RiskCommandCenter/1.0" } });
+      return r.ok ? r.json() : null;
+    } catch (error) {
+      return null;
+    }
   }, []);
 
   const fetchWikipediaExtract = useCallback(async (tag) => {
     if (!tag) return null;
     try {
-      let lang = "en", title = tag;
-      if (tag.includes(":")) { const p = tag.split(":"); lang = p[0]; title = p.slice(1).join(":"); }
+      let lang = "en";
+      let title = tag;
+      if (tag.includes(":")) {
+        const p = tag.split(":");
+        lang = p[0];
+        title = p.slice(1).join(":");
+      }
       const r = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: { "User-Agent": "RiskCommandCenter/1.0" } });
       if (!r.ok) return null;
       const d = await r.json();
-      return { title: d.title, extract: d.extract, description: d.description, thumbnail: d.thumbnail?.source, coordinates: d.coordinates, url: d.content_urls?.desktop?.page };
-    } catch { return null; }
+      return {
+        title: d.title,
+        extract: d.extract,
+        description: d.description,
+        thumbnail: d.thumbnail?.source,
+        coordinates: d.coordinates,
+        url: d.content_urls?.desktop?.page
+      };
+    } catch (error) {
+      return null;
+    }
   }, []);
 
   const fetchElevation = useCallback(async (lat, lng) => {
-    try { const r = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`); return r.ok ? (await r.json()).results?.[0]?.elevation : null; } catch { return null; }
+    try {
+      const r = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`);
+      return r.ok ? (await r.json()).results?.[0]?.elevation : null;
+    } catch (error) {
+      return null;
+    }
   }, []);
 
   const fetchNearbyPOIs = useCallback(async (lat, lng, radius = 200) => {
     try {
       const data = await overpassFetch(`[out:json][timeout:10];(node["amenity"](around:${radius},${lat},${lng});node["shop"](around:${radius},${lat},${lng});node["tourism"](around:${radius},${lat},${lng});node["public_transport"](around:${radius},${lat},${lng});node["highway"="bus_stop"](around:${radius},${lat},${lng});node["railway"="station"](around:${radius},${lat},${lng});node["railway"="tram_stop"](around:${radius},${lat},${lng}););out body 50;`);
       if (!data) return [];
-      return (data.elements || []).map(el => ({ type: el.tags?.amenity || el.tags?.shop || el.tags?.tourism || el.tags?.public_transport || el.tags?.highway || el.tags?.railway, name: el.tags?.name, distance: haversine(lat, lng, el.lat, el.lon) })).filter(p => p.type).sort((a, b) => a.distance - b.distance).slice(0, 15);
-    } catch { return []; }
+      return (data.elements || []).map(el => ({
+        type: el.tags?.amenity || el.tags?.shop || el.tags?.tourism || el.tags?.public_transport || el.tags?.highway || el.tags?.railway,
+        name: el.tags?.name,
+        distance: haversine(lat, lng, el.lat, el.lon)
+      })).filter(p => p.type).sort((a, b) => a.distance - b.distance).slice(0, 15);
+    } catch (error) {
+      return [];
+    }
   }, []);
 
   const fetchNearbyStreets = useCallback(async (lat, lng, radius = 100) => {
@@ -1805,15 +2297,24 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       const data = await overpassFetch(`[out:json][timeout:10];way["highway"](around:${radius},${lat},${lng});out tags 20;`);
       if (!data) return [];
       return [...new Set((data.elements || []).filter(el => el.tags?.name).map(el => ({ name: el.tags.name, type: el.tags.highway })))].slice(0, 10);
-    } catch { return []; }
+    } catch (error) {
+      return [];
+    }
   }, []);
 
   const fetchAdminBoundaries = useCallback(async (lat, lng) => {
     try {
       const data = await overpassFetch(`[out:json][timeout:10];is_in(${lat},${lng})->.a;area.a["boundary"="administrative"];out tags;`);
       if (!data) return [];
-      return (data.elements || []).map(el => ({ name: el.tags?.name, level: el.tags?.admin_level, type: el.tags?.boundary, population: el.tags?.population })).filter(b => b.name).sort((a, b) => (b.level || 0) - (a.level || 0));
-    } catch { return []; }
+      return (data.elements || []).map(el => ({
+        name: el.tags?.name,
+        level: el.tags?.admin_level,
+        type: el.tags?.boundary,
+        population: el.tags?.population
+      })).filter(b => b.name).sort((a, b) => (b.level || 0) - (a.level || 0));
+    } catch (error) {
+      return [];
+    }
   }, []);
 
   const fetchLandUseContext = useCallback(async (lat, lng, radius = 300) => {
@@ -1821,17 +2322,33 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       const data = await overpassFetch(`[out:json][timeout:10];(way["landuse"](around:${radius},${lat},${lng});relation["landuse"](around:${radius},${lat},${lng});way["natural"](around:${radius},${lat},${lng});relation["natural"](around:${radius},${lat},${lng}););out tags 30;`);
       if (!data) return [];
       const counts = {};
-      (data.elements || []).forEach(el => { const t = el.tags?.landuse || el.tags?.natural; if (t) counts[t] = (counts[t] || 0) + 1; });
+      (data.elements || []).forEach(el => {
+        const t = el.tags?.landuse || el.tags?.natural;
+        if (t) counts[t] = (counts[t] || 0) + 1;
+      });
       return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([type, count]) => ({ type, count }));
-    } catch { return []; }
+    } catch (error) {
+      return [];
+    }
   }, []);
 
   const fetchFeatureDetails = useCallback(async (feature, centroid) => {
     setIsFetchingDetails(true);
     const details = {
-      address: null, location: null, buildingInfo: null, wikipediaInfo: null, elevationInfo: null,
-      nearbyPOIs: [], nearbyStreets: [], adminBoundaries: [], landUseContext: [],
-      geographicInfo: { timezone: getTimezoneFromCoords(centroid.lat, centroid.lng), climateZone: getClimateZone(centroid.lat), hemisphere: getHemisphere(centroid.lat, centroid.lng) }
+      address: null,
+      location: null,
+      buildingInfo: null,
+      wikipediaInfo: null,
+      elevationInfo: null,
+      nearbyPOIs: [],
+      nearbyStreets: [],
+      adminBoundaries: [],
+      landUseContext: [],
+      geographicInfo: {
+        timezone: getTimezoneFromCoords(centroid.lat, centroid.lng),
+        climateZone: getClimateZone(centroid.lat),
+        hemisphere: getHemisphere(centroid.lat, centroid.lng)
+      }
     };
     details.address = extractAddressFromTags(feature.tags);
     details.buildingInfo = extractBuildingDetails(feature.tags);
@@ -1840,7 +2357,17 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         fetchReverseGeocode(centroid.lat, centroid.lng).then(g => {
           if (!g) return;
           details.location = { displayName: g.display_name, addressComponents: g.address || {} };
-          if (!details.address && g.address) { const a = g.address; details.address = { housenumber: a.house_number, street: a.road, city: a.city || a.town || a.village, state: a.state, postcode: a.postcode, country: a.country }; }
+          if (!details.address && g.address) {
+            const a = g.address;
+            details.address = {
+              housenumber: a.house_number,
+              street: a.road,
+              city: a.city || a.town || a.village,
+              state: a.state,
+              postcode: a.postcode,
+              country: a.country
+            };
+          }
         }),
         feature.tags?.wikipedia ? fetchWikipediaExtract(feature.tags.wikipedia).then(w => { if (w) details.wikipediaInfo = w; }) : Promise.resolve(),
         fetchElevation(centroid.lat, centroid.lng).then(e => { if (e !== null) details.elevationInfo = { groundElevation: e, elevationFeet: Math.round(e * 3.28084) }; }),
@@ -1849,7 +2376,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         fetchAdminBoundaries(centroid.lat, centroid.lng).then(b => { details.adminBoundaries = b; }),
         fetchLandUseContext(centroid.lat, centroid.lng, 500).then(l => { details.landUseContext = l; })
       ]);
-    } catch { }
+    } catch (error) { }
     setIsFetchingDetails(false);
     setFeatureDetails(details);
   }, [fetchReverseGeocode, fetchWikipediaExtract, fetchElevation, fetchNearbyPOIs, fetchNearbyStreets, fetchAdminBoundaries, fetchLandUseContext, extractAddressFromTags, extractBuildingDetails]);
@@ -1879,12 +2406,18 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   }, [clearSelectionOverlays, activeProvider]);
 
   const clearSelection = useCallback(() => {
-    clearSelectionOverlays(); setSelectedFeature(null); setFeatureMeasurements(null); setFeatureDetails(null); setSelectionError(null);
+    clearSelectionOverlays();
+    setSelectedFeature(null);
+    setFeatureMeasurements(null);
+    setFeatureDetails(null);
+    setSelectionError(null);
   }, [clearSelectionOverlays]);
 
   const getQueryRadius = useCallback((zoom) => {
     const thresholds = [[21, 3], [20, 5], [19, 8], [18, 12], [17, 20], [16, 35], [15, 50], [14, 80], [13, 120], [12, 200], [11, 400], [10, 800], [8, 2000], [6, 5000]];
-    for (const [z, r] of thresholds) if (zoom >= z) return r;
+    for (const [z, r] of thresholds) {
+      if (zoom >= z) return r;
+    }
     return 15000;
   }, []);
 
@@ -1909,7 +2442,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   }, []);
 
   const queryFeatureAtPoint = useCallback(async (lat, lng, zoom) => {
-    setIsSelectingFeature(true); setSelectionError(null); clearSelection();
+    setIsSelectingFeature(true);
+    setSelectionError(null);
+    clearSelection();
     try {
       const radius = getQueryRadius(zoom);
       const query = buildOverpassQuery(lat, lng, radius, zoom);
@@ -1920,23 +2455,57 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         setTimeout(() => setSelectionError(null), 5000);
         return;
       }
-      if (!data.elements?.length) { setSelectionError("No selectable feature found here. Try zooming in closer."); setIsSelectingFeature(false); setTimeout(() => setSelectionError(null), 5000); return; }
+      if (!data.elements?.length) {
+        setSelectionError("No selectable feature found here. Try zooming in closer.");
+        setIsSelectingFeature(false);
+        setTimeout(() => setSelectionError(null), 5000);
+        return;
+      }
       const clickPoint = { lat, lng };
       const features = data.elements.map(el => {
         const geom = extractGeometry(el);
         if (!geom || geom.length < 3) return null;
         const centroid = getCentroid(geom);
-        return { id: el.id, osmType: el.type, tags: el.tags || {}, geometry: geom, area: calculatePolygonArea(geom), centroid, isInside: pointInPolygon(clickPoint, geom), edgeDist: distanceToPolygon(clickPoint, geom), centroidDist: haversine(lat, lng, centroid.lat, centroid.lng) };
+        return {
+          id: el.id,
+          osmType: el.type,
+          tags: el.tags || {},
+          geometry: geom,
+          area: calculatePolygonArea(geom),
+          centroid,
+          isInside: pointInPolygon(clickPoint, geom),
+          edgeDist: distanceToPolygon(clickPoint, geom),
+          centroidDist: haversine(lat, lng, centroid.lat, centroid.lng)
+        };
       }).filter(Boolean);
-      if (features.length === 0) { setSelectionError("No geometry found for nearby features."); setIsSelectingFeature(false); setTimeout(() => setSelectionError(null), 5000); return; }
+      if (features.length === 0) {
+        setSelectionError("No geometry found for nearby features.");
+        setIsSelectingFeature(false);
+        setTimeout(() => setSelectionError(null), 5000);
+        return;
+      }
       features.sort((a, b) => {
         if (a.isInside !== b.isInside) return a.isInside ? -1 : 1;
         if (a.isInside && b.isInside) return a.area - b.area;
         return (a.edgeDist + a.area * 0.00001) - (b.edgeDist + b.area * 0.00001);
       });
       const best = features[0];
-      setSelectedFeature({ id: best.id, osmType: best.osmType, name: getFeatureName(best.tags), type: getFeatureType(best.tags), tags: best.tags, geometry: best.geometry, centroid: best.centroid });
-      setFeatureMeasurements({ area: best.area, perimeter: calculatePerimeter(best.geometry), dimensions: calculateDetailedDimensions(best.geometry), vertexCount: best.geometry.length, centroid: best.centroid });
+      setSelectedFeature({
+        id: best.id,
+        osmType: best.osmType,
+        name: getFeatureName(best.tags),
+        type: getFeatureType(best.tags),
+        tags: best.tags,
+        geometry: best.geometry,
+        centroid: best.centroid
+      });
+      setFeatureMeasurements({
+        area: best.area,
+        perimeter: calculatePerimeter(best.geometry),
+        dimensions: calculateDetailedDimensions(best.geometry),
+        vertexCount: best.geometry.length,
+        centroid: best.centroid
+      });
       drawFeatureHighlight(best.geometry);
       fetchFeatureDetails({ id: best.id, osmType: best.osmType, tags: best.tags }, best.centroid);
     } catch (error) {
@@ -1948,17 +2517,45 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   const loadMapKitJS = useCallback(() => {
     return new Promise((resolve, reject) => {
-      if (window.mapkit && mapkitInitializedRef.current) { resolve(window.mapkit); return; }
+      if (window.mapkit && mapkitInitializedRef.current) {
+        resolve(window.mapkit);
+        return;
+      }
       if (document.querySelector('script[src*="apple-mapkit"]')) {
-        const check = setInterval(() => { if (window.mapkit) { clearInterval(check); if (!mapkitInitializedRef.current) { window.mapkit.init({ authorizationCallback: done => done(MAPKIT_TOKEN) }); mapkitInitializedRef.current = true; } resolve(window.mapkit); } }, 100);
-        setTimeout(() => { clearInterval(check); reject(new Error("MapKit JS load timeout occurred.")); }, 10000);
+        const check = setInterval(() => {
+          if (window.mapkit) {
+            clearInterval(check);
+            if (!mapkitInitializedRef.current) {
+              window.mapkit.init({ authorizationCallback: done => done(MAPKIT_TOKEN) });
+              mapkitInitializedRef.current = true;
+            }
+            resolve(window.mapkit);
+          }
+        }, 100);
+        setTimeout(() => {
+          clearInterval(check);
+          reject(new Error("MapKit JS load timed out."));
+        }, 10000);
         return;
       }
       const script = document.createElement("script");
-      script.src = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js"; script.crossOrigin = "anonymous";
-      const timeout = setTimeout(() => reject(new Error("MapKit JS load timeout occurred.")), 10000);
-      script.addEventListener("load", () => { clearTimeout(timeout); try { window.mapkit.init({ authorizationCallback: done => done(MAPKIT_TOKEN) }); mapkitInitializedRef.current = true; resolve(window.mapkit); } catch (error) { reject(error); } });
-      script.addEventListener("error", () => { clearTimeout(timeout); reject(new Error("MapKit JS script load failed.")); });
+      script.src = "https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.js";
+      script.crossOrigin = "anonymous";
+      const timeout = setTimeout(() => reject(new Error("MapKit JS load timed out.")), 10000);
+      script.addEventListener("load", () => {
+        clearTimeout(timeout);
+        try {
+          window.mapkit.init({ authorizationCallback: done => done(MAPKIT_TOKEN) });
+          mapkitInitializedRef.current = true;
+          resolve(window.mapkit);
+        } catch (error) {
+          reject(error);
+        }
+      });
+      script.addEventListener("error", () => {
+        clearTimeout(timeout);
+        reject(new Error("MapKit JS script load failed."));
+      });
       document.head.appendChild(script);
     });
   }, [MAPKIT_TOKEN]);
@@ -1968,36 +2565,57 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     await loadScript("https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js", "maplibre-script");
     await loadScript("https://unpkg.com/deck.gl@8.9.36/dist.min.js", "deckgl-script");
     await new Promise(resolve => {
-      const check = setInterval(() => { if (window.deck?.MapboxOverlay && window.maplibregl) { clearInterval(check); resolve(); } }, 50);
-      setTimeout(() => { clearInterval(check); resolve(); }, 8000);
+      const check = setInterval(() => {
+        if (window.deck?.MapboxOverlay && window.maplibregl) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 50);
+      setTimeout(() => {
+        clearInterval(check);
+        resolve();
+      }, 8000);
     });
   }, []);
 
   const initAppleMap = useCallback((mapkit) => {
     if (!appleMapContainerRef.current) return null;
     const map = new mapkit.Map(appleMapContainerRef.current, {
-      mapType: mapkit.Map.MapTypes.Satellite, showsCompass: mapkit.FeatureVisibility.Visible,
-      showsZoomControl: true, showsScale: mapkit.FeatureVisibility.Visible,
-      showsMapTypeControl: false, showsUserLocationControl: true, showsPointsOfInterest: true,
-      isRotationEnabled: true, isScrollEnabled: true, isZoomEnabled: true,
-      padding: new mapkit.Padding(0, 0, 0, 0), center: new mapkit.Coordinate(20, 0),
-      cameraBoundary: null, cameraDistance: 50000000, colorScheme: mapkit.Map.ColorSchemes.Dark
+      mapType: mapkit.Map.MapTypes.Satellite,
+      showsCompass: mapkit.FeatureVisibility.Visible,
+      showsZoomControl: true,
+      showsScale: mapkit.FeatureVisibility.Visible,
+      showsMapTypeControl: false,
+      showsUserLocationControl: true,
+      showsPointsOfInterest: true,
+      isRotationEnabled: true,
+      isScrollEnabled: true,
+      isZoomEnabled: true,
+      padding: new mapkit.Padding(0, 0, 0, 0),
+      center: new mapkit.Coordinate(20, 0),
+      cameraBoundary: null,
+      cameraDistance: 50000000,
+      colorScheme: mapkit.Map.ColorSchemes.Dark
     });
     map.rotation = 0;
     map.addEventListener("region-change-end", () => {
       if (mapProviderRef.current !== MAP_PROVIDER_APPLE) return;
-      const lat = map.center.latitude, lng = map.center.longitude;
+      const lat = map.center.latitude;
+      const lng = map.center.longitude;
       setMapCenter({ lat, lng });
       const zoom = Math.max(0, Math.min(Math.log2(360 / Math.max(map.region.span.latitudeDelta, 0.0001)), 22));
-      setMapZoom(zoom); setMapBearing(map.rotation || 0);
+      setMapZoom(zoom);
+      setMapBearing(map.rotation || 0);
       if (zoom < APPLE_MAPS_ZOOM_THRESHOLD && !switchingProviderRef.current) switchToProvider(MAP_PROVIDER_DECKGL, lat, lng, zoom, 0, map.rotation || 0);
     });
     const mapEl = appleMapContainerRef.current;
-    mapEl.addEventListener("mousedown", e => { if (mapProviderRef.current === MAP_PROVIDER_APPLE) mouseDownPosRef.current = { x: e.clientX, y: e.clientY }; });
-    mapEl.addEventListener("mouseup", e => {
+    mapEl.addEventListener("mousedown", event => {
+      if (mapProviderRef.current === MAP_PROVIDER_APPLE) mouseDownPosRef.current = { x: event.clientX, y: event.clientY };
+    });
+    mapEl.addEventListener("mouseup", event => {
       if (mapProviderRef.current !== MAP_PROVIDER_APPLE || !selectionModeRef.current || !mouseDownPosRef.current) return;
-      if (Math.hypot(e.clientX - mouseDownPosRef.current.x, e.clientY - mouseDownPosRef.current.y) > 8) return;
-      const coord = map.convertPointOnPageToCoordinate(new DOMPoint(e.clientX, e.clientY));
+      if (Math.hypot(event.clientX - mouseDownPosRef.current.x, event.clientY - mouseDownPosRef.current.y) > 8) return;
+      const coord = map.convertPointOnPageToCoordinate(new DOMPoint(event.clientX, event.clientY));
       if (coord) queryFeatureAtPointRef.current?.(coord.latitude, coord.longitude, Math.max(0, Math.min(Math.log2(360 / Math.max(map.region.span.latitudeDelta, 0.0001)), 22)));
     });
     return map;
@@ -2019,22 +2637,34 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         ],
         glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf"
       },
-      center: [0, 20], zoom: 1, pitch: 0, bearing: 0, maxzoom: 7, minZoom: 1, antialias: true
+      center: [0, 20],
+      zoom: 1,
+      pitch: 0,
+      bearing: 0,
+      maxzoom: 7,
+      minZoom: 1,
+      antialias: true
     });
     map.addControl(new window.maplibregl.NavigationControl(), "top-right");
     map.addControl(new window.maplibregl.ScaleControl(), "bottom-left");
     map._riskBaseStyle = "satellite";
     map.on("moveend", () => {
       if (mapProviderRef.current !== MAP_PROVIDER_DECKGL) return;
-      const c = map.getCenter(), z = map.getZoom();
-      setMapCenter({ lat: c.lat, lng: c.lng }); setMapZoom(z); setMapPitch(map.getPitch()); setMapBearing(map.getBearing());
-      if (z >= APPLE_MAPS_ZOOM_THRESHOLD && appleMapReadyRef.current && !switchingProviderRef.current) switchToProvider(MAP_PROVIDER_APPLE, c.lat, c.lng, z, map.getPitch(), map.getBearing());
+      const c = map.getCenter();
+      const z = map.getZoom();
+      setMapCenter({ lat: c.lat, lng: c.lng });
+      setMapZoom(z);
+      setMapPitch(map.getPitch());
+      setMapBearing(map.getBearing());
+      if (z >= APPLE_MAPS_ZOOM_THRESHOLD && appleMapReadyRef.current && !switchingProviderRef.current && !showHeatmapRef.current) switchToProvider(MAP_PROVIDER_APPLE, c.lat, c.lng, z, map.getPitch(), map.getBearing());
     });
-    map.on("mousedown", e => { mouseDownPosRef.current = { x: e.originalEvent.clientX, y: e.originalEvent.clientY }; });
-    map.on("click", e => {
+    map.on("mousedown", event => {
+      mouseDownPosRef.current = { x: event.originalEvent.clientX, y: event.originalEvent.clientY };
+    });
+    map.on("click", event => {
       if (!selectionModeRef.current) return;
-      if (mouseDownPosRef.current && Math.hypot(e.originalEvent.clientX - mouseDownPosRef.current.x, e.originalEvent.clientY - mouseDownPosRef.current.y) > 8) return;
-      queryFeatureAtPointRef.current?.(e.lngLat.lat, e.lngLat.lng, map.getZoom());
+      if (mouseDownPosRef.current && Math.hypot(event.originalEvent.clientX - mouseDownPosRef.current.x, event.originalEvent.clientY - mouseDownPosRef.current.y) > 8) return;
+      queryFeatureAtPointRef.current?.(event.lngLat.lat, event.lngLat.lng, map.getZoom());
     });
     return map;
   }, []);
@@ -2043,7 +2673,8 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     if (switchingProviderRef.current || mapProviderRef.current === targetProvider) return;
     switchingProviderRef.current = true;
     mapProviderRef.current = targetProvider;
-    setActiveProvider(targetProvider); setMapProvider(targetProvider);
+    setActiveProvider(targetProvider);
+    setMapProvider(targetProvider);
     if (targetProvider === MAP_PROVIDER_APPLE) {
       mapRef.current = appleMapRef.current;
       if (appleMapRef.current && window.mapkit) {
@@ -2055,7 +2686,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       if (deckglMapContainerRef.current) deckglMapContainerRef.current.style.display = "none";
     } else {
       mapRef.current = deckglMapRef.current;
-      if (deckglMapRef.current) { deckglMapRef.current.jumpTo({ center: [lng, lat], zoom, pitch, bearing }); deckglMapRef.current.resize(); }
+      if (deckglMapRef.current) {
+        deckglMapRef.current.jumpTo({ center: [lng, lat], zoom, pitch, bearing });
+        deckglMapRef.current.resize();
+      }
       if (appleMapContainerRef.current) appleMapContainerRef.current.style.display = "none";
       if (deckglMapContainerRef.current) deckglMapContainerRef.current.style.display = "block";
     }
@@ -2079,6 +2713,14 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     drawAppleUserAreaNow();
   });
 
+  const visibleAssets = useMemo(() => {
+    if (assetLayerMode === ASSET_LAYER_MODE_HIDDEN) return [];
+    if (assetLayerMode === ASSET_LAYER_MODE_OWNED) {
+      return assets.filter(a => a.owner_orgid === orgid);
+    }
+    return assets;
+  }, [assets, assetLayerMode, orgid]);
+
   const filteredRiskData = useMemo(() => {
     if (!areaFilterActive || !userArea) return riskIntelligenceData;
     const filtered = {};
@@ -2097,60 +2739,263 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     const dk = window.deck;
     const layers = [];
 
-    if (showAssetMarkers && assets.length > 0) {
-      const assetData = assets.filter(a => (a.lat || a.latitude) && (a.lng || a.longitude)).map(a => {
-        const rs = a.risk_score || a.riskLevel || 0;
-        return {
-          position: [a.lng || a.longitude, a.lat || a.latitude], name: a.name, asset_id: a.asset_id,
-          asset_type: a.asset_type || a.type, risk_score: rs,
-          color: hexToRGBA((ASSET_TYPES[a.asset_type || a.type] || ASSET_TYPES.Other).color, 220),
-          riskColor: rs > 70 ? [255, 107, 107, 200] : rs > 50 ? [255, 149, 0, 200] : [78, 205, 196, 200],
-          _original: a
-        };
-      });
-      layers.push(new dk.ScatterplotLayer({
-        id: "asset-markers-outer", data: assetData, getPosition: d => d.position,
-        getRadius: d => d.risk_score > 70 ? 12 : d.risk_score > 50 ? 10 : 8,
-        radiusUnits: "pixels", radiusMinPixels: 6, radiusMaxPixels: 30,
-        getFillColor: d => d.riskColor, getLineColor: d => d.color,
-        lineWidthMinPixels: 2, stroked: true, filled: true, pickable: true, autoHighlight: true, highlightColor: [0, 255, 255, 100],
-        onClick: info => {
-          if (info.object) {
-            window.location.href = `/asset-management?asset=${encodeURIComponent(info.object.asset_id)}`;
-          }
+    const allRisks = [];
+    Object.entries(filteredRiskData).forEach(([cat, risks]) => { if (riskLayersVisible[cat] && risks?.length > 0) allRisks.push(...risks); });
+
+    if (showHeatmap && allRisks.length > 0 && dk.HeatmapLayer) {
+      const MAX_PER_CATEGORY = 500;
+      const heatmapData = [];
+      Object.entries(filteredRiskData).forEach(([cat, risks]) => {
+        if (!riskLayersVisible[cat] || !risks?.length) return;
+        const valid = risks.filter(r => r.latitude && r.longitude);
+        const subset = valid.length > MAX_PER_CATEGORY
+          ? valid
+              .sort((a, b) => (SEVERITY_WEIGHTS_LOCAL[b.severity] || 10) - (SEVERITY_WEIGHTS_LOCAL[a.severity] || 10))
+              .slice(0, MAX_PER_CATEGORY)
+          : valid;
+        for (const r of subset) {
+          heatmapData.push({
+            position: [r.longitude, r.latitude],
+            weight: (SEVERITY_WEIGHTS_LOCAL[r.severity] || 10) / 10
+          });
         }
-      }));
-      layers.push(new dk.ScatterplotLayer({
-        id: "asset-markers-inner", data: assetData, getPosition: d => d.position,
-        getRadius: 4, radiusUnits: "pixels", radiusMinPixels: 3, radiusMaxPixels: 12, getFillColor: d => d.color, pickable: false
-      }));
-      if (dk.TextLayer) {
-        layers.push(new dk.TextLayer({
-          id: "asset-labels", data: assetData, getPosition: d => d.position, getText: d => d.name,
-          getSize: 14, getColor: [255, 255, 255, 220], getAngle: 0, getTextAnchor: "middle",
-          getAlignmentBaseline: "top", getPixelOffset: [0, 18], fontFamily: "Inter, Arial, sans-serif",
-          fontWeight: 600, outlineWidth: 3, outlineColor: [0, 0, 0, 200], billboard: true, sizeMinPixels: 10, sizeMaxPixels: 16
+      });
+      if (heatmapData.length > 0) {
+        const currentHeatZoom = deckglMapRef.current ? deckglMapRef.current.getZoom() : mapZoom;
+        const heatmapRadius = currentHeatZoom >= 10 ? 200 : currentHeatZoom >= 7 ? 120 : currentHeatZoom >= 4 ? 80 : 50;
+        const heatmapIntensity = currentHeatZoom >= 8 ? 2.5 : currentHeatZoom >= 5 ? 1.8 : 1.2;
+        layers.push(new dk.HeatmapLayer({
+          id: "risk-heatmap",
+          data: heatmapData,
+          getPosition: d => d.position,
+          getWeight: d => d.weight,
+          radiusPixels: heatmapRadius,
+          intensity: heatmapIntensity,
+          threshold: 0.01,
+          colorRange: [
+            [0, 255, 255, 0],
+            [78, 205, 196, 100],
+            [255, 234, 0, 160],
+            [255, 145, 0, 200],
+            [255, 23, 68, 230],
+            [255, 0, 0, 255]
+          ],
+          aggregation: "MEAN"
         }));
       }
     }
 
-    const allRisks = [];
-    Object.entries(filteredRiskData).forEach(([cat, risks]) => { if (riskLayersVisible[cat] && risks?.length > 0) allRisks.push(...risks); });
+    if (assetLayerMode !== ASSET_LAYER_MODE_HIDDEN && showAssetMarkers && visibleAssets.length > 0) {
+      const pointAssets = [];
+      const lineAssets = [];
+      const polyAssets = [];
+      for (const a of visibleAssets) {
+        const gt = a.geometry_type || "Point";
+        if (gt === "LineString" && Array.isArray(a.geometry_coordinates)) {
+          lineAssets.push(a);
+        } else if (gt === "Polygon" && Array.isArray(a.geometry_coordinates)) {
+          polyAssets.push(a);
+        } else if ((a.lat || a.latitude) && (a.lng || a.longitude)) {
+          pointAssets.push(a);
+        }
+      }
 
-    if (allRisks.length > 0) {
+      if (lineAssets.length > 0 && dk.PathLayer) {
+        const lineData = lineAssets.map(a => {
+          const rs = a.risk_score || a.riskLevel || 0;
+          return {
+            path: a.geometry_coordinates,
+            color: hexToRGBA((ASSET_TYPES[a.asset_type || a.type] || ASSET_TYPES.Other).color, 230),
+            width: rs > 70 ? 6 : rs > 50 ? 5 : 4,
+            asset: a
+          };
+        });
+        layers.push(new dk.PathLayer({
+          id: "asset-polylines",
+          data: lineData,
+          getPath: d => d.path,
+          getColor: [0, 255, 255, 220],
+          getWidth: d => d.width,
+          widthUnits: "pixels",
+          widthMinPixels: 3,
+          widthMaxPixels: 10,
+          pickable: true,
+          jointRounded: true,
+          capRounded: true,
+          onClick: info => {
+            if (info.object?.asset) {
+              window.location.href = `/asset-management?asset=${encodeURIComponent(info.object.asset.asset_id)}`;
+            }
+          }
+        }));
+      }
+
+      if (polyAssets.length > 0 && dk.SolidPolygonLayer) {
+        const polyFill = polyAssets.map(a => {
+          const baseColor = (ASSET_TYPES[a.asset_type || a.type] || ASSET_TYPES.Other).color;
+          return {
+            polygon: a.geometry_coordinates[0] || a.geometry_coordinates,
+            color: hexToRGBA(baseColor, 50),
+            asset: a
+          };
+        });
+        const polyStroke = polyAssets.map(a => {
+          const baseColor = (ASSET_TYPES[a.asset_type || a.type] || ASSET_TYPES.Other).color;
+          return {
+            path: a.geometry_coordinates[0] || a.geometry_coordinates,
+            color: hexToRGBA(baseColor, 230)
+          };
+        });
+        layers.push(new dk.SolidPolygonLayer({
+          id: "asset-polygons-fill",
+          data: polyFill,
+          getPolygon: d => d.polygon,
+          getFillColor: d => d.color,
+          filled: true,
+          pickable: true,
+          onClick: info => {
+            if (info.object?.asset) {
+              window.location.href = `/asset-management?asset=${encodeURIComponent(info.object.asset.asset_id)}`;
+            }
+          },
+          _normalize: false,
+          _windingOrder: "CCW"
+        }));
+        if (dk.PathLayer) {
+          layers.push(new dk.PathLayer({
+            id: "asset-polygons-stroke",
+            data: polyStroke,
+            getPath: d => d.path,
+            getColor: d => d.color,
+            getWidth: 2,
+            widthMinPixels: 2,
+            pickable: false,
+            jointRounded: true,
+            capRounded: true
+          }));
+        }
+      }
+
+      if (pointAssets.length > 0) {
+        const assetData = pointAssets.map(a => {
+          const rs = a.risk_score || a.riskLevel || 0;
+          return {
+            position: [a.lng || a.longitude, a.lat || a.latitude],
+            name: a.name,
+            asset_id: a.asset_id,
+            asset_type: a.asset_type || a.type,
+            risk_score: rs,
+            color: hexToRGBA((ASSET_TYPES[a.asset_type || a.type] || ASSET_TYPES.Other).color, 220),
+            riskColor: rs > 70 ? [255, 107, 107, 200] : rs > 50 ? [255, 149, 0, 200] : [78, 205, 196, 200],
+            _original: a
+          };
+        });
+        layers.push(new dk.ScatterplotLayer({
+          id: "asset-markers-outer",
+          data: assetData,
+          getPosition: d => d.position,
+          getRadius: d => d.risk_score > 70 ? 12 : d.risk_score > 50 ? 10 : 8,
+          radiusUnits: "pixels",
+          radiusMinPixels: 6,
+          radiusMaxPixels: 30,
+          getFillColor: d => d.riskColor,
+          getLineColor: d => d.color,
+          lineWidthMinPixels: 2,
+          stroked: true,
+          filled: true,
+          pickable: true,
+          autoHighlight: true,
+          highlightColor: [0, 255, 255, 100],
+          onClick: info => {
+            if (info.object) {
+              window.location.href = `/asset-management?asset=${encodeURIComponent(info.object.asset_id)}`;
+            }
+          }
+        }));
+        layers.push(new dk.ScatterplotLayer({
+          id: "asset-markers-inner",
+          data: assetData,
+          getPosition: d => d.position,
+          getRadius: 4,
+          radiusUnits: "pixels",
+          radiusMinPixels: 3,
+          radiusMaxPixels: 12,
+          getFillColor: d => d.color,
+          pickable: false
+        }));
+        if (dk.TextLayer) {
+          layers.push(new dk.TextLayer({
+            id: "asset-labels",
+            data: assetData,
+            getPosition: d => d.position,
+            getText: d => d.name,
+            getSize: 14,
+            getColor: [255, 255, 255, 220],
+            getAngle: 0,
+            getTextAnchor: "middle",
+            getAlignmentBaseline: "top",
+            getPixelOffset: [0, 18],
+            fontFamily: "Inter, Arial, sans-serif",
+            fontWeight: 600,
+            outlineWidth: 3,
+            outlineColor: [0, 0, 0, 200],
+            billboard: true,
+            sizeMinPixels: 10,
+            sizeMaxPixels: 16
+          }));
+        }
+      }
+    }
+
+    if (!showHeatmap && allRisks.length > 0) {
       const riskPoints = allRisks.filter(r => r.latitude && r.longitude).map(r => ({
-        position: [r.longitude, r.latitude], severity: r.severity, risk_category: r.risk_category, title: r.title,
+        position: [r.longitude, r.latitude],
+        severity: r.severity,
+        risk_category: r.risk_category,
+        title: r.title,
         color: hexToRGBA(SEVERITY_COLORS[r.severity] || "#FFEA00", 200),
-        borderColor: hexToRGBA((RISK_CATEGORIES[r.risk_category] || RISK_CATEGORIES.Other).color, 255), _original: r
+        borderColor: hexToRGBA((RISK_CATEGORIES[r.risk_category] || RISK_CATEGORIES.Other).color, 255),
+        isPrivate: getRiskVisibility(r) === VISIBILITY_ORG_PRIVATE,
+        _original: r
       }));
       layers.push(new dk.ScatterplotLayer({
-        id: "risk-event-markers", data: riskPoints, getPosition: d => d.position,
+        id: "risk-event-markers",
+        data: riskPoints,
+        getPosition: d => d.position,
         getRadius: d => ({ Critical: 14, High: 11, Medium: 9 }[d.severity] || 7),
-        radiusUnits: "pixels", radiusMinPixels: 5, radiusMaxPixels: 25,
-        getFillColor: d => d.color, getLineColor: d => d.borderColor,
-        lineWidthMinPixels: 2, stroked: true, filled: true, pickable: true, autoHighlight: true, highlightColor: [255, 255, 0, 100],
+        radiusUnits: "pixels",
+        radiusMinPixels: 5,
+        radiusMaxPixels: 25,
+        getFillColor: d => d.color,
+        getLineColor: d => d.borderColor,
+        lineWidthMinPixels: 2,
+        stroked: true,
+        filled: true,
+        pickable: true,
+        autoHighlight: true,
+        highlightColor: [255, 255, 0, 100],
         onClick: info => { if (info.object) { handleSelectRiskEvent(info.object._original); } }
       }));
+
+      if (showVisibilityBadges && riskPoints.some(p => p.isPrivate)) {
+        const privatePoints = riskPoints.filter(p => p.isPrivate);
+        layers.push(new dk.ScatterplotLayer({
+          id: "risk-event-private-badges",
+          data: privatePoints,
+          getPosition: d => d.position,
+          getRadius: 4,
+          radiusUnits: "pixels",
+          radiusMinPixels: 3,
+          radiusMaxPixels: 8,
+          getFillColor: [255, 215, 0, 240],
+          getLineColor: [0, 0, 0, 200],
+          lineWidthMinPixels: 1,
+          stroked: true,
+          filled: true,
+          pickable: false,
+          getOffset: [8, -8]
+        }));
+      }
 
       const currentZoom = deckglMapRef.current ? deckglMapRef.current.getZoom() : mapZoom;
       if (currentZoom >= 6) {
@@ -2196,29 +3041,58 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       const polygonRisks = allRisks.filter(r => r.geometry_type === "Polygon" && r.geometry_coordinates);
       if (polygonRisks.length > 0) {
         const polyFillData = polygonRisks.map(r => {
-          try { const coords = r.geometry_coordinates[0]; if (!coords || coords.length < 3) return null; return { polygon: coords.map(c => [c[0], c[1]]), color: hexToRGBA(SEVERITY_COLORS[r.severity] || "#FFEA00", 38) }; } catch { return null; }
+          try {
+            const coords = r.geometry_coordinates[0];
+            if (!coords || coords.length < 3) return null;
+            return { polygon: coords.map(c => [c[0], c[1]]), color: hexToRGBA(SEVERITY_COLORS[r.severity] || "#FFEA00", 38) };
+          } catch {
+            return null;
+          }
         }).filter(Boolean);
         const polyLineData = polygonRisks.map(r => {
-          try { const coords = r.geometry_coordinates[0]; if (!coords || coords.length < 3) return null; return { path: coords.map(c => [c[0], c[1]]), color: hexToRGBA(SEVERITY_COLORS[r.severity] || "#FFEA00", 200) }; } catch { return null; }
+          try {
+            const coords = r.geometry_coordinates[0];
+            if (!coords || coords.length < 3) return null;
+            return { path: coords.map(c => [c[0], c[1]]), color: hexToRGBA(SEVERITY_COLORS[r.severity] || "#FFEA00", 200) };
+          } catch {
+            return null;
+          }
         }).filter(Boolean);
         if (polyFillData.length > 0 && dk.SolidPolygonLayer) {
           layers.push(new dk.SolidPolygonLayer({
-            id: "risk-polygon-overlays-fill", data: polyFillData, getPolygon: d => d.polygon,
-            getFillColor: d => d.color, filled: true, pickable: false,
-            _normalize: false, _windingOrder: "CCW"
+            id: "risk-polygon-overlays-fill",
+            data: polyFillData,
+            getPolygon: d => d.polygon,
+            getFillColor: d => d.color,
+            filled: true,
+            pickable: false,
+            _normalize: false,
+            _windingOrder: "CCW"
           }));
         } else if (polyFillData.length > 0 && dk.PolygonLayer) {
           layers.push(new dk.PolygonLayer({
-            id: "risk-polygon-overlays-fill", data: polyFillData, getPolygon: d => d.polygon,
-            getFillColor: d => d.color, getLineColor: [0, 0, 0, 0], getLineWidth: 0,
-            filled: true, stroked: false, pickable: false
+            id: "risk-polygon-overlays-fill",
+            data: polyFillData,
+            getPolygon: d => d.polygon,
+            getFillColor: d => d.color,
+            getLineColor: [0, 0, 0, 0],
+            getLineWidth: 0,
+            filled: true,
+            stroked: false,
+            pickable: false
           }));
         }
         if (polyLineData.length > 0 && dk.PathLayer) {
           layers.push(new dk.PathLayer({
-            id: "risk-polygon-overlays-stroke", data: polyLineData, getPath: d => d.path,
-            getColor: d => d.color, getWidth: 2, widthMinPixels: 1, pickable: false,
-            jointRounded: true, capRounded: true
+            id: "risk-polygon-overlays-stroke",
+            data: polyLineData,
+            getPath: d => d.path,
+            getColor: d => d.color,
+            getWidth: 2,
+            widthMinPixels: 1,
+            pickable: false,
+            jointRounded: true,
+            capRounded: true
           }));
         }
       }
@@ -2246,16 +3120,27 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       if (ring) {
         if (dk.SolidPolygonLayer) {
           layers.push(new dk.SolidPolygonLayer({
-            id: "user-area-fill", data: [{ polygon: ring }], getPolygon: d => d.polygon,
-            getFillColor: [0, 255, 255, 18], filled: true, pickable: false,
-            _normalize: false, _windingOrder: "CCW"
+            id: "user-area-fill",
+            data: [{ polygon: ring }],
+            getPolygon: d => d.polygon,
+            getFillColor: [0, 255, 255, 18],
+            filled: true,
+            pickable: false,
+            _normalize: false,
+            _windingOrder: "CCW"
           }));
         }
         if (dk.PathLayer) {
           layers.push(new dk.PathLayer({
-            id: "user-area-stroke", data: [{ path: ring }], getPath: d => d.path,
-            getColor: [0, 255, 255, 235], getWidth: 3, widthMinPixels: 2, pickable: false,
-            jointRounded: true, capRounded: true
+            id: "user-area-stroke",
+            data: [{ path: ring }],
+            getPath: d => d.path,
+            getColor: [0, 255, 255, 235],
+            getWidth: 3,
+            widthMinPixels: 2,
+            pickable: false,
+            jointRounded: true,
+            capRounded: true
           }));
         }
       }
@@ -2317,33 +3202,50 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       const selLineData = selFeatures.map(f => ({ path: f.geometry.coordinates[0], color: [0, 255, 255, 242] }));
       if (selFillData.length > 0 && dk.SolidPolygonLayer) {
         layers.push(new dk.SolidPolygonLayer({
-          id: "selection-highlight-fill", data: selFillData, getPolygon: d => d.polygon,
-          getFillColor: d => d.fillColor, filled: true, pickable: false,
-          _normalize: false, _windingOrder: "CCW"
+          id: "selection-highlight-fill",
+          data: selFillData,
+          getPolygon: d => d.polygon,
+          getFillColor: d => d.fillColor,
+          filled: true,
+          pickable: false,
+          _normalize: false,
+          _windingOrder: "CCW"
         }));
       } else if (selFillData.length > 0 && dk.PolygonLayer) {
         layers.push(new dk.PolygonLayer({
-          id: "selection-highlight-fill", data: selFillData, getPolygon: d => d.polygon,
-          getFillColor: d => d.fillColor, getLineColor: [0, 0, 0, 0], getLineWidth: 0,
-          filled: true, stroked: false, pickable: false
+          id: "selection-highlight-fill",
+          data: selFillData,
+          getPolygon: d => d.polygon,
+          getFillColor: d => d.fillColor,
+          getLineColor: [0, 0, 0, 0],
+          getLineWidth: 0,
+          filled: true,
+          stroked: false,
+          pickable: false
         }));
       }
       if (selLineData.length > 0 && dk.PathLayer) {
         layers.push(new dk.PathLayer({
-          id: "selection-highlight-stroke", data: selLineData, getPath: d => d.path,
-          getColor: d => d.color, getWidth: 3, widthMinPixels: 2, pickable: false,
-          jointRounded: true, capRounded: true
+          id: "selection-highlight-stroke",
+          data: selLineData,
+          getPath: d => d.path,
+          getColor: d => d.color,
+          getWidth: 3,
+          widthMinPixels: 2,
+          pickable: false,
+          jointRounded: true,
+          capRounded: true
         }));
       }
     }
     return layers;
-  }, [assets, showAssetMarkers, riskIntelligenceData, riskLayersVisible, fetchAssetDetails, mapZoom, getVisibleBounds, isInBounds, handleSelectRiskEvent, areaFilterActive, userArea]);
+  }, [visibleAssets, assetLayerMode, showAssetMarkers, filteredRiskData, riskLayersVisible, fetchAssetDetails, mapZoom, getVisibleBounds, isInBounds, handleSelectRiskEvent, areaFilterActive, userArea, showHeatmap, showVisibilityBadges]);
 
   const updateDeckLayers = useCallback(() => {
     if (deckOverlayRef.current && window.deck) deckOverlayRef.current.setProps({ layers: buildDeckLayers() });
   }, [buildDeckLayers]);
 
-  useEffect(() => { updateDeckLayers(); }, [assets, showAssetMarkers, riskIntelligenceData, riskLayersVisible, deckLayersVersion, mapZoom, areaFilterActive, userArea, updateDeckLayers]);
+  useEffect(() => { updateDeckLayers(); }, [visibleAssets, showAssetMarkers, assetLayerMode, filteredRiskData, riskLayersVisible, deckLayersVersion, mapZoom, areaFilterActive, userArea, showHeatmap, showVisibilityBadges, updateDeckLayers]);
 
   const createAnnotationElement = useCallback((asset) => {
     const tc = ASSET_TYPES[asset.type] || ASSET_TYPES[asset.asset_type] || { color: "#888888" };
@@ -2369,11 +3271,15 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const createRiskEventMarkerElement = useCallback((risk) => {
     const categoryColor = RISK_CATEGORIES[risk.risk_category]?.color || "#9E9E9E";
     const severityColor = SEVERITY_COLORS[risk.severity] || SEVERITY_COLORS.Medium;
+    const isPrivate = getRiskVisibility(risk) === VISIBILITY_ORG_PRIVATE;
+    const badgeHtml = (showVisibilityBadges && isPrivate)
+      ? `<div class="risk-event-marker-badge" style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:#FFD700;border:1px solid rgba(0,0,0,0.6);z-index:4;"></div>`
+      : "";
     return createMarkerElement("risk-event-marker",
-      `<div class="risk-event-marker-pin" style="background:${severityColor};border-color:${categoryColor};"><span class="risk-event-marker-icon"></span></div>`,
+      `<div class="risk-event-marker-pin" style="background:${severityColor};border-color:${categoryColor};"><span class="risk-event-marker-icon"></span>${badgeHtml}</div>`,
       `<div class="risk-event-marker-pulse" style="background:${severityColor};"></div>`,
       null, risk.severity === "Critical" || risk.severity === "High");
-  }, [createMarkerElement]);
+  }, [createMarkerElement, showVisibilityBadges]);
 
   const removeAppleAnnotations = useCallback(() => {
     if (appleMapRef.current) annotationsRef.current.forEach(a => { try { appleMapRef.current.removeAnnotation(a); } catch { } });
@@ -2381,17 +3287,25 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   }, []);
 
   const addAppleAnnotationsNow = useCallback(() => {
-    if (!appleMapRef.current || !window.mapkit || !showAssetMarkers) return;
+    if (!appleMapRef.current || !window.mapkit || !showAssetMarkers || assetLayerMode === ASSET_LAYER_MODE_HIDDEN) {
+      removeAppleAnnotations();
+      return;
+    }
     removeAppleAnnotations();
     const bounds = getVisibleBounds();
-    const visible = bounds ? assets.filter(a => { const lat = a.lat || a.latitude, lng = a.lng || a.longitude; return lat && lng && isInBounds(lat, lng, bounds); }) : assets;
+    const visible = bounds ? visibleAssets.filter(a => {
+      const lat = a.lat || a.latitude;
+      const lng = a.lng || a.longitude;
+      return lat && lng && isInBounds(lat, lng, bounds);
+    }) : visibleAssets;
     visible.forEach(asset => {
-      const lat = asset.lat || asset.latitude, lng = asset.lng || asset.longitude;
+      const lat = asset.lat || asset.latitude;
+      const lng = asset.lng || asset.longitude;
       if (!lat || !lng) return;
       const factory = () => {
         const el = createAnnotationElement(asset);
-        el.addEventListener("click", e => {
-          e.stopPropagation();
+        el.addEventListener("click", event => {
+          event.stopPropagation();
           window.location.href = `/asset-management?asset=${encodeURIComponent(asset.asset_id)}`;
         });
         return el;
@@ -2401,7 +3315,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       appleMapRef.current.addAnnotation(ann);
       annotationsRef.current.push(ann);
     });
-  }, [assets, showAssetMarkers, createAnnotationElement, removeAppleAnnotations, getVisibleBounds, isInBounds]);
+  }, [visibleAssets, showAssetMarkers, assetLayerMode, createAnnotationElement, removeAppleAnnotations, getVisibleBounds, isInBounds]);
 
   const clearAppleRiskMarkers = useCallback(() => {
     if (appleMapRef.current) {
@@ -2409,31 +3323,32 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       riskOverlaysRef.current.forEach(o => { try { appleMapRef.current.removeOverlay(o); } catch { } });
       impactCirclesRef.current.forEach(c => { try { appleMapRef.current.removeOverlay(c); } catch { } });
     }
-    riskMarkersRef.current = []; riskOverlaysRef.current = []; impactCirclesRef.current = [];
+    riskMarkersRef.current = [];
+    riskOverlaysRef.current = [];
+    impactCirclesRef.current = [];
   }, []);
 
   const addAppleRiskMarkersNow = useCallback(() => {
     if (!appleMapRef.current || !window.mapkit) return;
     clearAppleRiskMarkers();
+    if (showHeatmap) return;
     const bounds = getVisibleBounds();
     const allRisks = [];
-    Object.entries(riskIntelligenceData).forEach(([cat, risks]) => {
+    Object.entries(filteredRiskData).forEach(([cat, risks]) => {
       if (!riskLayersVisible[cat] || !risks?.length) return;
-      if (areaFilterActive && userArea) {
-        allRisks.push(...risks.filter(r => isPointInArea(r.latitude, r.longitude, userArea)));
-      } else {
-        allRisks.push(...risks);
-      }
+      allRisks.push(...risks);
     });
     const visible = bounds ? allRisks.filter(r => r.latitude && r.longitude && isInBounds(r.latitude, r.longitude, bounds)) : allRisks;
     visible.forEach(risk => {
-      const lat = risk.latitude, lng = risk.longitude;
+      const lat = risk.latitude;
+      const lng = risk.longitude;
       if (!lat || !lng) return;
       const coord = new window.mapkit.Coordinate(lat, lng);
       if (risk.impact_radius_km > 0) {
         const sc = SEVERITY_COLORS[risk.severity] || "#FFEA00";
         const circle = new window.mapkit.CircleOverlay(coord, risk.impact_radius_km * 1000, { style: new window.mapkit.Style({ strokeColor: sc, strokeOpacity: 0.6, lineWidth: 2, fillColor: sc, fillOpacity: 0.1 }) });
-        appleMapRef.current.addOverlay(circle); impactCirclesRef.current.push(circle);
+        appleMapRef.current.addOverlay(circle);
+        impactCirclesRef.current.push(circle);
       }
       if (risk.geometry_type === "Polygon" && risk.geometry_coordinates) {
         try {
@@ -2441,20 +3356,22 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           if (coords?.length > 2) {
             const sc = SEVERITY_COLORS[risk.severity] || "#FFEA00";
             const overlay = new window.mapkit.PolygonOverlay([coords.map(c => new window.mapkit.Coordinate(c[1], c[0]))], { style: new window.mapkit.Style({ strokeColor: sc, strokeOpacity: 0.8, lineWidth: 2, fillColor: sc, fillOpacity: 0.15 }) });
-            appleMapRef.current.addOverlay(overlay); riskOverlaysRef.current.push(overlay);
+            appleMapRef.current.addOverlay(overlay);
+            riskOverlaysRef.current.push(overlay);
           }
-        } catch { }
+        } catch (error) { }
       }
       const factory = () => {
         const el = createRiskEventMarkerElement(risk);
-        el.addEventListener("click", e => { e.stopPropagation(); handleSelectRiskEvent(risk); });
+        el.addEventListener("click", event => { event.stopPropagation(); handleSelectRiskEvent(risk); });
         return el;
       };
       const ann = new window.mapkit.Annotation(coord, factory, { anchorOffset: new DOMPoint(0, 0), calloutEnabled: false, animates: false });
       ann._riskData = risk;
-      appleMapRef.current.addAnnotation(ann); riskMarkersRef.current.push(ann);
+      appleMapRef.current.addAnnotation(ann);
+      riskMarkersRef.current.push(ann);
     });
-  }, [riskIntelligenceData, riskLayersVisible, clearAppleRiskMarkers, createRiskEventMarkerElement, handleSelectRiskEvent, getVisibleBounds, isInBounds, areaFilterActive, userArea]);
+  }, [filteredRiskData, riskLayersVisible, clearAppleRiskMarkers, createRiskEventMarkerElement, handleSelectRiskEvent, getVisibleBounds, isInBounds, showHeatmap]);
 
   const clearAppleUserAreaOverlays = useCallback(() => {
     if (appleMapRef.current) {
@@ -2472,8 +3389,12 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     clearAppleUserAreaOverlays();
     if (!areaFilterActive || !userArea) return;
     const style = new window.mapkit.Style({
-      strokeColor: "#00FFFF", strokeOpacity: 0.85, lineWidth: 3,
-      fillColor: "#00FFFF", fillOpacity: 0.07, lineDash: [6, 4]
+      strokeColor: "#00FFFF",
+      strokeOpacity: 0.85,
+      lineWidth: 3,
+      fillColor: "#00FFFF",
+      fillOpacity: 0.07,
+      lineDash: [6, 4]
     });
     let pinLat = null;
     let pinLng = null;
@@ -2529,17 +3450,23 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       const span = 360 / Math.pow(2, zoom);
       appleMapRef.current.setRegionAnimated(new window.mapkit.CoordinateRegion(new window.mapkit.Coordinate(lat, lng), new window.mapkit.CoordinateSpan(span, span)), true);
       appleMapRef.current.rotation = bearing;
-    } else if (deckglMapRef.current) deckglMapRef.current.flyTo({ center: [lng, lat], zoom, pitch, bearing, duration: 2000 });
+    } else if (deckglMapRef.current) {
+      deckglMapRef.current.flyTo({ center: [lng, lat], zoom, pitch, bearing, duration: 2000 });
+    }
     setCurrentLocation(name || `${lat.toFixed(2)}°, ${lng.toFixed(2)}°`);
   }, [activeProvider, switchToProvider]);
 
   const navigateToAsset = useCallback((asset) => {
-    setSelectedAsset(asset.asset_id); fetchAssetDetails(asset.asset_id);
+    setSelectedAsset(asset.asset_id);
+    fetchAssetDetails(asset.asset_id);
     navigateToLocation(asset.lat || asset.latitude, asset.lng || asset.longitude, 14, 50, 0, asset.name);
   }, [navigateToLocation, fetchAssetDetails]);
 
   const navigateToRiskEvent = useCallback((risk) => {
-    if (risk.latitude && risk.longitude) { handleSelectRiskEvent(risk); navigateToLocation(risk.latitude, risk.longitude, 10, 45, 0, risk.title); }
+    if (risk.latitude && risk.longitude) {
+      handleSelectRiskEvent(risk);
+      navigateToLocation(risk.latitude, risk.longitude, 10, 45, 0, risk.title);
+    }
   }, [navigateToLocation, handleSelectRiskEvent]);
 
   const flyToUserArea = useCallback(() => {
@@ -2565,45 +3492,73 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     const bbox = calculateBoundingBox(selectedFeature.geometry);
     if (activeProvider === MAP_PROVIDER_APPLE && appleMapRef.current && window.mapkit) {
       appleMapRef.current.setRegionAnimated(new window.mapkit.CoordinateRegion(new window.mapkit.Coordinate((bbox.minLat + bbox.maxLat) / 2, (bbox.minLng + bbox.maxLng) / 2), new window.mapkit.CoordinateSpan((bbox.maxLat - bbox.minLat) * 1.5, (bbox.maxLng - bbox.minLng) * 1.5)), true);
-    } else if (deckglMapRef.current) deckglMapRef.current.fitBounds([[bbox.minLng, bbox.minLat], [bbox.maxLng, bbox.maxLat]], { padding: 50, maxZoom: 19, duration: 1500 });
+    } else if (deckglMapRef.current) {
+      deckglMapRef.current.fitBounds([[bbox.minLng, bbox.minLat], [bbox.maxLng, bbox.maxLat]], { padding: 50, maxZoom: 19, duration: 1500 });
+    }
   }, [selectedFeature, activeProvider]);
 
   const fallbackSearch = useCallback(async (query) => {
     try {
       const data = await (await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`)).json();
-      setSearchResults(data.map(item => ({ id: item.place_id, name: item.display_name, lat: parseFloat(item.lat), lng: parseFloat(item.lon) })));
-    } catch { setSearchResults([]); }
+      setSearchResults(data.map(item => ({
+        id: item.place_id,
+        name: item.display_name,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon)
+      })));
+    } catch (error) {
+      setSearchResults([]);
+    }
     setIsSearching(false);
   }, []);
 
   const searchLocation = useCallback(async (query) => {
-    if (!query.trim()) { setSearchResults([]); return; }
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
     setIsSearching(true);
     try {
       if (window.mapkit && appleMapReadyRef.current) {
         new window.mapkit.Search().search(query, (error, data) => {
-          if (error || !data?.places) { fallbackSearch(query); return; }
-          setSearchResults(data.places.slice(0, 5).map((p, i) => ({ id: i, name: p.name + (p.formattedAddress ? ", " + p.formattedAddress : ""), lat: p.coordinate.latitude, lng: p.coordinate.longitude })));
+          if (error || !data?.places) {
+            fallbackSearch(query);
+            return;
+          }
+          setSearchResults(data.places.slice(0, 5).map((p, i) => ({
+            id: i,
+            name: p.name + (p.formattedAddress ? ", " + p.formattedAddress : ""),
+            lat: p.coordinate.latitude,
+            lng: p.coordinate.longitude
+          })));
           setIsSearching(false);
         });
-      } else await fallbackSearch(query);
-    } catch { await fallbackSearch(query); }
+      } else {
+        await fallbackSearch(query);
+      }
+    } catch (error) {
+      await fallbackSearch(query);
+    }
   }, [fallbackSearch]);
 
   const toggle3DTerrain = useCallback(() => {
-    const nv = !show3DTerrain; setShow3DTerrain(nv);
+    const nv = !show3DTerrain;
+    setShow3DTerrain(nv);
     if (deckglMapRef.current) {
       try {
         if (nv) {
           if (!deckglMapRef.current.getSource("terrain-source")) deckglMapRef.current.addSource("terrain-source", { type: "raster-dem", tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"], tileSize: 256, maxzoom: 15, encoding: "terrarium" });
           deckglMapRef.current.setTerrain({ source: "terrain-source", exaggeration: 1.5 });
-        } else deckglMapRef.current.setTerrain(null);
-      } catch { }
+        } else {
+          deckglMapRef.current.setTerrain(null);
+        }
+      } catch (error) { }
     }
   }, [show3DTerrain]);
 
   const toggleSatellite = useCallback(() => {
-    const nv = !showSatellite; setShowSatellite(nv);
+    const nv = !showSatellite;
+    setShowSatellite(nv);
     if (appleMapRef.current && window.mapkit) appleMapRef.current.mapType = nv ? (showLabels ? window.mapkit.Map.MapTypes.Hybrid : window.mapkit.Map.MapTypes.Satellite) : window.mapkit.Map.MapTypes.Standard;
     if (deckglMapRef.current) {
       try {
@@ -2620,28 +3575,55 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           deckglMapRef.current.setLayoutProperty("topo-layer", "visibility", "visible");
           deckglMapRef.current._riskBaseStyle = "topo";
         }
-      } catch { }
+      } catch (error) { }
     }
   }, [showSatellite, showLabels]);
 
-  const toggleBuildings = useCallback(() => { const nv = !showBuildings; setShowBuildings(nv); if (appleMapRef.current && window.mapkit) appleMapRef.current.showsPointsOfInterest = nv; }, [showBuildings]);
+  const toggleBuildings = useCallback(() => {
+    const nv = !showBuildings;
+    setShowBuildings(nv);
+    if (appleMapRef.current && window.mapkit) appleMapRef.current.showsPointsOfInterest = nv;
+  }, [showBuildings]);
+
+  const cycleAssetLayerMode = useCallback(() => {
+    setAssetLayerMode(prev => {
+      if (prev === ASSET_LAYER_MODE_ALL) return ASSET_LAYER_MODE_OWNED;
+      if (prev === ASSET_LAYER_MODE_OWNED) return ASSET_LAYER_MODE_HIDDEN;
+      return ASSET_LAYER_MODE_ALL;
+    });
+  }, []);
 
   useEffect(() => { document.body.className = `risk-theme-${theme}`; return () => { document.body.className = ""; }; }, [theme]);
-  useEffect(() => { let t; if (searchTerm) t = setTimeout(() => searchLocation(searchTerm), 300); else setSearchResults([]); return () => clearTimeout(t); }, [searchTerm, searchLocation]);
-  useEffect(() => { selectionModeRef.current = selectionMode; if (deckglMapRef.current) selectionMode ? deckglMapRef.current.doubleClickZoom.disable() : deckglMapRef.current.doubleClickZoom.enable(); }, [selectionMode]);
+  useEffect(() => {
+    let t;
+    if (searchTerm) t = setTimeout(() => searchLocation(searchTerm), 300);
+    else setSearchResults([]);
+    return () => clearTimeout(t);
+  }, [searchTerm, searchLocation]);
+  useEffect(() => {
+    selectionModeRef.current = selectionMode;
+    if (deckglMapRef.current) selectionMode ? deckglMapRef.current.doubleClickZoom.disable() : deckglMapRef.current.doubleClickZoom.enable();
+  }, [selectionMode]);
   useEffect(() => { queryFeatureAtPointRef.current = queryFeatureAtPoint; }, [queryFeatureAtPoint]);
+
+  useEffect(() => {
+    showHeatmapRef.current = showHeatmap;
+    if (deckglMapRef.current) {
+      try { deckglMapRef.current.setMaxZoom(showHeatmap ? 18 : 7); } catch (error) { }
+    }
+  }, [showHeatmap]);
 
   useEffect(() => {
     try {
       if (userArea) localStorage.setItem(USER_AREA_STORAGE_KEY, JSON.stringify(userArea));
       else localStorage.removeItem(USER_AREA_STORAGE_KEY);
-    } catch { }
+    } catch (error) { }
   }, [userArea]);
 
   useEffect(() => {
     try {
       localStorage.setItem(AREA_FILTER_ACTIVE_STORAGE_KEY, areaFilterActive ? "true" : "false");
-    } catch { }
+    } catch (error) { }
   }, [areaFilterActive]);
 
   useEffect(() => {
@@ -2654,8 +3636,8 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     fetchRiskIntelligenceAll(null);
   }, [mapReady]);
 
-  useEffect(() => { if (mapReady && assets.length > 0) addAnnotations(); }, [mapReady, assets, addAnnotations]);
-  useEffect(() => { if (mapReady) addRiskMarkers(); }, [mapReady, riskIntelligenceData, riskLayersVisible, addRiskMarkers]);
+  useEffect(() => { if (mapReady && visibleAssets.length >= 0) addAnnotations(); }, [mapReady, visibleAssets, assetLayerMode, addAnnotations]);
+  useEffect(() => { if (mapReady) addRiskMarkers(); }, [mapReady, filteredRiskData, riskLayersVisible, addRiskMarkers]);
   useEffect(() => { if (mapReady && activeProvider === MAP_PROVIDER_APPLE) drawAppleUserAreaNow(); }, [mapReady, activeProvider, areaFilterActive, userArea, drawAppleUserAreaNow]);
 
   useEffect(() => {
@@ -2677,7 +3659,12 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   useEffect(() => {
     if (!mapContainerRef.current) return;
     let cancelled = false;
-    const createDiv = (display) => { const d = document.createElement("div"); Object.assign(d.style, { width: "100%", height: "100%", position: "absolute", top: "0", left: "0", display }); mapContainerRef.current.appendChild(d); return d; };
+    const createDiv = (display) => {
+      const d = document.createElement("div");
+      Object.assign(d.style, { width: "100%", height: "100%", position: "absolute", top: "0", left: "0", display });
+      mapContainerRef.current.appendChild(d);
+      return d;
+    };
     appleMapContainerRef.current = createDiv("none");
     deckglMapContainerRef.current = createDiv("block");
 
@@ -2687,12 +3674,24 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       if (!window.deck?.MapboxOverlay) throw new Error("Deck.gl not loaded.");
       const map = initDeckGlMap();
       if (!map) throw new Error("Deck.gl MapLibre initialization failed.");
-      deckglMapRef.current = map; mapRef.current = map; mapProviderRef.current = MAP_PROVIDER_DECKGL;
-      setMapProvider(MAP_PROVIDER_DECKGL); setActiveProvider(MAP_PROVIDER_DECKGL); setMapLoaded(true); setShowSatellite(true);
+      deckglMapRef.current = map;
+      mapRef.current = map;
+      mapProviderRef.current = MAP_PROVIDER_DECKGL;
+      setMapProvider(MAP_PROVIDER_DECKGL);
+      setActiveProvider(MAP_PROVIDER_DECKGL);
+      setMapLoaded(true);
+      setShowSatellite(true);
       const onReady = () => {
         if (cancelled) return;
-        try { if (window.deck?.MapboxOverlay) { const overlay = new window.deck.MapboxOverlay({ interleaved: true, layers: [] }); map.addControl(overlay); deckOverlayRef.current = overlay; } } catch { }
-        deckglMapReadyRef.current = true; setMapReady(true);
+        try {
+          if (window.deck?.MapboxOverlay) {
+            const overlay = new window.deck.MapboxOverlay({ interleaved: true, layers: [] });
+            map.addControl(overlay);
+            deckOverlayRef.current = overlay;
+          }
+        } catch (error) { }
+        deckglMapReadyRef.current = true;
+        setMapReady(true);
       };
       map.loaded() ? onReady() : map.on("load", onReady);
       map.on("error", () => { });
@@ -2703,14 +3702,34 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       return new Promise((resolve, reject) => {
         let settled = false;
         const map = initAppleMap(mapkit);
-        if (!map) { reject(new Error("Apple Map initialization failed.")); return; }
-        const onErr = () => { if (settled) return; settled = true; mapkit.removeEventListener("error", onErr); try { map.destroy(); } catch { } reject(new Error("MapKit authorization failed.")); };
+        if (!map) {
+          reject(new Error("Apple Map initialization failed."));
+          return;
+        }
+        const onErr = () => {
+          if (settled) return;
+          settled = true;
+          mapkit.removeEventListener("error", onErr);
+          try { map.destroy(); } catch { }
+          reject(new Error("MapKit authorization failed."));
+        };
         mapkit.addEventListener("error", onErr);
-        setTimeout(() => { if (settled || cancelled) return; settled = true; mapkit.removeEventListener("error", onErr); appleMapRef.current = map; appleMapReadyRef.current = true; resolve(); }, 3000);
+        setTimeout(() => {
+          if (settled || cancelled) return;
+          settled = true;
+          mapkit.removeEventListener("error", onErr);
+          appleMapRef.current = map;
+          appleMapReadyRef.current = true;
+          resolve();
+        }, 3000);
       });
     });
 
-    initDeck().then(() => { if (!cancelled) return initApple().catch(() => { setMapProviderError("Apple Maps unavailable for close zoom. Using Deck.gl only."); }); }).catch(() => { if (!cancelled) { setMapProviderError("Map provider failed to load."); } });
+    initDeck().then(() => {
+      if (!cancelled) return initApple().catch(() => { setMapProviderError("Apple Maps unavailable for close zoom. Using Deck.gl only."); });
+    }).catch(() => {
+      if (!cancelled) { setMapProviderError("Map provider failed to load."); }
+    });
 
     return () => {
       cancelled = true;
@@ -2731,6 +3750,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     const lng = parseFloat(params.get("lng"));
     const zoom = parseFloat(params.get("zoom")) || 14;
     const assetId = params.get("asset");
+    const viewId = params.get("view");
     if (!isNaN(lat) && !isNaN(lng)) {
       navigateToLocation(lat, lng, zoom, 50, 0, assetId ? "Asset" : `${lat.toFixed(2)}°, ${lng.toFixed(2)}°`);
     }
@@ -2738,19 +3758,27 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       setSelectedAsset(assetId);
       fetchAssetDetails(assetId);
     }
+    if (viewId) {
+      const view = savedViews.find(v => v.view_id === viewId);
+      if (view) applySavedView(view);
+    }
     if (params.toString()) {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, [mapReady]);
 
   const criticalAssets = useMemo(() => assets.filter(a => (a.riskLevel || a.risk_score || 0) > 70).length, [assets]);
-  const elevatedAssets = useMemo(() => assets.filter(a => { const r = a.riskLevel || a.risk_score || 0; return r > 50 && r <= 70; }).length, [assets]);
+  const elevatedAssets = useMemo(() => assets.filter(a => {
+    const r = a.riskLevel || a.risk_score || 0;
+    return r > 50 && r <= 70;
+  }).length, [assets]);
   const nominalAssets = useMemo(() => assets.filter(a => (a.riskLevel || a.risk_score || 0) <= 50).length, [assets]);
   const totalRiskEvents = useMemo(() => Object.values(riskIntelligenceData).reduce((s, arr) => s + (arr?.length || 0), 0), [riskIntelligenceData]);
   const userAreaLabel = useMemo(() => describeArea(userArea), [userArea]);
 
   const closeModal = useCallback(() => {
-    setActiveModal(null); setNearbyRisks(null);
+    setActiveModal(null);
+    setNearbyRisks(null);
   }, []);
 
   const StatsList = ({ items, onItemClick }) => (
@@ -2770,6 +3798,8 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const SIDEBAR_ACTIONS = [
     [faPlus, "Manage Assets", () => window.location.href = "/asset-management"],
     [faMapPin, userArea ? "Edit My Area" : "Set My Area", openMyAreaModal],
+    [faBookmark, "Saved Views", () => setActiveModal("savedViews")],
+    [faSave, "Save This View", openSaveViewModal],
     [faLayerGroup, "Risk Layers", () => setActiveModal("riskLayers")],
     [faShieldHalved, "Intelligence", () => setActiveModal("riskIntel")],
     [faBullseye, "Nearby Query", () => openNearbyQueryModal(mapCenter.lat, mapCenter.lng)],
@@ -2867,18 +3897,20 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
               [`${showSatellite ? "Topo View" : "Satellite View"}`, toggleSatellite],
               [`${showBuildings ? "Hide" : "Show"} Points of Interest`, toggleBuildings],
               ["Reset Rotation", () => { if (appleMapRef.current) appleMapRef.current.rotation = 0; if (deckglMapRef.current) deckglMapRef.current.setBearing(0); }],
-              [`${showAssetMarkers ? "Hide" : "Show"} Asset Markers`, () => setShowAssetMarkers(!showAssetMarkers)]
+              [`Assets: ${assetLayerMode === ASSET_LAYER_MODE_ALL ? "All" : assetLayerMode === ASSET_LAYER_MODE_OWNED ? "Owned" : "Hidden"}`, cycleAssetLayerMode],
+              [`${showHeatmap ? "Hide" : "Show"} Heatmap`, () => setShowHeatmap(v => !v)],
+              [`${showVisibilityBadges ? "Hide" : "Show"} Visibility Badges`, () => setShowVisibilityBadges(v => !v)]
             ].map(([label, action], i) => <button key={i} className="riskSidebarButton" onClick={action}>{label}</button>)}
           </div>
           {assets.length > 0 && (
             <div className="riskAssetList">
-              <div className="riskAssetListHeader"><small>Assets ({assets.length})</small></div>
+              <div className="riskAssetListHeader"><small>Assets ({visibleAssets.length}/{assets.length})</small></div>
               <div className="riskAssetListItems">
-                {assets.slice(0, 20).map(asset => (
+                {visibleAssets.slice(0, 20).map(asset => (
                   <div key={asset.asset_id} className={`riskAssetListItem ${selectedAsset === asset.asset_id ? "riskAssetListItemSelected" : ""}`} onClick={() => navigateToAsset(asset)}>
                     <div className="riskAssetListItemInfo">
                       <span className="riskAssetListItemName">{asset.name}</span>
-                      <span className="riskAssetListItemType">{asset.asset_type || asset.type}</span>
+                      <span className="riskAssetListItemType">{asset.asset_type || asset.type}{asset.geometry_type && asset.geometry_type !== "Point" ? ` · ${asset.geometry_type}` : ""}</span>
                     </div>
                     <div className="riskAssetListItemRisk" style={{ backgroundColor: riskColor(asset.risk_score || asset.riskLevel || 0) }}>{asset.risk_score || asset.riskLevel || 0}</div>
                   </div>
@@ -2923,6 +3955,16 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
                   <FontAwesomeIcon icon={faCrosshairs} /> Zoom to Area
                 </button>
               )}
+              <button
+                className={`riskHeaderButton ${showHeatmap ? "riskButtonActive" : ""}`}
+                onClick={() => setShowHeatmap(v => !v)}
+                title="Toggle heatmap rendering"
+              >
+                <FontAwesomeIcon icon={faHeat} /> Heatmap
+              </button>
+              <button className="riskHeaderButton" onClick={openSaveViewModal} title="Save current view">
+                <FontAwesomeIcon icon={faBookmark} /> Save View
+              </button>
               <button className={`riskHeaderButton ${selectionMode ? "riskButtonActive" : ""}`} onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) clearSelection(); }}>
                 <FontAwesomeIcon icon={faObjectGroup} /> Select
               </button>
@@ -2966,18 +4008,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           <p style={{ fontSize: "0.75rem", color: "var(--risk-text-tertiary)", marginBottom: "var(--risk-spacing-md)", lineHeight: 1.5 }}>
             Define your preferred area to filter all alerts, summaries, and map markers to that region only. Choose a point with a radius (circular area around an address or coordinates) or a bounding box (rectangular area).
           </p>
-
           <div className="riskFormGroup">
             <label>Area Name (optional)</label>
-            <input
-              type="text"
-              value={areaFormData.name}
-              onChange={e => handleAreaFormChange("name", e.target.value)}
-              placeholder="e.g. Houston Metro, North Bay, My Region"
-              maxLength="80"
-            />
+            <input type="text" value={areaFormData.name} onChange={e => handleAreaFormChange("name", e.target.value)} placeholder="e.g. Houston Metro, North Bay, My Region" maxLength="80" />
           </div>
-
           <div className="riskFormGroup">
             <label>Area Mode</label>
             <select value={areaFormData.mode} onChange={e => handleAreaFormChange("mode", e.target.value)}>
@@ -2985,158 +4019,103 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
               <option value="bbox">Bounding Box (rectangular area)</option>
             </select>
           </div>
-
           {areaFormData.mode === "point_radius" && (
             <>
               <div className="riskFormGroup">
                 <label>Address (geocoded to coordinates)</label>
                 <div style={{ display: "flex", gap: "var(--risk-spacing-sm)" }}>
-                  <input
-                    type="text"
-                    value={areaFormData.address}
-                    onChange={e => handleAreaFormChange("address", e.target.value)}
-                    placeholder="e.g. Houston, TX or 1600 Pennsylvania Ave"
-                    style={{ flex: 1 }}
-                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleGeocodeArea(); } }}
-                  />
-                  <button
-                    type="button"
-                    className="riskModalBtnSecondary"
-                    onClick={handleGeocodeArea}
-                    disabled={isGeocodingArea || !areaFormData.address?.trim()}
-                  >
+                  <input type="text" value={areaFormData.address} onChange={e => handleAreaFormChange("address", e.target.value)} placeholder="e.g. Houston, TX or 1600 Pennsylvania Ave" style={{ flex: 1 }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleGeocodeArea(); } }} />
+                  <button type="button" className="riskModalBtnSecondary" onClick={handleGeocodeArea} disabled={isGeocodingArea || !areaFormData.address?.trim()}>
                     {isGeocodingArea ? <><FontAwesomeIcon icon={faSpinner} spin /> Geocoding</> : <><FontAwesomeIcon icon={faLocationCrosshairs} /> Geocode</>}
                   </button>
                 </div>
               </div>
-
               <div className="riskFormRow">
-                <div className="riskFormGroup">
-                  <label>Latitude *</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={areaFormData.latitude}
-                    onChange={e => handleAreaFormChange("latitude", e.target.value)}
-                    placeholder="-90 to 90"
-                    required
-                  />
-                </div>
-                <div className="riskFormGroup">
-                  <label>Longitude *</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={areaFormData.longitude}
-                    onChange={e => handleAreaFormChange("longitude", e.target.value)}
-                    placeholder="-180 to 180"
-                    required
-                  />
-                </div>
-                <div className="riskFormGroup">
-                  <label>Radius (km) *</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="10000"
-                    step="any"
-                    value={areaFormData.radius_km}
-                    onChange={e => handleAreaFormChange("radius_km", e.target.value)}
-                    placeholder="100"
-                    required
-                  />
-                </div>
+                <div className="riskFormGroup"><label>Latitude *</label><input type="number" step="any" value={areaFormData.latitude} onChange={e => handleAreaFormChange("latitude", e.target.value)} placeholder="-90 to 90" required /></div>
+                <div className="riskFormGroup"><label>Longitude *</label><input type="number" step="any" value={areaFormData.longitude} onChange={e => handleAreaFormChange("longitude", e.target.value)} placeholder="-180 to 180" required /></div>
+                <div className="riskFormGroup"><label>Radius (km) *</label><input type="number" min="1" max="10000" step="any" value={areaFormData.radius_km} onChange={e => handleAreaFormChange("radius_km", e.target.value)} placeholder="100" required /></div>
               </div>
-
-              <button type="button" className="riskModalBtnSecondary" onClick={useMapCenterForArea}>
-                <FontAwesomeIcon icon={faLocationCrosshairs} /> Use Current Map Center
-              </button>
+              <button type="button" className="riskModalBtnSecondary" onClick={useMapCenterForArea}><FontAwesomeIcon icon={faLocationCrosshairs} /> Use Current Map Center</button>
             </>
           )}
-
           {areaFormData.mode === "bbox" && (
             <>
               <div className="riskFormRow">
-                <div className="riskFormGroup">
-                  <label>Min Latitude (south) *</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={areaFormData.min_lat}
-                    onChange={e => handleAreaFormChange("min_lat", e.target.value)}
-                    placeholder="-90 to 90"
-                    required
-                  />
-                </div>
-                <div className="riskFormGroup">
-                  <label>Max Latitude (north) *</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={areaFormData.max_lat}
-                    onChange={e => handleAreaFormChange("max_lat", e.target.value)}
-                    placeholder="-90 to 90"
-                    required
-                  />
-                </div>
+                <div className="riskFormGroup"><label>Min Latitude (south) *</label><input type="number" step="any" value={areaFormData.min_lat} onChange={e => handleAreaFormChange("min_lat", e.target.value)} placeholder="-90 to 90" required /></div>
+                <div className="riskFormGroup"><label>Max Latitude (north) *</label><input type="number" step="any" value={areaFormData.max_lat} onChange={e => handleAreaFormChange("max_lat", e.target.value)} placeholder="-90 to 90" required /></div>
               </div>
               <div className="riskFormRow">
-                <div className="riskFormGroup">
-                  <label>Min Longitude (west) *</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={areaFormData.min_lng}
-                    onChange={e => handleAreaFormChange("min_lng", e.target.value)}
-                    placeholder="-180 to 180"
-                    required
-                  />
-                </div>
-                <div className="riskFormGroup">
-                  <label>Max Longitude (east) *</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={areaFormData.max_lng}
-                    onChange={e => handleAreaFormChange("max_lng", e.target.value)}
-                    placeholder="-180 to 180"
-                    required
-                  />
-                </div>
+                <div className="riskFormGroup"><label>Min Longitude (west) *</label><input type="number" step="any" value={areaFormData.min_lng} onChange={e => handleAreaFormChange("min_lng", e.target.value)} placeholder="-180 to 180" required /></div>
+                <div className="riskFormGroup"><label>Max Longitude (east) *</label><input type="number" step="any" value={areaFormData.max_lng} onChange={e => handleAreaFormChange("max_lng", e.target.value)} placeholder="-180 to 180" required /></div>
               </div>
-              <button type="button" className="riskModalBtnSecondary" onClick={useMapViewForArea}>
-                <FontAwesomeIcon icon={faMap} /> Use Current Map View
-              </button>
+              <button type="button" className="riskModalBtnSecondary" onClick={useMapViewForArea}><FontAwesomeIcon icon={faMap} /> Use Current Map View</button>
             </>
           )}
-
           {userArea && (
             <>
               <div className="riskAssessmentDivider" />
-              <div className="riskMetadataItem">
-                <span className="riskMetadataLabel">Currently Saved</span>
-                <span className="riskMetadataValue">{describeArea(userArea)}</span>
-              </div>
-              <div className="riskMetadataItem">
-                <span className="riskMetadataLabel">Filter Status</span>
-                <span className="riskMetadataValue" style={{ color: areaFilterActive ? "#00E676" : "#FF9100" }}>
-                  {areaFilterActive ? "Active — filtering all alerts to this area" : "Inactive — showing global alerts"}
-                </span>
-              </div>
+              <div className="riskMetadataItem"><span className="riskMetadataLabel">Currently Saved</span><span className="riskMetadataValue">{describeArea(userArea)}</span></div>
+              <div className="riskMetadataItem"><span className="riskMetadataLabel">Filter Status</span><span className="riskMetadataValue" style={{ color: areaFilterActive ? "#00E676" : "#FF9100" }}>{areaFilterActive ? "Active — filtering all alerts to this area" : "Inactive — showing global alerts"}</span></div>
             </>
           )}
-
           <div className="riskModalActions">
-            {userArea && (
-              <button className="riskModalBtnDanger" onClick={clearUserArea}>
-                <FontAwesomeIcon icon={faTrash} /> Clear Area
-              </button>
-            )}
+            {userArea && <button className="riskModalBtnDanger" onClick={clearUserArea}><FontAwesomeIcon icon={faTrash} /> Clear Area</button>}
             <button className="riskModalBtnSecondary" onClick={() => setActiveModal(null)}>Cancel</button>
-            <button className="riskModalBtnPrimary" onClick={() => handleSaveArea(true)}>
-              <FontAwesomeIcon icon={faSave} /> Save & Activate Filter
-            </button>
+            <button className="riskModalBtnPrimary" onClick={() => handleSaveArea(true)}><FontAwesomeIcon icon={faSave} /> Save & Activate Filter</button>
           </div>
+        </Modal>
+
+        <Modal open={activeModal === "saveView"} onClose={() => setActiveModal(null)} title="Save Current View" size="Medium">
+          <p style={{ fontSize: "0.75rem", color: "var(--risk-text-tertiary)", marginBottom: "var(--risk-spacing-md)", lineHeight: 1.5 }}>
+            Capture the current map position, zoom, and selected filters as a named view. Saved views work as quick bookmarks and seed configurations for alert rules in the Alerts page.
+          </p>
+          <div className="riskFormGroup"><label>View Name *</label><input type="text" value={saveViewFormData.name} onChange={e => handleSaveViewFormChange("name", e.target.value)} placeholder="e.g. Houston Petrochem Corridor" maxLength="120" /></div>
+          <div className="riskFormGroup"><label>Description (optional)</label><textarea value={saveViewFormData.description} onChange={e => handleSaveViewFormChange("description", e.target.value)} placeholder="What does this view monitor? What's important about it?" maxLength="400" rows="3" /></div>
+          <div className="riskFormGroup">
+            <label>Include in this saved view</label>
+            <label className="riskCheckboxRow"><input type="checkbox" checked={saveViewFormData.include_filters} onChange={e => handleSaveViewFormChange("include_filters", e.target.checked)} /><span>Risk filters and My Area settings</span></label>
+            <label className="riskCheckboxRow"><input type="checkbox" checked={saveViewFormData.include_layers} onChange={e => handleSaveViewFormChange("include_layers", e.target.checked)} /><span>Map layer toggles (heatmap, dependencies, asset visibility, etc.)</span></label>
+          </div>
+          <div className="riskAssessmentDivider" />
+          <div className="riskMetadataItem"><span className="riskMetadataLabel">Capturing</span><span className="riskMetadataValue">Center {mapCenter.lat.toFixed(3)}°, {mapCenter.lng.toFixed(3)}° at zoom {mapZoom.toFixed(1)}.</span></div>
+          <div className="riskModalActions">
+            <button className="riskModalBtnSecondary" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button className="riskModalBtnPrimary" onClick={handleSaveCurrentView}><FontAwesomeIcon icon={faSave} /> Save View</button>
+          </div>
+        </Modal>
+
+        <Modal open={activeModal === "savedViews"} onClose={() => setActiveModal(null)} title={`Saved Views (${savedViews.length})`} size="Large">
+          <div className="riskGoldenMeshActions">
+            <button className="riskModalBtnPrimary" onClick={() => { setActiveModal(null); openSaveViewModal(); }}><FontAwesomeIcon icon={faPlus} /> Save Current View</button>
+            <button className="riskModalBtnSecondary" onClick={fetchSavedViewsFromBackend}><FontAwesomeIcon icon={faRefresh} /> Refresh</button>
+          </div>
+          {savedViews.length === 0 ? (
+            <EmptyState text="No saved views yet. Use Save View to capture your current map and filter setup." />
+          ) : (
+            <div className="riskSavedViewsList">
+              {savedViews.map(view => (
+                <div key={view.view_id} className="riskSavedViewItem">
+                  <div className="riskSavedViewInfo">
+                    <span className="riskSavedViewName">{describeSavedView(view)}</span>
+                    {view.description && <span className="riskSavedViewDescription">{view.description}</span>}
+                    <span className="riskSavedViewMeta">
+                      {view.center ? `${view.center.lat.toFixed(2)}°, ${view.center.lng.toFixed(2)}°` : ""}
+                      {view.zoom != null ? ` · z${view.zoom.toFixed(1)}` : ""}
+                      {view.created_at ? ` · ${getRelativeTime(view.created_at)}` : ""}
+                    </span>
+                    <div className="riskSavedViewTags">
+                      {view.filters && <span className="riskSavedViewTag">filters</span>}
+                      {view.layers && <span className="riskSavedViewTag">layers</span>}
+                    </div>
+                  </div>
+                  <div className="riskSavedViewActions">
+                    <button className="riskSavedViewBtn riskSavedViewBtnPrimary" onClick={() => applySavedView(view)}><FontAwesomeIcon icon={faCrosshairs} /> Apply</button>
+                    <button className="riskSavedViewBtn riskSavedViewBtnDanger" onClick={() => deleteSavedView(view.view_id)}><FontAwesomeIcon icon={faTrash} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </Modal>
 
         <Modal open={activeModal === "nearbyQuery"} onClose={() => setActiveModal(null)} title="Spatial Nearby Query (PostGIS)" size="Large">
@@ -3179,7 +4158,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
                   <div key={idx} className="riskIntelFeedItem" onClick={() => { navigateToRiskEvent(risk); setActiveModal(null); }}>
                     <div className="riskIntelFeedItemIcon" style={{ backgroundColor: SEVERITY_COLORS[risk.severity] }}><FontAwesomeIcon icon={getRiskCategoryIcon(risk.risk_category)} /></div>
                     <div className="riskIntelFeedItemInfo">
-                      <span className="riskIntelFeedItemTitle">{risk.title}</span>
+                      <span className="riskIntelFeedItemTitle">
+                        {risk.title}
+                        {getRiskVisibility(risk) === VISIBILITY_ORG_PRIVATE && <span className="riskVisibilityBadge riskVisibilityBadgePrivate"><FontAwesomeIcon icon={faLock} /> org</span>}
+                      </span>
                       <span className="riskIntelFeedItemMeta">{risk.risk_category} • {risk.source} • {getRelativeTime(risk.event_time)}</span>
                       {risk.distance_km !== undefined && <span className="riskIntelFeedItemImpact"><FontAwesomeIcon icon={faRuler} /> {risk.distance_km.toFixed(1)} km away</span>}
                     </div>
@@ -3421,7 +4403,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
                 <div key={`${cat}-${idx}`} className="riskIntelFeedItem" onClick={() => { navigateToRiskEvent(risk); setActiveModal(null); }}>
                   <div className="riskIntelFeedItemIcon" style={{ backgroundColor: SEVERITY_COLORS[risk.severity] }}><FontAwesomeIcon icon={getRiskCategoryIcon(risk.risk_category)} /></div>
                   <div className="riskIntelFeedItemInfo">
-                    <span className="riskIntelFeedItemTitle">{risk.title}</span>
+                    <span className="riskIntelFeedItemTitle">
+                      {risk.title}
+                      {getRiskVisibility(risk) === VISIBILITY_ORG_PRIVATE && <span className="riskVisibilityBadge riskVisibilityBadgePrivate"><FontAwesomeIcon icon={faLock} /> org</span>}
+                    </span>
                     <span className="riskIntelFeedItemMeta">{risk.risk_category} • {risk.source} • {getRelativeTime(risk.event_time)}</span>
                     {risk.impact_radius_km && <span className="riskIntelFeedItemImpact"><FontAwesomeIcon icon={faRuler} /> {risk.impact_radius_km} km impact radius</span>}
                     {risk.golden_mesh_detection && Object.keys(risk.golden_mesh_detection).length > 0 && (
