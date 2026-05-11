@@ -1,0 +1,16 @@
+.leadingIDEDirectoryStack,
+.dinolabsSettingsContainer,
+.AlertOverlay,
+.dinolabsEditingSearchBoxWrapper,
+.dinolabsTableWrapperContainer {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    ::selection {
+      background: transparent !important;
+      color: inherit !important;
+    }
+    ::-moz-selection {
+      background: transparent !important;
+      color: inherit !important;
+    }
+}

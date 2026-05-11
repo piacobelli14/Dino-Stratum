@@ -1,0 +1,187 @@
+.resetPageWrapper {
+    display: flex; 
+    flex-direction: column; 
+    justify-content: flex-start; 
+    overflow: scroll; 
+    height: 100vh; 
+}
+
+.resetCellHeaderContainer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100vw;
+    height: calc(100vh - 60px) !important; 
+    overflow: hidden;
+    position: relative; 
+}
+
+.resetHeroBackgroundWrapper {
+    position: relative; 
+    width: 100%; 
+    height: 100%; 
+    z-index: 0; 
+    overflow: hidden; 
+}
+
+.resetBackground {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+.resetBackgroundBlur {
+    position: absolute;
+    width: 20rem;
+    height: 20rem;
+    border-radius: 50%;
+    filter: blur(3rem);
+    animation: backgroundPulse 6s infinite ease-in-out;
+}
+
+.resetBackgroundBlur1 {
+    top: -10rem;
+    right: -10rem;
+    background: rgba(22, 24, 29, 0.6);
+}
+
+.resetBackgroundBlur2 {
+    bottom: -10rem;
+    left: -10rem;
+    background: rgba(19, 21, 26, 0.6);
+    animation-delay: 0.1s;
+}
+
+.resetBackgroundBlur3 {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 24rem;
+    height: 24rem;
+    background: rgba(16, 18, 22, 0.4);
+    animation-delay: 0.1s;
+}
+
+@keyframes resetBackgroundPulse {
+    0%, 100% { opacity: 0.1; }
+    50% { opacity: 0.8; }
+}
+
+.resetGridPattern {
+    position: absolute;
+    inset: 0;
+    background-image: 
+        linear-gradient(rgba(50, 55, 70, 0.45) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(50, 55, 70, 0.45) 1px, transparent 1px);
+    background-size: 60px 60px;
+    opacity: 0.2;
+}
+
+.resetBlock, 
+.resetBlockTouch {
+    display: flex; 
+    flex-direction: column; 
+    justify-content: flex-start;
+    align-items: center;
+    top: 0;
+    right: 0;  
+    z-index: 10;
+    border-radius: 0; 
+    border: none; 
+    height: 100%; 
+    width: 40vw;
+    background: rgba(255, 255, 255, 0.0);
+}
+
+.resetBlockTouch {
+    display: flex; 
+    flex-direction: column; 
+    justify-content: flex-start;
+    align-items: center;
+    width: 100%;
+    max-height: calc(100% - 60px);  
+    min-height: calc(100% - 60px); 
+    overflow: hidden; 
+}
+
+@media (min-width: 700px) {
+    .resetBlock {
+        width: 40vw; 
+    }
+
+    .loginVideoBackground {
+        width: calc(100% - 40vw); 
+    }
+}
+
+@media (max-width: 699px) {
+    .resetBlock {
+        width: 100%; 
+        justify-content: center;
+    }
+
+    .loginVideoBackground {
+        width: 0; 
+    }
+}
+
+.resetLogo, 
+.resetLogoSub, 
+.resetLogoTouch, 
+.resetLogoTouch {
+    height: 120px;
+    margin-right: 0;
+    margin-top: 4rem;
+    margin-bottom: 2rem; 
+}
+
+.resetLogoTouch {
+    height: 20vh; 
+    margin-bottom: 4rem; 
+    margin-top: 4rem; 
+}
+
+.resetLogoTouchSub {
+     height: 20vh; 
+    margin-bottom: 4rem; 
+    margin-top: 2rem; 
+}
+
+@media (max-width: 699px) {
+    .resetLogo, 
+    .resetLogoSub {
+        margin-top: 0;
+    }
+}
+
+@media (min-width: 1200px) {
+    .resetLogo, 
+    .resetLogoSub  {
+        height: 160px;
+        margin-right: 0;
+        margin-top: 4rem;
+        margin-bottom: 2rem; 
+    }
+}
+
+.resetPrompt {
+    font-size: 0.9rem; 
+    font-weight: 800; 
+    opacity: 0.9;
+    color: rgba(205, 212, 228, 0.82);
+    margin-bottom: 1rem; 
+    width: 80%; 
+    text-align: center;
+}
+
+@media (min-width: 700px) {
+    .resetBlock {
+        width: 40vw; 
+    }
+}
+
+@media (max-width: 699px) {
+    .resetBlock {
+        width: 100vw; 
+    }
+}

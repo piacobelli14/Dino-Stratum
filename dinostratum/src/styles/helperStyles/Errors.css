@@ -1,0 +1,17 @@
+.errorContainer {
+    width: 100%; 
+    overflow: scroll; 
+    display: flex; 
+    justify-content: center;
+    align-items: center;
+}
+
+.errorMessage, 
+.errorText {
+    font-size: 0.8rem; 
+    font-weight: 700 !important; 
+    color: #E54B4B; 
+    width: 80%; 
+    text-align: center; 
+    padding: 0.4rem 0; 
+}

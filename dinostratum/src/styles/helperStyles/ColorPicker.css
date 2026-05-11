@@ -1,0 +1,337 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+.color-picker-tippy {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.color-picker-tippy .tippy-arrow {
+  display: none;
+}
+
+.dinolabsColorPickerBackground {
+  padding: 20px;
+  background: linear-gradient(145deg, #141820 0%, #1e242e 100%);
+  border: 1px solid rgba(50, 55, 70, 0.45);
+  border-radius: 6px;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+  color: rgba(235, 240, 248, 0.95);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.dinolabsColorPickerSaturationSquare {
+  cursor: crosshair;
+  margin-bottom: 20px;
+  position: relative;
+  border: 1px solid rgba(50, 55, 70, 0.45);
+  border-radius: 6px;
+  width: 100%;
+  min-height: 150px;
+  max-height: 150px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: all 0.2s ease;
+}
+
+.dinolabsColorPickerSaturationSquare:hover {
+  box-shadow: 0 4px 6px -1px rgba(76, 59, 126, 0.2);
+}
+
+.dinolabsColorPickerSaturationSquareGradient {
+  border-radius: 6px;
+  pointer-events: none;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  position: absolute;
+  overflow: hidden;
+}
+
+.dinolabsSaturationSquareCursor {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(235, 240, 248, 0.95);
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.dinolabsSliderStack {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-width: 100%;
+}
+
+.dinolabsColorSliderWrapper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.dinolabsColorSliderIcon {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 1rem;
+  font-style: italic;
+  color: rgba(145, 155, 175, 0.58);
+}
+
+.dinolabsColorSliderWrapperStack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin-top: 8px;
+}
+
+.dinolabsHueSlider {
+  position: relative;
+  cursor: pointer;
+  border-radius: 6px;
+  border: 1px solid rgba(50, 55, 70, 0.45);
+  overflow: hidden;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  width: 100%;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: all 0.2s ease;
+}
+
+.dinolabsHueSlider:hover {
+  box-shadow: 0 4px 6px -1px rgba(76, 59, 126, 0.2);
+  border-color: rgba(60, 68, 85, 0.5);
+}
+
+.dinolabsHueSliderCursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  border: 2px solid rgba(235, 240, 248, 0.95);
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: #1e242e;
+}
+
+.dinolabsColorFormattingFlex {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+.dinolabsColorFormatSelection {
+  border: 1px solid rgba(50, 55, 70, 0.45);
+  border-radius: 6px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(235, 240, 248, 0.95);
+  width: 25%;
+  height: 35px;
+  min-height: 35px;
+  max-height: 35px;
+  background: #13151a;
+  cursor: pointer;
+  text-align: center;
+  outline: none;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+.dinolabsColorFormatSelection::-ms-expand {
+  display: none;
+}
+
+.dinolabsColorFormatSelection:hover {
+  background: linear-gradient(135deg, #4C3B7E 0%, #906EAF 100%);
+  border-color: #4C3B7E;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(76, 59, 126, 0.2);
+}
+
+.dinolabsColorFormatSelection:focus {
+  outline: none;
+  border-color: #6a7a8a;
+  box-shadow: 0 0 0 3px rgba(76, 59, 126, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.dinolabsColorFormatEntryWrapper {
+  width: 100%;
+  height: 35px;
+  min-height: 35px;
+  max-height: 35px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+.dinolabsColorInput,
+.dinolabsColorInputBig,
+.dinolabsAlphaInput {
+  box-sizing: border-box;
+  border: 1px solid rgba(50, 55, 70, 0.45);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(235, 240, 248, 0.95);
+  background: #13151a;
+  height: 100%;
+  padding: 0 8px;
+  outline: none;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+.dinolabsColorInputBig {
+  width: 100%;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  text-align: center;
+}
+
+.dinolabsColorInput {
+  width: 65%;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  text-align: center;
+}
+
+.dinolabsAlphaInput {
+  width: 35%;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  text-align: center;
+  color: rgba(235, 240, 248, 0.95);
+}
+
+.dinolabsColorInput:hover,
+.dinolabsColorInputBig:hover,
+.dinolabsAlphaInput:hover {
+  outline: none;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(76, 59, 126, 0.2);
+  border-color: rgba(60, 68, 85, 0.5);
+}
+
+.dinolabsColorInput:focus,
+.dinolabsColorInputBig:focus,
+.dinolabsAlphaInput:focus {
+  outline: none;
+  border-color: #6a7a8a;
+  box-shadow: 0 0 0 3px rgba(76, 59, 126, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.dinolabsColorInput::placeholder,
+.dinolabsColorInputBig::placeholder,
+.dinolabsAlphaInput::placeholder {
+  color: rgba(145, 155, 175, 0.58);
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .dinolabsColorPickerBackground {
+    padding: 16px;
+  }
+  
+  .dinolabsColorSliderWrapperStack {
+    gap: 16px;
+  }
+  
+  .dinolabsColorPickerSaturationSquare {
+    margin-bottom: 16px;
+  }
+}
+
+@media (max-width: 520px) {
+  .dinolabsColorPickerBackground {
+    padding: 12px;
+  }
+  
+  .dinolabsColorSliderWrapperStack {
+    gap: 12px;
+  }
+  
+  .dinolabsColorPickerSaturationSquare {
+    margin-bottom: 12px;
+    min-height: 120px;
+    max-height: 120px;
+  }
+  
+  .dinolabsColorFormatSelection,
+  .dinolabsColorInput,
+  .dinolabsColorInputBig,
+  .dinolabsAlphaInput {
+    font-size: 11px;
+    height: 32px;
+  }
+  
+  .dinolabsColorFormatEntryWrapper {
+    height: 32px;
+    min-height: 32px;
+    max-height: 32px;
+  }
+}
+
+@media (prefers-contrast: high) {
+  .dinolabsColorPickerBackground,
+  .dinolabsColorPickerSaturationSquare,
+  .dinolabsHueSlider,
+  .dinolabsColorFormatSelection,
+  .dinolabsColorInput,
+  .dinolabsColorInputBig,
+  .dinolabsAlphaInput {
+    border-width: 2px;
+  }
+  
+  .dinolabsSaturationSquareCursor,
+  .dinolabsHueSliderCursor {
+    border-width: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dinolabsColorPickerSaturationSquare,
+  .dinolabsHueSlider,
+  .dinolabsColorFormatSelection,
+  .dinolabsColorInput,
+  .dinolabsColorInputBig,
+  .dinolabsAlphaInput {
+    transition: none;
+  }
+}

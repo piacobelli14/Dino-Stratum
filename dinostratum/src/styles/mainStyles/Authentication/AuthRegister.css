@@ -1,0 +1,353 @@
+.registerPageWrapper {
+    display: flex; 
+    flex-direction: column; 
+    justify-content: flex-start; 
+    overflow: scroll; 
+    height: 100vh; 
+}
+
+.registerCellHeaderContainer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100vw;
+    height: calc(100vh - 60px) !important; 
+    min-height: calc(100vh - 60px) !important; 
+    max-height: calc(100vh - 60px) !important; 
+    overflow: hidden;
+    position: relative; 
+}
+
+.registerHeroBackgroundWrapper {
+    position: relative; 
+    width: 100%; 
+    height: 100%; 
+    z-index: 0; 
+    overflow: hidden;
+}
+
+.registerBackground {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+.registerBackgroundBlur {
+    position: absolute;
+    width: 20rem;
+    height: 20rem;
+    border-radius: 50%;
+    filter: blur(3rem);
+    animation: backgroundPulse 6s infinite ease-in-out;
+}
+
+.registerBackgroundBlur1 {
+    top: -10rem;
+    right: -10rem;
+    background: rgba(22, 24, 29, 0.6);
+}
+
+.registerBackgroundBlur2 {
+    bottom: -10rem;
+    left: -10rem;
+    background: rgba(19, 21, 26, 0.6);
+    animation-delay: 0.1s;
+}
+
+.registerBackgroundBlur3 {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 24rem;
+    height: 24rem;
+    background: rgba(16, 18, 22, 0.4);
+    animation-delay: 0.1s;
+}
+
+@keyframes registerBackgroundPulse {
+    0%, 100% { opacity: 0.1; }
+    50% { opacity: 0.8; }
+}
+
+.registerGridPattern {
+    position: absolute;
+    inset: 0;
+    background-image: 
+        linear-gradient(rgba(50, 55, 70, 0.45) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(50, 55, 70, 0.45) 1px, transparent 1px);
+    background-size: 60px 60px;
+    opacity: 0.2;
+}
+
+.registerBlock, 
+.registerBlockTouch {
+    display: flex; 
+    flex-direction: column; 
+    justify-content: flex-start;
+    align-items: center;
+    top: 0;
+    right: 0;  
+    z-index: 2;
+    border-radius: 0; 
+    border: none; 
+    height: 100%; 
+    width: 40vw;
+    background: rgba(255,255,255,0.0); 
+    overflow: scroll;
+    height: 100%; 
+    min-height: 100%; 
+    max-height: 100%; 
+}
+
+.registerBlockTouch {
+    display: flex; 
+    flex-direction: column; 
+    justify-content: flex-start;
+    align-items: center;
+    width: 100%;
+    height: 100%; 
+    min-height: 100%; 
+    max-height: 100%; 
+    overflow: hidden; 
+}
+
+@media (min-width: 1200px) {
+    .registerBlock {
+        justify-content: center;
+    }
+}
+
+@media (min-width: 700px) {
+    .registerBlock {
+        width: 40vw; 
+    }
+}
+
+@media (max-width: 699px) {
+    .registerBlock {
+        width: 100%; 
+        justify-content: flex-start;
+    }
+
+}
+
+.registerLogo {
+    height: 60px;
+    margin-right: 0;
+    margin-top: 2rem;
+    margin-bottom: 2rem; 
+}
+
+.registerLogoTouch {
+    height: 20vh; 
+    margin-bottom: 4rem; 
+    margin-top: 4rem; 
+}
+
+@media (min-width: 1200px) {
+    .registerLogo {
+        height: 80px;
+        margin-right: 0;
+        margin-top: 2rem;
+        margin-bottom: 2rem; 
+    }
+}
+
+@media (max-width: 699px) {
+    .registerLogo {
+        margin-top: 0; 
+    }
+}
+
+.registerInputFlex, 
+.passwordInputFlex, 
+.passwordInputFlexLeading {
+    display: flex; 
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    position: relative; 
+    min-width: 70%; 
+    max-width: 70%;
+    margin-bottom: 1rem;  
+    box-sizing: border-box;
+}
+
+.registerInputFlex small  {
+    font-size: 0.7rem; 
+    font-weight: 700; 
+    color: rgba(205, 212, 228, 0.82);
+    margin: 0.8rem; 
+    text-align: center;
+    font-style: none; 
+
+}
+
+.registerInput, 
+.registerNameInput, 
+.passwordInput {
+    width: 100%; 
+    font-size: 0.8rem; 
+    font-weight: 700; 
+    color: rgba(235, 240, 248, 0.95); 
+    box-shadow: none;
+    background: #13151a; 
+    border: 1px solid rgba(50, 55, 70, 0.45); 
+    border-radius: 6px;
+    outline: none; 
+    text-indent: 1rem;
+    padding: 0; 
+    min-width: 100%; 
+    max-width: 100%; 
+    box-sizing: border-box;
+    padding: 1rem 1rem; 
+}
+
+.registerInput::placeholder,
+.registerNameInput::placeholder,
+.passwordInput::placeholder {
+    color: rgba(145, 155, 175, 0.58);
+}
+
+.registerInput:hover,
+.registerNameInput:hover,
+.passwordInput:hover {
+    border-color: rgba(60, 68, 85, 0.5);
+}
+
+.registerInput:focus,
+.registerNameInput:focus,
+.passwordInput:focus {
+    border-color: #6a7a8a;
+}
+
+.registerNameInput {
+    min-width: calc((100% / 2) - 0.4rem) !important; 
+    max-width: calc((100% / 2) - 0.4rem) !important; 
+}
+
+.registerContinueButton, 
+.passwordContinueButton {
+    display: flex; 
+    justify-content: center;
+    align-items: center;
+    background-color: #16181d;
+    border: 1px solid rgba(50, 55, 70, 0.45); 
+    border-radius: 6px; 
+    cursor: pointer; 
+    font-size: 0.8rem;  
+    font-weight: 600; 
+    color: rgba(235, 240, 248, 0.95); 
+    box-shadow: none;
+    width: 100%; 
+    min-width: 100%; 
+    max-width: 100%; 
+    padding: 1rem 1rem;
+    margin-bottom: 1rem; 
+    box-sizing: border-box;
+}
+
+.profilePictureUpload {
+    display: flex; 
+    justify-content: center;
+    align-items: center;
+    background-color: #16181d;
+    border: 1px solid rgba(50, 55, 70, 0.45); 
+    border-radius: 6px; 
+    cursor: pointer; 
+    font-size: 0.8rem;  
+    font-weight: 600; 
+    color: rgba(205, 212, 228, 0.82); 
+    box-shadow: none;
+    width: 70%; 
+    min-width: 70%; 
+    max-width: 70%; 
+    padding: 0.8rem 1rem;
+    margin-bottom: 1rem; 
+    box-sizing: border-box;
+    z-index: 2; 
+}
+
+@media (max-width: 900px) {
+    .registerInputFlex, 
+    .passwordInputFlex, 
+    .passwordInputFlexLeading,
+    .registerContinueButton, 
+    .passwordContinueButton, 
+    .profilePictureUpload   {
+        margin-bottom: 1rem; 
+    }
+}
+
+
+.registerContinueButton:hover .registerNextArrowIcon,
+.registerContinueButton:hover .registerPersonIcon,
+.registerContinueButton:hover, 
+.passwordContinueButton:hover {
+    opacity: 0.7;
+    background: #13151a;
+    border-color: rgba(60, 68, 85, 0.5);
+}
+
+.profilePictureUpload input {
+    display: none; 
+}
+
+.profileImageText {
+    cursor: pointer; 
+    font-weight: 900; 
+}
+
+.profilePictureUpload:hover .profileImageText, 
+.profilePictureUpload:hover {
+    opacity: 0.6; 
+}
+
+.registerToggleIcon {
+    display: flex; 
+    color: rgba(170, 180, 200, 0.72); 
+    font-size: 0.8rem; 
+    position: absolute; 
+    top: 50%;  
+    right: 5%; 
+    transform: translateY(-50%); 
+    cursor: pointer; 
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    padding: 0; 
+}
+
+.verificationPrompt {
+    display: flex; 
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(22, 24, 29, 0.4);
+    width: 80%;
+}
+
+.verificationPrompt label {
+    font-size: 1rem; 
+    font-weight: 800; 
+    color: rgba(235, 240, 248, 0.95);
+    text-align: center; 
+    margin-bottom: 0.6rem;
+}
+
+.verificationPrompt p {
+    font-size: 0.8rem; 
+    font-weight: 600; 
+    color: rgba(205, 212, 228, 0.82);
+    opacity: 0.8;
+    text-align: center; 
+    width: 90%; 
+    padding: 0; 
+    margin: 0; 
+}
+
+.verificationPrompt p span {
+    text-decoration: underline;
+    font-style: italic; 
+    cursor: pointer; 
+    font-weight: 900;
+    color: #6a7a8a; 
+}

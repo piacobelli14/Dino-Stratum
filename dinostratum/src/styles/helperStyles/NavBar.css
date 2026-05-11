@@ -1,0 +1,217 @@
+.navBarWrapper {
+    width: 100vw;  
+}
+
+.homeHeaderContainer {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    align-items: stretch;
+    width: 100vw;
+    z-index: 1000;
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.2);
+    overflow: auto;
+    background: linear-gradient(135deg, #0a0c10 0%, #141820 50%, #1e242e 100%);
+}
+
+.homeHeaderContainer {
+    height: 60px;
+}
+
+.homeTopNavBarContainer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100vw !important;
+    height: 100%;
+    padding: 0 1vw;
+}
+
+.homeNavSupplement {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    overflow: hidden;
+}
+
+.homeSkipToContent {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-left: 0.6rem;
+    background-color: rgba(255, 255, 255, 0.0);
+    border: none;
+    outline: none;
+    cursor: pointer;
+    height: 100%;
+}
+
+.homeLogo {
+    height: 50%;
+    margin-right: 0.8rem;
+}
+
+.homeHeader {
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.homeNavButton {
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    color: #f5f5f5;
+}
+
+.homeNavButton:hover {
+    opacity: 0.4 !important;
+}
+
+.homeSkipToContent:hover {
+    opacity: 0.8;
+}
+
+.homeSkipToContent:hover .homeLogo,
+.homeSkipToContent:hover .homeHeader {
+    opacity: 0.5;
+}
+
+.homeHamburgerCircle {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border: 0.5px solid rgba(255, 255, 255, 0.4); 
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.0);
+    cursor: pointer;
+    background-color: rgba(255, 255, 255, 0.2); 
+    box-shadow: 0 0 2px rgba(255, 255, 255, 0.5);
+    font-size: 0.7rem;
+    font-size: 800;
+    margin-right: 2rem;
+    color: #c0c0c0;
+    opacity: 1.0;
+}
+
+.homeHamburgerCircle:hover {
+    opacity: 0.5;
+    outline: none;
+    border: 0.5px solid rgba(255, 255, 255, 0.4); 
+}
+
+.homeHamburgerCircle:focus {
+    outline: none;
+    border: 0.5px solid rgba(255, 255, 255, 0.4); 
+}
+
+.homeHeaderDivider {
+    width: 100vw;
+    height: 0.05vw;
+    opacity: 0.2;
+    border: none;
+}
+
+.homeHamburgerPopout {
+    z-index: 1000;
+    width: 100vw;
+    height: 100%;
+    position: absolute;
+    top: 60px;
+    left: 0;
+    border-top: 0.5px solid rgba(255, 255, 255, 0.2);
+    height: calc(100vh - 6vh);
+    min-height: calc(100vh - 6vh);
+    max-height: calc(100vh - 6vh);
+    overflow: scroll !important;
+    background-color: #0a0c10;
+    box-sizing: border-box;
+    margin-bottom: 100px; 
+}
+
+.homeHamburgerContent {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    width: 100vw;
+    min-width: 100%;
+    max-width: 100%;
+    height: calc(100vh - 10vh);
+    padding: 0;
+}
+
+.navigationButton,
+.navigationButtonSupplement {
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.navigationButtonSupplement {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+}
+
+.navigationButtonWrapper,
+.navigationButtonWrapperMini {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #0a0c10 0%, #141820 50%, #1e242e 100%);
+    border: none;
+    outline: none;
+    box-shadow: none;
+    position: relative;
+    border-radius: 0;
+    height: 60px;
+    min-height: 60px; 
+    max-height: 60px;;
+    border-bottom: 0.1vh solid rgba(193, 193, 193, 0.7);
+}
+
+.navigationButtonWrapper {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    padding: 0;
+}
+
+.navigationButtonWrapperMini {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    padding: 0;
+}
+
+.navigationButtonIcon {
+    font-size: 0.8rem;
+    margin-right: 1.8vh;
+    margin-left: 1.5rem;
+}
+
+.navigationButtonIconTrailer {
+    font-size: 0.8rem;
+    margin-right: 1.5rem;
+    color: #c0c0c0;
+}
+
+.navigationButtonWrapper:focus,
+.navigationButtonWrapperMini:focus {
+    outline: none;
+}
+
+.navigationButtonWrapper:hover,
+.navigationButtonWrapperMini:hover {
+    opacity: 0.6;
+    outline: none;
+    border: none;
+    border-bottom: 0.1vh solid rgba(193, 193, 193, 0.7);
+}
