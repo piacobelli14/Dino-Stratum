@@ -134,7 +134,7 @@ const Account = () => {
     const fetchUserInfo = async (userID) => {
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/user-info`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/user-info`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -184,7 +184,7 @@ const Account = () => {
     const fetchAccessRequests = async (userID) => {
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/personal-access-requests`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/personal-access-requests`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -223,7 +223,7 @@ const Account = () => {
                 try {
                     const token = localStorage.getItem("token");
                     if (!token) return;
-                    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/edit-user-image`, {
+                    const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/edit-user-image`, {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
@@ -256,7 +256,7 @@ const Account = () => {
                 try {
                     const token = localStorage.getItem("token");
                     if (!token) return;
-                    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/edit-team-image`, {
+                    const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/edit-team-image`, {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
@@ -294,7 +294,7 @@ const Account = () => {
         }
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/` + endpoints[fieldKey], {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/` + endpoints[fieldKey], {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -317,7 +317,7 @@ const Account = () => {
         }
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/` + endpoints[fieldKey], {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/` + endpoints[fieldKey], {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -343,7 +343,7 @@ const Account = () => {
         }
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/delete-user`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/delete-user`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -371,7 +371,7 @@ const Account = () => {
         }
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/delete-team`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/delete-team`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -396,7 +396,7 @@ const Account = () => {
         }
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/create-team`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/create-team`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -430,7 +430,7 @@ const Account = () => {
         }
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/join-team`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/join-team`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -466,7 +466,7 @@ const Account = () => {
             if (!token) {
                 return;
             }
-            window.open(`${import.meta.env.VITE_API_BASE_URL}/connect-github?token=${token}&userID=${userID}`, "_blank");
+            window.open(`${import.meta.env.VITE_API_AUTH_URL}/connect-github?token=${token}&userID=${userID}`, "_blank");
         } catch (error) {
             if (!backendError) {
                 await showDialog({ title: "Alert", message: "Error connecting GitHub: " + error.message });
@@ -478,7 +478,7 @@ const Account = () => {
         try {
             const token = localStorage.getItem("token");
             if (!token) return;
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/delete-github`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/delete-github`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
             });
@@ -497,7 +497,7 @@ const Account = () => {
 
     const handleRevokeAccessRequest = async () => {
         const token = localStorage.getItem("token");
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/revoke-access-request`, {
+        const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/revoke-access-request`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -550,7 +550,7 @@ const Account = () => {
         const token = localStorage.getItem("token");
         const newValue = !userDetails.twofaEnabled;
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/edit-user-twofa`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/edit-user-twofa`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -577,7 +577,7 @@ const Account = () => {
         const token = localStorage.getItem("token");
         const newValue = !userDetails.loginNotis;
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/edit-user-loginnotifs`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/edit-user-loginnotifs`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -604,7 +604,7 @@ const Account = () => {
         const token = localStorage.getItem("token");
         const newValue = !userDetails.exportNotis;
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/edit-user-exportnotifs`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/edit-user-exportnotifs`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -631,7 +631,7 @@ const Account = () => {
         const token = localStorage.getItem("token");
         const newValue = !userDetails.dataSharing;
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/edit-user-datashare`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/edit-user-datashare`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -661,7 +661,7 @@ const Account = () => {
             package: "auto_discover_package"
         };
         try {
-            await fetch(`${import.meta.env.VITE_API_BASE_URL}/edit-auto-discovery`, {
+            await fetch(`${import.meta.env.VITE_API_AUTH_URL}/edit-auto-discovery`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -691,7 +691,7 @@ const Account = () => {
         try {
             const token = localStorage.getItem("token");
             const priceID = "price_XXXXXXXXXXXXXX";
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/create-checkout-session`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/create-checkout-session`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -717,7 +717,7 @@ const Account = () => {
     const handleManageBilling = async () => {
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/billing-portal`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/billing-portal`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -743,7 +743,7 @@ const Account = () => {
     const handleCancelSubscription = async () => {
         try {
             const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/cancel-subscription`, {
+            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/cancel-subscription`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

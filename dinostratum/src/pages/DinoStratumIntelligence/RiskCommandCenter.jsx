@@ -18,8 +18,6 @@ import Nav from "../../helpers/Nav.jsx";
 import "../../styles/mainStyles/Intelligence/RiskCommandCenter.css";
 import IntelBar from "./IntelBar";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-
 const MAP_PROVIDER_APPLE = "apple";
 const MAP_PROVIDER_DECKGL = "deckgl";
 const APPLE_MAPS_ZOOM_THRESHOLD = 6;
@@ -1368,7 +1366,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     setApiError(null);
     try {
       const params = new URLSearchParams({ orgid, limit: "100", sort_by: "risk_score", sort_order: "desc" });
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets?${params}`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets?${params}`);
       if (data.success) {
         setAssets(data.assets.map(a => ({
           ...a,
@@ -1394,7 +1392,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   const fetchAssetDetails = useCallback(async (assetId) => {
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/${assetId}?orgid=${orgid}`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/${assetId}?orgid=${orgid}`);
       if (data.success) {
         setDetailedAsset({
           ...data.asset,
@@ -1493,7 +1491,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     if (orgid) params.append("orgid", orgid);
     if (username) params.append("username", username);
 
-    const url = `${API_BASE_URL}/risk/intelligence/stream?${params}`;
+    const url = `${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/stream?${params}`;
     const evtSource = new EventSource(url);
     riskStreamRef.current = evtSource;
 
@@ -1551,7 +1549,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   const fetchRiskDataSources = useCallback(async () => {
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/intelligence/sources`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/sources`);
       if (data.success) setRiskDataSources(data.sources);
     } catch (error) { }
   }, [apiFetch]);
@@ -1580,7 +1578,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     return new Promise((resolve) => {
       const collectedRisks = [];
       const severityCounts = { critical: 0, high: 0, medium: 0, low: 0 };
-      const url = `${API_BASE_URL}/risk/intelligence/stream/postgis/nearby?${qp}`;
+      const url = `${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/stream/postgis/nearby?${qp}`;
       const evtSource = new EventSource(url);
       nearbyStreamRef.current = evtSource;
 
@@ -1651,7 +1649,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const fetchIngestionStatus = useCallback(async () => {
     setIsLoadingIngestionStatus(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/intelligence/ingest/status`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/ingest/status`);
       if (data.success) setIngestionStatus(data);
       else showNotification(data.message || "Failed to fetch ingestion status.", "error");
     } catch (error) {
@@ -1664,7 +1662,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const fetchCleanupStatus = useCallback(async () => {
     setIsLoadingCleanupStatus(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/intelligence/cleanup/status`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/cleanup/status`);
       if (data.success) setCleanupStatus(data);
       else showNotification(data.message || "Failed to fetch cleanup status.", "error");
     } catch (error) {
@@ -1677,7 +1675,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const triggerCleanup = useCallback(async () => {
     setIsTriggeringCleanup(true);
     try {
-      const { status, data } = await apiFetchWithStatus(`${API_BASE_URL}/risk/intelligence/cleanup/trigger`, { method: "POST", headers: { "Content-Type": "application/json" } });
+      const { status, data } = await apiFetchWithStatus(`${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/cleanup/trigger`, { method: "POST", headers: { "Content-Type": "application/json" } });
       if (status === 202 && data.success) {
         showNotification("Cleanup cycle triggered successfully.");
         setTimeout(() => fetchCleanupStatus(), 3000);
@@ -1696,7 +1694,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const fetchHealthStatus = useCallback(async () => {
     setIsLoadingHealth(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/intelligence/health`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/health`);
       const results = data.results || [];
       const okCount = results.filter(r => r.status === "OK").length;
       const overall = okCount === results.length ? "healthy" : okCount > results.length / 2 ? "degraded" : "unhealthy";
@@ -1752,7 +1750,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const assessLocationRisk = useCallback(async (latitude, longitude, radiusKm = 100) => {
     setIsAssessingLocation(true);
     try {
-      const { status, data } = await apiFetchWithStatus(`${API_BASE_URL}/risk/intelligence/assess-location`, {
+      const { status, data } = await apiFetchWithStatus(`${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/assess-location`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ latitude, longitude, radius_km: radiusKm, orgid, categories: ["earthquakes", "wildfires", "weather", "floods", "volcanoes", "ground_deformation"] })
@@ -1779,7 +1777,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   const connectIngestionStream = useCallback(() => {
     if (ingestionStreamRef.current) return;
-    const evtSource = new EventSource(`${API_BASE_URL}/risk/intelligence/ingest/stream`);
+    const evtSource = new EventSource(`${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/ingest/stream`);
     ingestionStreamRef.current = evtSource;
 
     evtSource.addEventListener("connected", () => {
@@ -1858,7 +1856,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const fetchAreaFromBackend = useCallback(async () => {
     if (!orgid || !username) return;
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/user/area?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/user/area?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`);
       if (data?.success && data.area) {
         setUserArea(data.area);
         setAreaFilterActive(!!data.filter_active);
@@ -1869,7 +1867,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const saveAreaToBackend = useCallback(async (area, filterActive) => {
     if (!orgid || !username || !area) return;
     try {
-      const { status, data } = await apiFetchWithStatus(`${API_BASE_URL}/risk/user/area`, {
+      const { status, data } = await apiFetchWithStatus(`${import.meta.env.VITE_API_BASE_URL}/risk/user/area`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgid, username, ...area, filter_active: !!filterActive })
@@ -1885,14 +1883,14 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const deleteAreaFromBackend = useCallback(async () => {
     if (!orgid || !username) return;
     try {
-      await apiFetch(`${API_BASE_URL}/risk/user/area?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`, { method: "DELETE" });
+      await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/user/area?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`, { method: "DELETE" });
     } catch (error) { }
   }, [orgid, username, apiFetch]);
 
   const updateFilterStateOnBackend = useCallback(async (filterActive) => {
     if (!orgid || !username) return;
     try {
-      await apiFetch(`${API_BASE_URL}/risk/user/area/filter`, {
+      await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/user/area/filter`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgid, username, filter_active: !!filterActive })
@@ -1903,7 +1901,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const fetchSavedViewsFromBackend = useCallback(async () => {
     if (!orgid || !username) return;
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/user/views?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/user/views?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`);
       if (data?.success && Array.isArray(data.views)) {
         const local = loadStoredSavedViews();
         const merged = [];
@@ -1923,7 +1921,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const persistSavedViewToBackend = useCallback(async (view) => {
     if (!orgid || !username || !view) return;
     try {
-      await apiFetch(`${API_BASE_URL}/risk/user/views`, {
+      await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/user/views`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgid, username, ...view })
@@ -1934,7 +1932,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const removeSavedViewFromBackend = useCallback(async (viewId) => {
     if (!orgid || !username || !viewId) return;
     try {
-      await apiFetch(`${API_BASE_URL}/risk/user/views/${encodeURIComponent(viewId)}?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`, { method: "DELETE" });
+      await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/user/views/${encodeURIComponent(viewId)}?orgid=${encodeURIComponent(orgid)}&username=${encodeURIComponent(username)}`, { method: "DELETE" });
     } catch (error) { }
   }, [orgid, username, apiFetch]);
 

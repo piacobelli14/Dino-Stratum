@@ -19,15 +19,6 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import "../../styles/mainStyles/Intelligence/IntelBar.css";
 
-const getApiBaseUrl = () => {
-  if (typeof window !== "undefined" && window.REACT_APP_API_URL) return window.REACT_APP_API_URL;
-  if (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  try { if (typeof process !== "undefined" && process.env?.REACT_APP_API_URL) return process.env.REACT_APP_API_URL; } catch {}
-  return "http://localhost:3000";
-};
-
-const API_BASE = getApiBaseUrl();
-
 const SEVERITY_COLORS = { Critical: "#FF6B6B", High: "#FF9500", Medium: "#FFE66D", Low: "#4ECDC4" };
 
 const RISK_ICONS = {
@@ -264,7 +255,7 @@ export default function IntelBar({
       try {
         const params = new URLSearchParams({ username });
         if (orgid) params.append("orgid", orgid);
-        const data = await getJson(`${API_BASE}/risk/intel/user-settings?${params.toString()}`);
+        const data = await getJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/user-settings?${params.toString()}`);
         if (data && data.success !== false) {
           setUserSettings(data.settings);
           if (data.settings.default_scope) {
@@ -302,7 +293,7 @@ export default function IntelBar({
     setErrorKey("summary", null);
     try {
       const body = { risk, scope: scopeRef.current, username, orgid };
-      const data = await postJson(`${API_BASE}/risk/intel/briefing/summary`, body);
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/summary`, body);
       if (data && data.success !== false) {
         setSummaryData(data.summary);
         if (data.summary?.briefing_id) setCurrentBriefingId(data.summary.briefing_id);
@@ -321,7 +312,7 @@ export default function IntelBar({
     setLoadingKey("articles", true);
     setErrorKey("articles", null);
     try {
-      const data = await postJson(`${API_BASE}/risk/intel/briefing/articles`, { risk, limit: 20, username, orgid });
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/articles`, { risk, limit: 20, username, orgid });
       if (data && data.success !== false) {
         setArticlesData({ count: data.count, items: data.articles });
       } else {
@@ -339,7 +330,7 @@ export default function IntelBar({
     setLoadingKey("videos", true);
     setErrorKey("videos", null);
     try {
-      const data = await postJson(`${API_BASE}/risk/intel/briefing/videos`, { risk, limit: 15, username, orgid });
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/videos`, { risk, limit: 15, username, orgid });
       if (data && data.success !== false) {
         setVideosData({ count: data.count, items: data.videos });
       } else {
@@ -357,7 +348,7 @@ export default function IntelBar({
     setLoadingKey("images", true);
     setErrorKey("images", null);
     try {
-      const data = await postJson(`${API_BASE}/risk/intel/briefing/images`, { risk, limit: 12, username, orgid });
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/images`, { risk, limit: 12, username, orgid });
       if (data && data.success !== false) {
         setImagesData({ count: data.count, items: data.images });
       } else {
@@ -375,7 +366,7 @@ export default function IntelBar({
     setLoadingKey("academic", true);
     setErrorKey("academic", null);
     try {
-      const data = await postJson(`${API_BASE}/risk/intel/briefing/academic`, { risk, limit: 10, username, orgid });
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/academic`, { risk, limit: 10, username, orgid });
       if (data && data.success !== false) {
         setAcademicData({ count: data.count, items: data.papers });
       } else {
@@ -393,7 +384,7 @@ export default function IntelBar({
     setLoadingKey("social", true);
     setErrorKey("social", null);
     try {
-      const data = await postJson(`${API_BASE}/risk/intel/briefing/social`, { risk, limit: 10, username, orgid });
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/social`, { risk, limit: 10, username, orgid });
       if (data && data.success !== false) {
         setSocialData({ count: data.count, items: data.reddit });
       } else {
@@ -411,7 +402,7 @@ export default function IntelBar({
     setLoadingKey("related", true);
     setErrorKey("related", null);
     try {
-      const data = await postJson(`${API_BASE}/risk/intel/briefing/related`, { risk, limit: 20 });
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/related`, { risk, limit: 20 });
       if (data && data.success !== false) {
         setRelatedData({ count: data.count, items: data.related });
       } else {
@@ -429,7 +420,7 @@ export default function IntelBar({
     setLoadingKey("full", true);
     try {
       const body = { risk, scope: scopeRef.current, username, orgid, viewport_bbox: viewportBbox || null };
-      const data = await postJson(`${API_BASE}/risk/intel/briefing`, body);
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing`, body);
       if (data && data.success !== false) {
         if (data.summary) setSummaryData(data.summary);
         if (data.media?.articles) setArticlesData({ count: data.media.articles.count, items: data.media.articles.items });
@@ -451,7 +442,7 @@ export default function IntelBar({
     if (!briefingId) return;
     setLoadingKey("sources", true);
     try {
-      const data = await getJson(`${API_BASE}/risk/intel/briefing/${briefingId}/sources`);
+      const data = await getJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/${briefingId}/sources`);
       if (data && data.success !== false) {
         setSourceBundle(data.source_bundle);
       }
@@ -551,7 +542,7 @@ export default function IntelBar({
         sources_enabled: userSettings.sources_enabled,
         default_scope: scope
       };
-      const data = await postJson(`${API_BASE}/risk/intel/user-settings`, body);
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/user-settings`, body);
       if (data && data.success !== false) {
         setUserSettings(data.settings);
         setSettingsModalOpen(false);
@@ -580,7 +571,7 @@ export default function IntelBar({
         summary_snapshot: summaryData,
         source_bundle_snapshot: sourceBundle
       };
-      const data = await postJson(`${API_BASE}/risk/intel/briefing/feedback`, body);
+      const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/feedback`, body);
       if (data && data.success !== false) {
         setFeedbackResult({ success: true, message: "Feedback recorded successfully." });
         setTimeout(() => {

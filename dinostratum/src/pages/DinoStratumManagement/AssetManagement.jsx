@@ -20,17 +20,6 @@ import {
 import Nav from "../../helpers/Nav.jsx";
 import "../../styles/mainStyles/Management/AssetManagement.css";
 
-const getApiBaseUrl = () => {
-  if (typeof window !== "undefined" && window.REACT_APP_API_URL) return window.REACT_APP_API_URL;
-  if (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  try {
-    if (typeof process !== "undefined" && process.env?.REACT_APP_API_URL) return process.env.REACT_APP_API_URL;
-  } catch {}
-  return "http://localhost:3000";
-};
-
-const API_BASE_URL = getApiBaseUrl();
-
 const MAP_PROVIDER_APPLE = "apple";
 const MAP_PROVIDER_MAPLIBRE = "maplibre";
 const APPLE_MAPS_ZOOM_THRESHOLD = 6;
@@ -2860,7 +2849,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
       Object.entries(filters).forEach(([k, v]) => {
         if (v) params.append(k === "search" ? "search" : k, v);
       });
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets?${params}`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets?${params}`);
       if (data.success) {
         setAssets(data.assets.map(a => ({
           ...a,
@@ -2886,7 +2875,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
 
   const fetchAssetDetails = useCallback(async (assetId) => {
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/${assetId}?orgid=${orgid}`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/${assetId}?orgid=${orgid}`);
       if (data.success) {
         setDetailedAsset({
           ...data.asset,
@@ -2908,7 +2897,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
 
   const fetchAssetHistory = useCallback(async (assetId) => {
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/${assetId}/history?orgid=${orgid}&limit=50`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/${assetId}/history?orgid=${orgid}&limit=50`);
       if (data.success) {
         setAssetHistory(data.history);
       } else {
@@ -2922,7 +2911,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
   const fetchGoldenMeshes = useCallback(async (assetId) => {
     setIsLoadingGoldenMesh(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/${assetId}?orgid=${orgid}`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/${assetId}?orgid=${orgid}`);
       if (data.success) {
         setGoldenMeshes(data.meshes || data.baselines || []);
       } else {
@@ -2938,7 +2927,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
   const fetchGoldenMeshDetections = useCallback(async (assetId) => {
     setIsLoadingDetections(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/detections/${assetId}?orgid=${orgid}`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/detections/${assetId}?orgid=${orgid}`);
       if (data.success) {
         setGoldenMeshDetections(data.detections || []);
       } else {
@@ -2975,7 +2964,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
 
     const collectedRisks = [];
     const seenIds = new Set();
-    const streamUrl = `${API_BASE_URL}/risk/intelligence/stream/postgis/nearby?${qp}`;
+    const streamUrl = `${import.meta.env.VITE_API_BASE_URL}/risk/intelligence/stream/postgis/nearby?${qp}`;
     let evtSource;
     try {
       evtSource = new EventSource(streamUrl);
@@ -3078,7 +3067,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     setMeshUploadProgress(0);
     setMeshUploadError(null);
     try {
-      const urlData = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/upload-url`, {
+      const urlData = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/upload-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3115,7 +3104,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
       } else {
         await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open("POST", `${API_BASE_URL}${uploadInfo.upload_url}`, true);
+          xhr.open("POST", `${import.meta.env.VITE_API_BASE_URL}${uploadInfo.upload_url}`, true);
           xhr.setRequestHeader("X-File-Extension", "." + file.name.split(".").pop().toLowerCase());
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) setMeshUploadProgress(Math.round((e.loaded / e.total) * 100));
@@ -3187,7 +3176,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     if (!meshId || !goldenMeshAssetId) return;
     setIsRunningDetection(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/change-detection`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/change-detection`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3220,7 +3209,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     setIsRunningDetection(true);
     setComparisonUploadStatus("uploading");
     try {
-      const urlData = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/upload-url`, {
+      const urlData = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/upload-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3258,7 +3247,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
       } else {
         await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open("POST", `${API_BASE_URL}${uploadInfo.upload_url}`, true);
+          xhr.open("POST", `${import.meta.env.VITE_API_BASE_URL}${uploadInfo.upload_url}`, true);
           xhr.setRequestHeader("X-File-Extension", "." + comparisonUploadFile.name.split(".").pop().toLowerCase());
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) setComparisonUploadProgress(Math.round((e.loaded / e.total) * 100));
@@ -3279,7 +3268,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
 
       setComparisonUploadStatus("processing");
 
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/change-detection`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/change-detection`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3317,7 +3306,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     setIsDiscovering(true);
     setDiscoveryResult(null);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/discover`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/discover`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ asset_id: assetId, orgid, username })
@@ -3338,7 +3327,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
   const synthesizeBaseline = useCallback(async (assetId, sourceType) => {
     setIsSynthesizing(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/synthesize`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/synthesize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3365,7 +3354,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
   const createAsset = useCallback(async (assetData) => {
     setIsSavingAsset(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildAssetPayload(assetData))
@@ -3388,7 +3377,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
   const updateAsset = useCallback(async (assetId, assetData) => {
     setIsSavingAsset(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/${assetId}`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/${assetId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildAssetPayload(assetData, true))
@@ -3413,7 +3402,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
   const deleteAsset = useCallback(async (assetId, hardDelete = false) => {
     setIsDeletingAsset(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/${assetId}`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/${assetId}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgid, username, hard_delete: hardDelete })
@@ -3440,7 +3429,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
 
   const exportAssets = useCallback(async () => {
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/export/${orgid}?username=${username}&format=json`);
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/export/${orgid}?username=${username}&format=json`);
       if (data.success) {
         const blob = new Blob([JSON.stringify({
           timestamp: new Date().toISOString(),
@@ -3498,7 +3487,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
         payload.original_filename = meshUploadFile.name;
       }
 
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -3523,7 +3512,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
   const deleteGoldenMesh = useCallback(async (meshId) => {
     setIsDeletingGoldenMesh(true);
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/${meshId}`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/${meshId}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgid, username })
@@ -3547,7 +3536,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     setLoading(true);
     const endpoint = action === "acknowledge" ? "acknowledge" : "resolve";
     try {
-      const data = await apiFetch(`${API_BASE_URL}/risk/assets/golden-mesh/detections/${detectionId}/${endpoint}`, {
+      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/detections/${detectionId}/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgid, username, notes: notes || null })
