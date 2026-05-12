@@ -407,11 +407,26 @@ function getRelativeTime(ts) {
 }
 
 function Modal({ open, onClose, title, size, children }) {
+  const mouseDownTargetRef = useRef(null);
+
   if (!open) return null;
+
+  const handleOverlayMouseDown = (e) => {
+    mouseDownTargetRef.current = e.target;
+  };
+
+  const handleOverlayClick = (e) => {
+    if (e.target === e.currentTarget && mouseDownTargetRef.current === e.currentTarget) {
+      onClose();
+    }
+    mouseDownTargetRef.current = null;
+  };
+
   return (
-    <div className="amModalOverlay" onClick={onClose}>
+    <div className="amModalOverlay" onMouseDown={handleOverlayMouseDown} onClick={handleOverlayClick}>
       <div
         className={`amModal${size ? ` amModal${size}` : ""}`}
+        onMouseDown={e => e.stopPropagation()}
         onClick={e => e.stopPropagation()}
       >
         <div className="amModalHeader">
@@ -576,7 +591,7 @@ function MiniDonut({ segments, size = 56, strokeWidth = 9 }) {
   );
 }
 
-function AssetsOverviewMap({ assets, selectedAssetId, onAssetClick, onAssetHover, isLoading }) {
+function AssetsOverviewMap({ assets, selectedAssetId, onAssetClick, isLoading }) {
   const wrapperRef = useRef(null);
   const maplibreContainerRef = useRef(null);
   const appleContainerRef = useRef(null);
@@ -1245,7 +1260,11 @@ function LocationPickerMap({ latitude, longitude, onLocationChange }) {
   }, []);
 
   useEffect(() => {
-    if (!mapReady || !hasCoords) return;
+    if (!mapReady) return;
+    if (!hasCoords) {
+      clearAllMarkers();
+      return;
+    }
     if (activeProviderRef.current === MAP_PROVIDER_MAPLIBRE && maplibreMapRef.current) {
       if (maplibreMarkerRef.current) {
         const pos = maplibreMarkerRef.current.getLngLat();
@@ -1740,11 +1759,6 @@ function RiskAssessmentDashboard({ asset, risks, isLoading, radiusKm }) {
       setSortField(f);
       setSortDir("desc");
     }
-  };
-
-  const SortIcon = ({ field }) => {
-    if (sortField !== field) return <FontAwesomeIcon icon={faMinus} style={{ opacity: 0.3, fontSize: "0.5rem" }} />;
-    return <FontAwesomeIcon icon={sortDir === "desc" ? faChevronDown : faChevronUp} style={{ fontSize: "0.5rem" }} />;
   };
 
   if (isLoading) {
@@ -2393,6 +2407,17 @@ function AssetMinimap({ asset, nearbyRisks, isLoading, onExpandToRCC, radiusKm, 
     }
     if (appleMapRef.current && window.mapkit) {
       addAppleRadiusOverlay(appleMapRef.current, asset.latitude, asset.longitude, radiusKm);
+      if (activeProviderRef.current === MAP_PROVIDER_APPLE) {
+        const fitZoom = radiusKmToFitZoom(radiusKm);
+        const span = zoomToAppleSpan(fitZoom);
+        appleMapRef.current.setRegionAnimated(
+          new window.mapkit.CoordinateRegion(
+            new window.mapkit.Coordinate(asset.latitude, asset.longitude),
+            new window.mapkit.CoordinateSpan(span, span)
+          ),
+          true
+        );
+      }
     }
   }, [mapReady, radiusKm, asset?.latitude, asset?.longitude, addAppleRadiusOverlay]);
 
@@ -3698,24 +3723,6 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     fetchAssets({});
   }, [fetchAssets]);
 
-  const toggleSort = useCallback((field) => {
-    if (sortBy === field) {
-      setSortOrder(prev => prev === "asc" ? "desc" : "asc");
-    } else {
-      setSortBy(field);
-      setSortOrder("desc");
-    }
-  }, [sortBy]);
-
-  const handleSortChange = useCallback((value) => {
-    if (sortBy === value) {
-      setSortOrder(prev => prev === "asc" ? "desc" : "asc");
-    } else {
-      setSortBy(value);
-      setSortOrder("desc");
-    }
-  }, [sortBy]);
-
   const closeModal = useCallback(() => {
     setActiveModal(null);
     setEditingAsset(null);
@@ -3730,9 +3737,14 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     setDetectionComparisonNotes("");
   }, [handleMeshFileClear, handleComparisonFileClear]);
 
+  const assetFiltersRef = useRef(assetFilters);
   useEffect(() => {
-    fetchAssets(assetFilters);
-  }, [pagination.page, sortBy, sortOrder]);
+    assetFiltersRef.current = assetFilters;
+  }, [assetFilters]);
+
+  useEffect(() => {
+    fetchAssets(assetFiltersRef.current);
+  }, [pagination.page, sortBy, sortOrder, fetchAssets]);
 
   useEffect(() => {
     document.body.className = "risk-theme-dark";

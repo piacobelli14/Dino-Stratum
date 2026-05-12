@@ -32,8 +32,17 @@ const CLEANUP_GEOM_MAX_ITERATIONS = 200;
 const CLEANUP_EXPIRED_GRACE_DAYS = 7;
 const CLEANUP_INGESTION_RUN_RETENTION_DAYS = 7;
 
+const HISTORICAL_MAX_DAYS = 365;
+const HISTORICAL_DEFAULT_LIMIT = 1000;
+const HISTORICAL_MAX_LIMIT = 10000;
+const HISTORICAL_DB_TIMEOUT_MS = 8000;
+
 const DEFORM_THRESH_MM = 5;
 const INFRA_BUFFER_KM = 5;
+
+const POOL_PRESSURE_WAITING_HIGH = 8;
+const POOL_PRESSURE_WAITING_BACKOFF = 5;
+const POOL_PRESSURE_WAITING_PAUSE = 3;
 
 const VISIBILITY_PUBLIC = "public";
 const VISIBILITY_ORG_PRIVATE = "org-private";
@@ -68,10 +77,15 @@ const SELECT_COLUMNS = `id, source, source_id, risk_category, severity, severity
 let ingestionRunning = false;
 let ingestionTimer = null;
 let dynamicRefreshTimer = null;
+let cacheCleanupTimer = null;
 let dbWriteTimer = null;
 let cleanupRunning = false;
 let cleanupTimer = null;
 let dynamicDataReady = false;
+
+let peakWaitingRequests = 0;
+let peakActiveConnections = 0;
+let lastPressureCheck = null;
 
 const riskCache = new Map();
 const riskStore = new Map();
@@ -90,10 +104,22 @@ const generateId = (prefix) => {
 const safeJsonStringify = (value) => {
     if (value == null) return null;
     if (typeof value === "string") {
-        try { JSON.parse(value); return value; } catch {}
-        try { return JSON.stringify(value); } catch { return null; }
+        try {
+            JSON.parse(value);
+            return value;
+        } catch {
+            try {
+                return JSON.stringify(value);
+            } catch {
+                return null;
+            }
+        }
     }
-    try { return JSON.stringify(value); } catch { return null; }
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return null;
+    }
 };
 
 const parseJson = (value) => {
@@ -106,8 +132,14 @@ const withTimeout = (promise, ms, label) => {
             reject(new Error(`${label} timed out after ${ms} milliseconds.`));
         }, ms);
         promise.then(
-            (val) => { clearTimeout(timer); resolve(val); },
-            (error) => { clearTimeout(timer); reject(error); }
+            (val) => {
+                clearTimeout(timer);
+                resolve(val);
+            },
+            (error) => {
+                clearTimeout(timer);
+                reject(error);
+            }
         );
     });
 };
@@ -123,6 +155,17 @@ const poolStats = () => {
 
 const logDbPressure = (context) => {
     const stats = poolStats();
+    if (stats.waiting_requests > peakWaitingRequests) {
+        peakWaitingRequests = stats.waiting_requests;
+    }
+    if (stats.active_connections > peakActiveConnections) {
+        peakActiveConnections = stats.active_connections;
+    }
+    lastPressureCheck = {
+        context: context || null,
+        stats,
+        timestamp: new Date().toISOString()
+    };
 };
 
 const acquireClient = async (label, timeoutMs) => {
@@ -154,7 +197,9 @@ const safeQueryWithTimeout = async (sql, params, timeoutMs, label) => {
 };
 
 const haversine = (lat1, lon1, lat2, lon2) => {
-    const R = 6371000, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
@@ -167,19 +212,25 @@ const pointInRing = (pt, ring) => {
     let inside = false;
     const [px, py] = pt;
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const [xi, yi] = ring[i], [xj, yj] = ring[j];
-        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+        const [xi, yi] = ring[i];
+        const [xj, yj] = ring[j];
+        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+            inside = !inside;
+        }
     }
     return inside;
 };
 
 const distSegSq = (px, py, ax, ay, bx, by) => {
-    let dx = bx - ax, dy = by - ay;
+    let dx = bx - ax;
+    let dy = by - ay;
     if (dx || dy) {
         const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
-        ax += t * dx; ay += t * dy;
+        ax += t * dx;
+        ay += t * dy;
     }
-    dx = px - ax; dy = py - ay;
+    dx = px - ax;
+    dy = py - ay;
     return dx * dx + dy * dy;
 };
 
@@ -193,9 +244,18 @@ const distToEdge = (px, py, ring) => {
 };
 
 const poleOfInaccessibility = (ring, prec) => {
-    let mnX = Infinity, mnY = Infinity, mxX = -Infinity, mxY = -Infinity;
-    for (const [x, y] of ring) { if (x < mnX) mnX = x; if (y < mnY) mnY = y; if (x > mxX) mxX = x; if (y > mxY) mxY = y; }
-    const w = mxX - mnX, h = mxY - mnY;
+    let mnX = Infinity;
+    let mnY = Infinity;
+    let mxX = -Infinity;
+    let mxY = -Infinity;
+    for (const [x, y] of ring) {
+        if (x < mnX) mnX = x;
+        if (y < mnY) mnY = y;
+        if (x > mxX) mxX = x;
+        if (y > mxY) mxY = y;
+    }
+    const w = mxX - mnX;
+    const h = mxY - mnY;
     let cs = Math.max(w, h);
     if (!cs) return [mnX, mnY];
     let hc = cs / 2;
@@ -206,7 +266,11 @@ const poleOfInaccessibility = (ring, prec) => {
         return { x: cx, y: cy, half: hc, dist: d, max: d + hc * Math.SQRT2 };
     };
     let cells = [];
-    for (let x = mnX; x < mxX; x += cs) for (let y = mnY; y < mxY; y += cs) cells.push(mkCell(x + hc, y + hc));
+    for (let x = mnX; x < mxX; x += cs) {
+        for (let y = mnY; y < mxY; y += cs) {
+            cells.push(mkCell(x + hc, y + hc));
+        }
+    }
     let best = mkCell(mnX + w / 2, mnY + h / 2);
     const cx = ring.reduce((s, c) => s + c[0], 0) / ring.length;
     const cy = ring.reduce((s, c) => s + c[1], 0) / ring.length;
@@ -231,14 +295,20 @@ const polyInterior = (ring) => {
 
 const multiPolyInterior = (coords) => {
     if (!coords?.length) return { lat: null, lng: null };
-    let bestRing = null, bestArea = 0;
+    let bestRing = null;
+    let bestArea = 0;
     for (const poly of coords) {
         const ring = poly[0];
         if (!ring || ring.length < 3) continue;
         let area = 0;
-        for (let j = 0, k = ring.length - 1; j < ring.length; k = j++) area += (ring[k][0] + ring[j][0]) * (ring[k][1] - ring[j][1]);
+        for (let j = 0, k = ring.length - 1; j < ring.length; k = j++) {
+            area += (ring[k][0] + ring[j][0]) * (ring[k][1] - ring[j][1]);
+        }
         area = Math.abs(area) / 2;
-        if (area > bestArea) { bestArea = area; bestRing = ring; }
+        if (area > bestArea) {
+            bestArea = area;
+            bestRing = ring;
+        }
     }
     return bestRing ? polyInterior(bestRing) : { lat: null, lng: null };
 };
@@ -246,32 +316,44 @@ const multiPolyInterior = (coords) => {
 const extractLatLng = (geom) => {
     if (!geom) return { lat: null, lng: null, geomType: null, geomCoords: null };
     const { type: geomType, coordinates: geomCoords } = geom;
-    let lat = null, lng = null;
-    if (geomType === "Point" && geomCoords) { lng = geomCoords[0]; lat = geomCoords[1]; }
-    else if (geomType === "Polygon" && geomCoords?.[0]) ({ lat, lng } = polyInterior(geomCoords[0]));
-    else if (geomType === "MultiPolygon" && geomCoords) ({ lat, lng } = multiPolyInterior(geomCoords));
+    let lat = null;
+    let lng = null;
+    if (geomType === "Point" && geomCoords) {
+        lng = geomCoords[0];
+        lat = geomCoords[1];
+    } else if (geomType === "Polygon" && geomCoords?.[0]) {
+        ({ lat, lng } = polyInterior(geomCoords[0]));
+    } else if (geomType === "MultiPolygon" && geomCoords) {
+        ({ lat, lng } = multiPolyInterior(geomCoords));
+    }
     return { lat, lng, geomType, geomCoords };
 };
 
 const getCached = (key) => {
     const entry = riskCache.get(key);
     if (!entry) return null;
-    if (Date.now() - entry.ts >= CACHE_MS) { riskCache.delete(key); return null; }
+    if (Date.now() - entry.ts >= CACHE_MS) {
+        riskCache.delete(key);
+        return null;
+    }
     return entry.data;
 };
 
 const setCache = (key, data) => {
     if (!data || (Array.isArray(data) && data.length === 0)) return;
     if (riskCache.size >= RISK_CACHE_MAX) {
-        let oldest = null, oldestTs = Infinity;
+        let oldest = null;
+        let oldestTs = Infinity;
         for (const [k, val] of riskCache) {
-            if (val.ts < oldestTs) { oldest = k; oldestTs = val.ts; }
+            if (val.ts < oldestTs) {
+                oldest = k;
+                oldestTs = val.ts;
+            }
         }
         if (oldest) riskCache.delete(oldest);
     }
     riskCache.set(key, { data, ts: Date.now() });
 };
-
 
 const isRiskVisibleToOrg = (risk, orgid) => {
     if (!risk) return false;
@@ -298,11 +380,10 @@ const filterRisksForOrg = (risks, orgid) => {
 const buildVisibilityClause = (orgid, paramIndex) => {
     if (!orgid) return { clause: " AND (visibility = 'public' OR visibility IS NULL)", params: [] };
     return {
-        clause: ` AND (visibility = 'public' OR visibility IS NULL OR (visibility = 'org-private' AND orgid = ${paramIndex}))`,
+        clause: ` AND (visibility = 'public' OR visibility IS NULL OR (visibility = 'org-private' AND orgid = $${paramIndex}))`,
         params: [orgid]
     };
 };
-
 
 const storeRisks = (risks) => {
     if (!risks || !risks.length) return;
@@ -367,7 +448,9 @@ const bboxFromStore = (mnLat, mxLat, mnLng, mxLng, opts) => {
 const categorySummaryFromStore = () => {
     const summary = {};
     for (const r of riskStore.values()) {
-        if (!summary[r.risk_category]) summary[r.risk_category] = { total: 0, by_severity: {} };
+        if (!summary[r.risk_category]) {
+            summary[r.risk_category] = { total: 0, by_severity: {} };
+        }
         summary[r.risk_category].by_severity[r.severity] = (summary[r.risk_category].by_severity[r.severity] || 0) + 1;
         summary[r.risk_category].total++;
     }
@@ -485,8 +568,11 @@ const assessInfraProximity = (lat, lng) => {
         const buf = inf.corridor_length_km > 0 ? Math.max(INFRA_BUFFER_KM, inf.corridor_length_km / 20) : INFRA_BUFFER_KM;
         if (km <= buf) {
             result.push({
-                name: inf.name, type: inf.type, description: inf.description,
-                distance_km: parseFloat(km.toFixed(2)), within_buffer: true,
+                name: inf.name,
+                type: inf.type,
+                description: inf.description,
+                distance_km: parseFloat(km.toFixed(2)),
+                within_buffer: true,
                 risk_relevance: km < 1 ? "Direct impact zone." : km < 3 ? "Proximal impact zone." : "Extended influence zone."
             });
         }
@@ -500,7 +586,9 @@ const fetchWithTimeout = async (url, opts = {}, ms = 15000) => {
     try {
         const r = await fetch(url, { ...opts, signal: ac.signal });
         clearTimeout(t);
-        if (!r.ok) await r.text().catch(() => {});
+        if (!r.ok) {
+            await r.text().catch(() => {});
+        }
         return r;
     } catch (error) {
         clearTimeout(t);
@@ -523,12 +611,17 @@ const SPARQL_CONFIGS = [
         id: "urban_centers", label: "urban centers",
         sparql: `SELECT ?city ?cityLabel ?pop ?lat ?lon WHERE { ?city wdt:P31/wdt:P279* wd:Q515 . ?city wdt:P1082 ?pop . ?city p:P625 ?s . ?s psv:P625 ?c . ?c wikibase:geoLatitude ?lat . ?c wikibase:geoLongitude ?lon . FILTER(?pop > 300000) SERVICE wikibase:label { bd:serviceParam wikibase:language "en" } } ORDER BY DESC(?pop) LIMIT 600`,
         transform: (bindings) => {
-            const seen = new Set(), out = [];
+            const seen = new Set();
+            const out = [];
             for (const b of bindings) {
-                const name = b.cityLabel?.value, pop = parseInt(b.pop?.value, 10), lat = parseFloat(b.lat?.value), lon = parseFloat(b.lon?.value);
+                const name = b.cityLabel?.value;
+                const pop = parseInt(b.pop?.value, 10);
+                const lat = parseFloat(b.lat?.value);
+                const lon = parseFloat(b.lon?.value);
                 if (!name || isNaN(pop) || isNaN(lat) || isNaN(lon)) continue;
                 const k = `${name}_${lat.toFixed(1)}_${lon.toFixed(1)}`;
-                if (seen.has(k)) continue; seen.add(k);
+                if (seen.has(k)) continue;
+                seen.add(k);
                 out.push({ lat, lng: lon, pop, name });
             }
             return out.sort((a, b) => b.pop - a.pop);
@@ -548,9 +641,13 @@ const SPARQL_CONFIGS = [
         const isExtraction = id === "extraction_sites";
         const isMines = id === "mines";
         let typeFilter;
-        if (isExtraction) typeFilter = "{ ?item wdt:P31/wdt:P279* wd:Q862562 } UNION { ?item wdt:P31/wdt:P279* wd:Q846386 }";
-        else if (isMines) typeFilter = "{ ?item wdt:P31/wdt:P279* wd:Q820477 } UNION { ?item wdt:P31/wdt:P279* wd:Q5809579 }";
-        else typeFilter = `?item wdt:P31/wdt:P279* ${qid} .`;
+        if (isExtraction) {
+            typeFilter = "{ ?item wdt:P31/wdt:P279* wd:Q862562 } UNION { ?item wdt:P31/wdt:P279* wd:Q846386 }";
+        } else if (isMines) {
+            typeFilter = "{ ?item wdt:P31/wdt:P279* wd:Q820477 } UNION { ?item wdt:P31/wdt:P279* wd:Q5809579 }";
+        } else {
+            typeFilter = `?item wdt:P31/wdt:P279* ${qid} .`;
+        }
         const lenSelect = lenProp ? ` ?length` : "";
         const lenOpt = lenProp ? `\n  OPTIONAL { ?item ${lenProp} ?length }` : "";
         const limit = (id === "dams" || id === "extraction_sites" || id === "mines") ? 800 : (id === "nuclear_plants" || id === "tunnels") ? 500 : 600;
@@ -560,7 +657,9 @@ const SPARQL_CONFIGS = [
             transform: (bindings) => {
                 const items = [];
                 for (const b of bindings) {
-                    const name = b.itemLabel?.value, lat = parseFloat(b.lat?.value), lon = parseFloat(b.lon?.value);
+                    const name = b.itemLabel?.value;
+                    const lat = parseFloat(b.lat?.value);
+                    const lon = parseFloat(b.lon?.value);
                     if (!name || isNaN(lat) || isNaN(lon)) continue;
                     const lenKm = b.length?.value ? parseFloat(b.length.value) / (type === "pipeline" || type === "fault" ? 1 : 1000) : 0;
                     const corrLen = type === "pipeline" || type === "fault" ? (b.length?.value ? parseFloat(b.length.value) : 0) : lenKm;
@@ -576,8 +675,7 @@ const fetchSparqlData = async (cfg) => {
     try {
         const result = cfg.transform(await sparqlQuery(cfg.sparql, cfg.label));
         return result;
-    }
-    catch (error) {
+    } catch (error) {
         return [];
     }
 };
@@ -604,11 +702,17 @@ const fetchAllInfrastructure = async () => {
         const cfgs = SPARQL_CONFIGS.filter(c => c.id !== "urban_centers");
         const settled = await Promise.allSettled(cfgs.map(c => fetchSparqlData(c)));
         const combined = [];
-        for (const r of settled) if (r.status === "fulfilled") combined.push(...r.value);
-        const seen = new Set(), deduped = [];
+        for (const r of settled) {
+            if (r.status === "fulfilled") combined.push(...r.value);
+        }
+        const seen = new Set();
+        const deduped = [];
         for (const item of combined) {
             const k = `${item.name}_${item.lat.toFixed(2)}_${item.lng.toFixed(2)}`;
-            if (!seen.has(k)) { seen.add(k); deduped.push(item); }
+            if (!seen.has(k)) {
+                seen.add(k);
+                deduped.push(item);
+            }
         }
         dynamicStores.faults.data = deduped.filter(i => i.type === "fault");
         dynamicStores.faults.fetched_at = new Date().toISOString();
@@ -634,7 +738,10 @@ const DATA_SOURCES = {
         },
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
-            const p = f.properties, c = f.geometry.coordinates, mag = p.mag, dep = c[2];
+            const p = f.properties;
+            const c = f.geometry.coordinates;
+            const mag = p.mag;
+            const dep = c[2];
             let sev = mag >= 7 ? "Critical" : mag >= 5.5 ? "High" : mag >= 4 ? "Medium" : "Low";
             const tsu = p.tsunami === 1 ? "Tsunami warning issued." : mag >= 7 && dep < 70 ? "Potential tsunami risk." : "No tsunami risk.";
             const aftershocks = mag >= 6 ? Math.floor(Math.pow(10, mag - 4.7)) : mag >= 4 ? Math.floor(Math.pow(10, mag - 3.5)) : 0;
@@ -665,7 +772,9 @@ const DATA_SOURCES = {
         },
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
-            const p = f.properties, c = f.geometry.coordinates, mag = p.mag;
+            const p = f.properties;
+            const c = f.geometry.coordinates;
+            const mag = p.mag;
             return {
                 _category: "Seismic", source_id: p.source_id || f.id,
                 severity: mag >= 7 ? "Critical" : mag >= 5.5 ? "High" : mag >= 4 ? "Medium" : "Low",
@@ -689,7 +798,10 @@ const DATA_SOURCES = {
         },
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
-            const p = f.properties, c = f.geometry.coordinates, mag = p.mag, dep = c[2];
+            const p = f.properties;
+            const c = f.geometry.coordinates;
+            const mag = p.mag;
+            const dep = c[2];
             return {
                 _category: "Seismic", source_id: p.eventId || f.id,
                 severity: mag >= 7 ? "Critical" : mag >= 5.5 ? "High" : mag >= 4 ? "Medium" : "Low",
@@ -712,7 +824,10 @@ const DATA_SOURCES = {
         headers: { "Accept": "application/json" },
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
-            const p = f.properties, c = f.geometry.coordinates, mag = p.magnitude, dep = p.depth;
+            const p = f.properties;
+            const c = f.geometry.coordinates;
+            const mag = p.magnitude;
+            const dep = p.depth;
             return {
                 _category: "Seismic", source_id: p.publicID,
                 severity: mag >= 7 ? "Critical" : mag >= 5.5 ? "High" : mag >= 4 ? "Medium" : "Low",
@@ -740,12 +855,18 @@ const DATA_SOURCES = {
         },
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
-            const p = f.properties, g = f.geometry;
+            const p = f.properties;
+            const g = f.geometry;
             let sev = p.severity === "Extreme" ? "Critical" : p.severity === "Severe" ? "High" : p.severity === "Moderate" ? "Medium" : "Low";
             const catMap = { flood: "Flood", hurricane: "Hurricane", tropical: "Hurricane", tornado: "Tornado", fire: "Wildfire", "red flag": "Wildfire", tsunami: "Tsunami", volcano: "Volcanic", earthquake: "Seismic", blizzard: "Weather", "ice storm": "Weather", "winter storm": "Weather", "severe thunderstorm": "Weather", "extreme heat": "Weather", "excessive heat": "Weather", "heat advisory": "Weather" };
             let cat = "Weather";
             const el = (p.event || "").toLowerCase();
-            for (const [k, v] of Object.entries(catMap)) if (el.includes(k)) { cat = v; break; }
+            for (const [k, v] of Object.entries(catMap)) {
+                if (el.includes(k)) {
+                    cat = v;
+                    break;
+                }
+            }
             const { lat, lng, geomType, geomCoords } = extractLatLng(g);
             const dur = p.expires && p.effective ? Math.round((new Date(p.expires) - new Date(p.effective)) / 36e5) : null;
             return {
@@ -768,7 +889,9 @@ const DATA_SOURCES = {
         buildUrls: () => [1, 2, 3].map(d => ({ url: `https://www.spc.noaa.gov/products/outlook/day${d}otlk_cat.lyr.geojson`, meta: { day: `${d}` } })),
         extractRawItems: (d, p, m) => (d.features || []).map(f => ({ ...f, _day: m?.day || "1" })),
         transformItem: (f) => {
-            const p = f.properties, g = f.geometry, rl = (p.LABEL || p.DN || "").toString();
+            const p = f.properties;
+            const g = f.geometry;
+            const rl = (p.LABEL || p.DN || "").toString();
             let sev = rl.includes("HIGH") || rl >= 5 ? "Critical" : rl.includes("MDT") || rl >= 4 ? "High" : "Medium";
             if (rl.includes("TSTM") || rl < 2) sev = "Low";
             const { lat, lng } = extractLatLng(g);
@@ -802,7 +925,11 @@ const DATA_SOURCES = {
                     if (!r.ok) return [];
                     const text = await r.text();
                     let d;
-                    try { d = JSON.parse(text); } catch { return []; }
+                    try {
+                        d = JSON.parse(text);
+                    } catch {
+                        return [];
+                    }
                     return d.features || d.items || (Array.isArray(d) ? d : []);
                 }));
                 for (const r of settled) {
@@ -822,8 +949,14 @@ const DATA_SOURCES = {
                         let match;
                         while ((match = itemRegex.exec(text)) !== null) {
                             const block = match[1];
-                            const get = (tag) => { const m = block.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`)); return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : null; };
-                            const getAttr = (tag, attr) => { const m = block.match(new RegExp(`<${tag}[^>]*${attr}="([^"]*)"[^>]*/?>`, "i")); return m ? m[1] : null; };
+                            const get = (tag) => {
+                                const m = block.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+                                return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : null;
+                            };
+                            const getAttr = (tag, attr) => {
+                                const m = block.match(new RegExp(`<${tag}[^>]*${attr}="([^"]*)"[^>]*/?>`, "i"));
+                                return m ? m[1] : null;
+                            };
                             const title = get("title");
                             const desc = get("description");
                             const link = get("link");
@@ -848,19 +981,21 @@ const DATA_SOURCES = {
             return results;
         },
         transformItem: (f) => {
-            const p = f.properties || f, g = f.geometry;
+            const p = f.properties || f;
+            const g = f.geometry;
             const sev = (p.alertlevel === "Red" || p.alertLevel === "Red") ? "Critical" : (p.alertlevel === "Orange" || p.alertLevel === "Orange") ? "High" : "Low";
             const catMap = { EQ: "Seismic", TC: "Hurricane", FL: "Flood", VO: "Volcanic", DR: "Drought", WF: "Wildfire", TS: "Tsunami" };
             const evType = p.eventtype || p.eventType || "";
             const cat = catMap[evType] || "Other";
-            let lat = null, lng = null;
+            let lat = null;
+            let lng = null;
             if (g) {
                 ({ lat, lng } = extractLatLng(g));
             }
-            if (lat == null && p.geo_lat) { lat = parseFloat(p.geo_lat); }
-            if (lng == null && p.geo_lng) { lng = parseFloat(p.geo_lng); }
-            if (lat == null && p.latitude) { lat = parseFloat(p.latitude); }
-            if (lng == null && p.longitude) { lng = parseFloat(p.longitude); }
+            if (lat == null && p.geo_lat) lat = parseFloat(p.geo_lat);
+            if (lng == null && p.geo_lng) lng = parseFloat(p.geo_lng);
+            if (lat == null && p.latitude) lat = parseFloat(p.latitude);
+            if (lng == null && p.longitude) lng = parseFloat(p.longitude);
             const evId = p.eventid || p.eventId || p.id;
             return {
                 _category: cat, source_id: evId?.toString(), severity: sev,
@@ -885,9 +1020,14 @@ const DATA_SOURCES = {
         buildUrl: () => "https://volcanoes.usgs.gov/vsc/api/volcanoApi/volcanoesGVP",
         extractRawItems: (d) => d.features || d || [],
         transformItem: (v) => {
-            const p = v.properties || v, g = v.geometry;
-            let lat = p.Latitude || p.latitude, lng = p.Longitude || p.longitude;
-            if (g?.coordinates) { lng = g.coordinates[0]; lat = g.coordinates[1]; }
+            const p = v.properties || v;
+            const g = v.geometry;
+            let lat = p.Latitude || p.latitude;
+            let lng = p.Longitude || p.longitude;
+            if (g?.coordinates) {
+                lng = g.coordinates[0];
+                lat = g.coordinates[1];
+            }
             const al = p.alert_level || p.alertLevel || "Normal";
             const sev = al === "Warning" ? "Critical" : al === "Watch" ? "High" : al === "Advisory" ? "Medium" : "Low";
             const vt = p.Volcano_Type || p.volcanoType || "Unknown";
@@ -916,12 +1056,15 @@ const DATA_SOURCES = {
         extractRawItems: (d) => d.events || [],
         transformItem: (ev) => {
             const catMap = { wildfires: "Wildfire", severeStorms: "Weather", volcanoes: "Volcanic", earthquakes: "Seismic", floods: "Flood", landslides: "Landslide", seaLakeIce: "Ice", snow: "Weather", dustHaze: "Air Quality", drought: "Drought", tempExtremes: "Weather", waterColor: "Water", manmade: "Industrial" };
-            const cats = ev.categories || [], catId = cats[0]?.id || "unknown", cat = catMap[catId] || "Other";
+            const cats = ev.categories || [];
+            const catId = cats[0]?.id || "unknown";
+            const cat = catMap[catId] || "Other";
             const geoms = ev.geometry || [];
             return geoms.map((g, i) => {
                 const { lat, lng } = extractLatLng(g);
                 let sev = "Medium";
-                if (g.magnitudeValue > 100) sev = "Critical"; else if (g.magnitudeValue > 50) sev = "High";
+                if (g.magnitudeValue > 100) sev = "Critical";
+                else if (g.magnitudeValue > 50) sev = "High";
                 if (ev.closed) sev = "Low";
                 return {
                     _category: cat, source_id: `${ev.id}_${i}`, severity: sev, title: ev.title,
@@ -952,11 +1095,16 @@ const DATA_SOURCES = {
                 const b = { min_lat: parseFloat(p.min_lat), max_lat: parseFloat(p.max_lat), min_lng: parseFloat(p.min_lng), max_lng: parseFloat(p.max_lng) };
                 pts = src.filter(c => inBounds(c.lat, c.lng, b)).map(c => ({ name: c.name, lat: c.lat, lng: c.lng, pop: c.pop || 0 }));
                 if (pts.length < 10 && centers.length) {
-                    const latS = (b.max_lat - b.min_lat) / 4, lngS = (b.max_lng - b.min_lng) / 4;
-                    for (let li = 0; li <= 4; li++) for (let lj = 0; lj <= 4; lj++) {
-                        const gLat = b.min_lat + li * latS, gLng = b.min_lng + lj * lngS;
-                        if (!pts.some(q => haversine(q.lat, q.lng, gLat, gLng) < 50000))
-                            pts.push({ name: `Grid ${gLat.toFixed(2)}N ${gLng.toFixed(2)}E`, lat: gLat, lng: gLng, pop: 0 });
+                    const latS = (b.max_lat - b.min_lat) / 4;
+                    const lngS = (b.max_lng - b.min_lng) / 4;
+                    for (let li = 0; li <= 4; li++) {
+                        for (let lj = 0; lj <= 4; lj++) {
+                            const gLat = b.min_lat + li * latS;
+                            const gLng = b.min_lng + lj * lngS;
+                            if (!pts.some(q => haversine(q.lat, q.lng, gLat, gLng) < 50000)) {
+                                pts.push({ name: `Grid ${gLat.toFixed(2)}N ${gLng.toFixed(2)}E`, lat: gLat, lng: gLng, pop: 0 });
+                            }
+                        }
                     }
                 }
             } else {
@@ -965,13 +1113,16 @@ const DATA_SOURCES = {
             return pts;
         },
         buildBatchUrl: (batch) => {
-            const lats = batch.map(p => p.lat.toFixed(4)).join(","), lngs = batch.map(p => p.lng.toFixed(4)).join(",");
+            const lats = batch.map(p => p.lat.toFixed(4)).join(",");
+            const lngs = batch.map(p => p.lng.toFixed(4)).join(",");
             return `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lats}&longitude=${lngs}&current=us_aqi,pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone`;
         },
         extractRawItems: (d, p, batch) => {
-            const arr = Array.isArray(d) ? d : [d], items = [];
+            const arr = Array.isArray(d) ? d : [d];
+            const items = [];
             for (let j = 0; j < batch.length; j++) {
-                const entry = arr[j], pt = batch[j];
+                const entry = arr[j];
+                const pt = batch[j];
                 if (!entry?.current) continue;
                 const c = entry.current;
                 items.push({ name: pt.name, lat: entry.latitude || pt.lat, lng: entry.longitude || pt.lng, pop: pt.pop || 0, aqi: c.us_aqi || 0, pm25: c.pm2_5 || null, pm10: c.pm10 || null, o3: c.ozone || null, no2: c.nitrogen_dioxide || null, so2: c.sulphur_dioxide || null, co: c.carbon_monoxide || null, time: c.time || new Date().toISOString() });
@@ -980,12 +1131,24 @@ const DATA_SOURCES = {
         },
         transformItem: (s) => {
             const aqi = s.aqi;
-            let sev = "Low", aqiCat = "Good";
-            if (aqi > 300) { sev = "Critical"; aqiCat = "Hazardous"; }
-            else if (aqi > 200) { sev = "Critical"; aqiCat = "Very Unhealthy"; }
-            else if (aqi > 150) { sev = "High"; aqiCat = "Unhealthy"; }
-            else if (aqi > 100) { sev = "Medium"; aqiCat = "Unhealthy for Sensitive Groups"; }
-            else if (aqi > 50) { sev = "Low"; aqiCat = "Moderate"; }
+            let sev = "Low";
+            let aqiCat = "Good";
+            if (aqi > 300) {
+                sev = "Critical";
+                aqiCat = "Hazardous";
+            } else if (aqi > 200) {
+                sev = "Critical";
+                aqiCat = "Very Unhealthy";
+            } else if (aqi > 150) {
+                sev = "High";
+                aqiCat = "Unhealthy";
+            } else if (aqi > 100) {
+                sev = "Medium";
+                aqiCat = "Unhealthy for Sensitive Groups";
+            } else if (aqi > 50) {
+                sev = "Low";
+                aqiCat = "Moderate";
+            }
             const hr = aqi > 200 ? "Everyone should avoid outdoor exertion." : aqi > 150 ? "Sensitive groups should avoid outdoor exertion." : aqi > 100 ? "Sensitive groups should reduce prolonged outdoor exertion." : aqi > 50 ? "Unusually sensitive people should consider reducing prolonged outdoor exertion." : "Air quality is acceptable.";
             return {
                 _category: "Air Quality", source_id: `openmeteo_aq_${s.lat.toFixed(3)}_${s.lng.toFixed(3)}`,
@@ -1014,13 +1177,24 @@ const DATA_SOURCES = {
         buildBboxUrl: (p) => `https://waterservices.usgs.gov/nwis/iv/?format=json&parameterCd=00065&siteStatus=active&siteType=ST&bBox=${p.min_lng},${p.min_lat},${p.max_lng},${p.max_lat}`,
         extractRawItems: (d) => d.value?.timeSeries || [],
         transformItem: (s) => {
-            const site = s.sourceInfo, vals = s.values?.[0]?.value || [], lv = vals[vals.length - 1];
+            const site = s.sourceInfo;
+            const vals = s.values?.[0]?.value || [];
+            const lv = vals[vals.length - 1];
             const gh = parseFloat(lv?.value) || 0;
-            let sev = "Low", fs = "Normal";
-            if (gh > 25) { sev = "Critical"; fs = "Major Flood"; }
-            else if (gh > 18) { sev = "High"; fs = "Moderate Flood"; }
-            else if (gh > 12) { sev = "Medium"; fs = "Minor Flood"; }
-            else if (gh > 8) { fs = "Action Stage"; }
+            let sev = "Low";
+            let fs = "Normal";
+            if (gh > 25) {
+                sev = "Critical";
+                fs = "Major Flood";
+            } else if (gh > 18) {
+                sev = "High";
+                fs = "Moderate Flood";
+            } else if (gh > 12) {
+                sev = "Medium";
+                fs = "Minor Flood";
+            } else if (gh > 8) {
+                fs = "Action Stage";
+            }
             return {
                 _category: "Flood", source_id: site.siteCode?.[0]?.value, severity: sev,
                 title: `Water Level: ${site.siteName}`,
@@ -1047,7 +1221,8 @@ const DATA_SOURCES = {
         buildUrl: (p, off, bs) => `https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson&resultOffset=${off || 0}&resultRecordCount=${bs || 2000}`,
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
-            const p = f.properties, g = f.geometry;
+            const p = f.properties;
+            const g = f.geometry;
             const acres = p.poly_GISAcres || p.attr_IncidentSize || p.attr_CalculatedAcres || p.attr_DailyAcres || 0;
             const pct = p.attr_PercentContained || 0;
             let sev = "Low";
@@ -1096,7 +1271,12 @@ const DATA_SOURCES = {
         transformItem: (dec) => {
             const catMap = { Fire: "Wildfire", Hurricane: "Hurricane", Flood: "Flood", Tornado: "Tornado", Earthquake: "Seismic", "Severe Storm": "Weather", Snowstorm: "Weather", Drought: "Drought", Volcano: "Volcanic", Tsunami: "Tsunami" };
             let cat = "Other";
-            for (const [k, v] of Object.entries(catMap)) if ((dec.incidentType || "").includes(k)) { cat = v; break; }
+            for (const [k, v] of Object.entries(catMap)) {
+                if ((dec.incidentType || "").includes(k)) {
+                    cat = v;
+                    break;
+                }
+            }
             let sev = dec.declarationType === "DR" ? "High" : "Medium";
             if (dec.ihProgramDeclared || dec.iaProgramDeclared) sev = "Critical";
             return {
@@ -1156,7 +1336,8 @@ const DATA_SOURCES = {
         },
         transformItem: (row) => {
             if (!Array.isArray(row) || row.length < 2) return null;
-            const ts = row[0], kp = parseFloat(row[1]);
+            const ts = row[0];
+            const kp = parseFloat(row[1]);
             if (isNaN(kp)) return null;
             let sev = "Low";
             if (kp >= 8) sev = "Critical";
@@ -1350,9 +1531,11 @@ const DATA_SOURCES = {
             return `https://flood-api.open-meteo.com/v1/flood?latitude=${lats}&longitude=${lngs}&daily=river_discharge,river_discharge_max&forecast_days=7`;
         },
         extractRawItems: (d, p, batch) => {
-            const arr = Array.isArray(d) ? d : [d], items = [];
+            const arr = Array.isArray(d) ? d : [d];
+            const items = [];
             for (let j = 0; j < batch.length; j++) {
-                const entry = arr[j], pt = batch[j];
+                const entry = arr[j];
+                const pt = batch[j];
                 if (!entry?.daily) continue;
                 const discharges = entry.daily.river_discharge || [];
                 const maxDischarges = entry.daily.river_discharge_max || discharges;
@@ -1373,11 +1556,20 @@ const DATA_SOURCES = {
         transformItem: (s) => {
             const peak = s.peak_discharge;
             const ratio = s.avg_discharge > 0 ? peak / s.avg_discharge : 1;
-            let sev = "Low", status = "Normal";
-            if (peak > 5000 || ratio > 5) { sev = "Critical"; status = "Extreme flood forecast"; }
-            else if (peak > 2000 || ratio > 3) { sev = "High"; status = "Significant flood forecast"; }
-            else if (peak > 500 || ratio > 2) { sev = "Medium"; status = "Elevated discharge forecast"; }
-            else { status = "Normal discharge forecast"; }
+            let sev = "Low";
+            let status = "Normal";
+            if (peak > 5000 || ratio > 5) {
+                sev = "Critical";
+                status = "Extreme flood forecast";
+            } else if (peak > 2000 || ratio > 3) {
+                sev = "High";
+                status = "Significant flood forecast";
+            } else if (peak > 500 || ratio > 2) {
+                sev = "Medium";
+                status = "Elevated discharge forecast";
+            } else {
+                status = "Normal discharge forecast";
+            }
             return {
                 _category: "Flood", source_id: `glofas_${s.lat.toFixed(3)}_${s.lng.toFixed(3)}`,
                 severity: sev, title: `River Discharge Forecast: ${s.name}`,
@@ -1424,9 +1616,11 @@ const DATA_SOURCES = {
             return `https://marine-api.open-meteo.com/v1/marine?latitude=${lats}&longitude=${lngs}&current=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height`;
         },
         extractRawItems: (d, p, batch) => {
-            const arr = Array.isArray(d) ? d : [d], items = [];
+            const arr = Array.isArray(d) ? d : [d];
+            const items = [];
             for (let j = 0; j < batch.length; j++) {
-                const entry = arr[j], pt = batch[j];
+                const entry = arr[j];
+                const pt = batch[j];
                 if (!entry?.current) continue;
                 const c = entry.current;
                 items.push({
@@ -1441,11 +1635,21 @@ const DATA_SOURCES = {
         },
         transformItem: (s) => {
             const wh = s.wave_height;
-            let sev = "Low", status = "Calm to moderate seas";
-            if (wh >= 9) { sev = "Critical"; status = "Phenomenal seas - extreme maritime hazard"; }
-            else if (wh >= 6) { sev = "High"; status = "Very rough to high seas - dangerous conditions"; }
-            else if (wh >= 4) { sev = "Medium"; status = "Rough seas - small craft advisory conditions"; }
-            else if (wh >= 2.5) { sev = "Low"; status = "Moderate seas"; }
+            let sev = "Low";
+            let status = "Calm to moderate seas";
+            if (wh >= 9) {
+                sev = "Critical";
+                status = "Phenomenal seas - extreme maritime hazard";
+            } else if (wh >= 6) {
+                sev = "High";
+                status = "Very rough to high seas - dangerous conditions";
+            } else if (wh >= 4) {
+                sev = "Medium";
+                status = "Rough seas - small craft advisory conditions";
+            } else if (wh >= 2.5) {
+                sev = "Low";
+                status = "Moderate seas";
+            }
             return {
                 _category: "Weather", source_id: `marine_${s.lat.toFixed(2)}_${s.lng.toFixed(2)}`,
                 severity: sev, title: `Marine Conditions: ${s.name}`,
@@ -1468,7 +1672,8 @@ const DATA_SOURCES = {
         buildUrl: () => "https://api.weather.gov/alerts/active?event=Tsunami",
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
-            const p = f.properties, g = f.geometry;
+            const p = f.properties;
+            const g = f.geometry;
             let sev = "Medium";
             if (p.severity === "Extreme") sev = "Critical";
             else if (p.severity === "Severe") sev = "High";
@@ -1507,7 +1712,8 @@ const DATA_SOURCES = {
             return [];
         },
         transformItem: (f) => {
-            const p = f.properties || {}, g = f.geometry;
+            const p = f.properties || {};
+            const g = f.geometry;
             const { lat, lng } = extractLatLng(g);
             const scene = p.sceneName || p.fileID || p.granuleName || "Unknown GUNW Product";
             const startT = p.startTime || p.processingDate || null;
@@ -1516,14 +1722,20 @@ const DATA_SOURCES = {
             const tempDays = tempB || (startT && p.stopTime ? Math.abs(Math.round((new Date(p.stopTime) - new Date(startT)) / 864e5)) : 12);
             const estDisp = perpB !== null ? Math.abs(perpB) * 0.15 : null;
             const estCoh = perpB !== null ? Math.max(0.1, Math.min(0.95, 1.0 - Math.abs(perpB) / 5000)) : null;
-            let sev = "Low", sevInfo = { confidence: "medium", reason: "Interferogram available for deformation analysis." };
+            let sev = "Low";
+            let sevInfo = { confidence: "medium", reason: "Interferogram available for deformation analysis." };
             if (estDisp !== null) {
-                const absD = Math.abs(estDisp), daily = tempDays > 0 ? absD / tempDays : absD, ann = daily * 365;
+                const absD = Math.abs(estDisp);
+                const daily = tempDays > 0 ? absD / tempDays : absD;
+                const ann = daily * 365;
                 sevInfo = classifySeverity(ann, absD, estCoh);
                 sev = sevInfo.severity;
             }
             const infra = lat && lng ? assessInfraProximity(lat, lng) : [];
-            if (infra.length > 0 && sev === "Low") { sev = "Medium"; sevInfo.reason += " Infrastructure proximity elevates monitoring priority."; }
+            if (infra.length > 0 && sev === "Low") {
+                sev = "Medium";
+                sevInfo.reason += " Infrastructure proximity elevates monitoring priority.";
+            }
             return {
                 _category: "Ground Deformation", source_id: p.fileID || scene, severity: sev,
                 title: `InSAR Observation: ${scene.substring(0, 60)}`,
@@ -1539,6 +1751,7 @@ const DATA_SOURCES = {
                     frame_number: p.frameNumber || p.frame, beam_mode: p.beamMode || p.beamModeType || "IW",
                     polarization: p.polarization || "VV", perpendicular_baseline_m: perpB,
                     temporal_baseline_days: tempDays, estimated_displacement_mm: estDisp,
+                    estimated_displacement_note: "Heuristic proxy derived from perpendicular baseline. Not a direct LOS displacement measurement.",
                     estimated_coherence: estCoh, severity_classification: sevInfo,
                     pixel_spacing_m: 90, processing_software: "ISCE2 TopsApp",
                     data_provider: "NASA JPL ARIA Project via ASF DAAC", file_format: "NetCDF-4",
@@ -1576,7 +1789,8 @@ const DATA_SOURCES = {
                         const feats = (await r.json()).features || [];
                         return feats.filter(ef => ef.geometry?.coordinates?.length >= 2 && (ef.properties?.mean_velocity || ef.properties?.velocity) != null)
                             .map(ef => {
-                                const c = ef.geometry.coordinates, v = ef.properties.mean_velocity || ef.properties.velocity;
+                                const c = ef.geometry.coordinates;
+                                const v = ef.properties.mean_velocity || ef.properties.velocity;
                                 return { name: `EGMS Zone ${c[1].toFixed(3)}N ${c[0].toFixed(3)}E`, lat: c[1], lng: c[0], known_rate_mm_yr: v, cause: "Ground motion detected by European Ground Motion Service satellite measurement.", monitoring_since: "2018-01-01", source: "egms", description: `Mean LOS velocity: ${v} mm per year.` };
                             });
                     } catch (error) {
@@ -1589,7 +1803,8 @@ const DATA_SOURCES = {
                 ]);
                 const bindings = bRes.status === "fulfilled" ? (Array.isArray(bRes.value) ? bRes.value : []) : [];
                 const egms = eRes.status === "fulfilled" ? (Array.isArray(eRes.value) ? eRes.value : []) : [];
-                const seen = new Set(), zones = [];
+                const seen = new Set();
+                const zones = [];
                 const rateMap = [
                     [["oil", "petroleum"], -10, "Subsurface compaction associated with hydrocarbon extraction."],
                     [["gas field", "natural gas"], -8, "Reservoir compaction from natural gas extraction."],
@@ -1601,14 +1816,23 @@ const DATA_SOURCES = {
                     [["polder", "reclaim"], -7, "Peat oxidation and sediment consolidation in reclaimed land."]
                 ];
                 for (const b of bindings) {
-                    const name = b.itemLabel?.value, lat = parseFloat(b.lat?.value), lon = parseFloat(b.lon?.value);
+                    const name = b.itemLabel?.value;
+                    const lat = parseFloat(b.lat?.value);
+                    const lon = parseFloat(b.lon?.value);
                     if (!name || isNaN(lat) || isNaN(lon)) continue;
                     const dk = `${name}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
                     if (seen.has(dk)) continue;
                     seen.add(dk);
                     const desc = (b.description?.value || "").toLowerCase();
-                    let rate = -5, cause = "Geological or anthropogenic ground deformation in monitored zone.";
-                    for (const [keys, r, c] of rateMap) { if (keys.some(k => desc.includes(k))) { rate = r; cause = c; break; } }
+                    let rate = -5;
+                    let cause = "Geological or anthropogenic ground deformation in monitored zone.";
+                    for (const [keys, r, c] of rateMap) {
+                        if (keys.some(k => desc.includes(k))) {
+                            rate = r;
+                            cause = c;
+                            break;
+                        }
+                    }
                     zones.push({ name, lat, lng: lon, known_rate_mm_yr: rate, cause, monitoring_since: "2015-01-01", source: "wikidata", description: b.description?.value || null });
                 }
                 const urbanSrc = dynamicStores.urban.data.length ? dynamicStores.urban.data : FALLBACK_CITIES;
@@ -1616,16 +1840,29 @@ const DATA_SOURCES = {
                     const dk = `city_${city.name}_${city.lat.toFixed(2)}_${city.lng.toFixed(2)}`;
                     if (seen.has(dk)) continue;
                     seen.add(dk);
-                    let rate = -3, cause = "Urban loading and potential groundwater extraction beneath populated area.";
-                    if (Math.abs(city.lat) < 30 && city.pop > 5e6) { rate = -20; cause = "Intensive groundwater withdrawal in tropical or subtropical alluvial deposits."; }
-                    else if (city.pop > 1e7) { rate = -15; cause = "Large-scale aquifer compaction beneath megacity from municipal and industrial water demand."; }
-                    else if (city.pop > 3e6) { rate = -8; cause = "Moderate aquifer stress and urban loading beneath major metropolitan area."; }
-                    else if (city.pop > 1e6) { rate = -5; cause = "Urban loading and localized groundwater extraction beneath large city."; }
+                    let rate = -3;
+                    let cause = "Urban loading and potential groundwater extraction beneath populated area.";
+                    if (Math.abs(city.lat) < 30 && city.pop > 5e6) {
+                        rate = -20;
+                        cause = "Intensive groundwater withdrawal in tropical or subtropical alluvial deposits.";
+                    } else if (city.pop > 1e7) {
+                        rate = -15;
+                        cause = "Large-scale aquifer compaction beneath megacity from municipal and industrial water demand.";
+                    } else if (city.pop > 3e6) {
+                        rate = -8;
+                        cause = "Moderate aquifer stress and urban loading beneath major metropolitan area.";
+                    } else if (city.pop > 1e6) {
+                        rate = -5;
+                        cause = "Urban loading and localized groundwater extraction beneath large city.";
+                    }
                     zones.push({ name: `${city.name} Metropolitan Subsidence Zone`, lat: city.lat, lng: city.lng, known_rate_mm_yr: rate, cause, monitoring_since: "2015-01-01", source: "derived_from_urban_centers", description: null });
                 }
                 for (const ez of egms) {
                     const dk = `egms_${ez.lat.toFixed(2)}_${ez.lng.toFixed(2)}`;
-                    if (!seen.has(dk)) { seen.add(dk); zones.push(ez); }
+                    if (!seen.has(dk)) {
+                        seen.add(dk);
+                        zones.push(ez);
+                    }
                 }
                 dynamicStores.deform.data = zones;
                 dynamicStores.deform.fetched_at = new Date().toISOString();
@@ -1647,11 +1884,21 @@ const DATA_SOURCES = {
                         const fallbackSrc = dynamicStores.urban.data.length ? dynamicStores.urban.data : FALLBACK_CITIES;
                         const fallbackZones = [];
                         for (const city of fallbackSrc.filter(c => (c.pop || 0) > 500000)) {
-                            let rate = -3, cause = "Urban loading and potential groundwater extraction beneath populated area.";
-                            if (Math.abs(city.lat) < 30 && (city.pop || 0) > 5e6) { rate = -20; cause = "Intensive groundwater withdrawal in tropical or subtropical alluvial deposits."; }
-                            else if ((city.pop || 0) > 1e7) { rate = -15; cause = "Large-scale aquifer compaction beneath megacity from municipal and industrial water demand."; }
-                            else if ((city.pop || 0) > 3e6) { rate = -8; cause = "Moderate aquifer stress and urban loading beneath major metropolitan area."; }
-                            else if ((city.pop || 0) > 1e6) { rate = -5; cause = "Urban loading and localized groundwater extraction beneath large city."; }
+                            let rate = -3;
+                            let cause = "Urban loading and potential groundwater extraction beneath populated area.";
+                            if (Math.abs(city.lat) < 30 && (city.pop || 0) > 5e6) {
+                                rate = -20;
+                                cause = "Intensive groundwater withdrawal in tropical or subtropical alluvial deposits.";
+                            } else if ((city.pop || 0) > 1e7) {
+                                rate = -15;
+                                cause = "Large-scale aquifer compaction beneath megacity from municipal and industrial water demand.";
+                            } else if ((city.pop || 0) > 3e6) {
+                                rate = -8;
+                                cause = "Moderate aquifer stress and urban loading beneath major metropolitan area.";
+                            } else if ((city.pop || 0) > 1e6) {
+                                rate = -5;
+                                cause = "Urban loading and localized groundwater extraction beneath large city.";
+                            }
                             fallbackZones.push({ name: `${city.name} Metropolitan Subsidence Zone`, lat: city.lat, lng: city.lng, known_rate_mm_yr: rate, cause, monitoring_since: "2015-01-01", source: "fallback_urban_centers", description: null });
                         }
                         if (fallbackZones.length) {
@@ -1662,7 +1909,8 @@ const DATA_SOURCES = {
                         }
                     }
                 }
-                const results = [], revisit = 12;
+                const results = [];
+                const revisit = 12;
                 const passDate = new Date();
                 passDate.setDate(passDate.getDate() - Math.floor(Math.random() * revisit));
                 for (const z of dynamicStores.deform.data) {
@@ -1672,15 +1920,23 @@ const DATA_SOURCES = {
                     const seasonal = Math.sin((new Date().getMonth() / 12) * 2 * Math.PI) * Math.abs(z.known_rate_mm_yr) * 0.1;
                     const curDisp = z.known_rate_mm_yr * (revisit / 365.25) + seasonal;
                     const coh = Math.abs(z.known_rate_mm_yr) > 100 ? 0.45 : Math.abs(z.known_rate_mm_yr) > 30 ? 0.6 : 0.8;
-                    const absD = Math.abs(curDisp), daily = revisit > 0 ? absD / revisit : absD, ann = daily * 365;
+                    const absD = Math.abs(curDisp);
+                    const daily = revisit > 0 ? absD / revisit : absD;
+                    const ann = daily * 365;
                     const sevInfo = classifySeverity(ann, absD, coh);
                     const infra = assessInfraProximity(z.lat, z.lng);
                     let eSev = sevInfo.severity;
-                    if (infra.length > 0 && (eSev === "Low" || eSev === "Medium")) eSev = eSev === "Low" ? "Medium" : "High";
+                    if (infra.length > 0 && (eSev === "Low" || eSev === "Medium")) {
+                        eSev = eSev === "Low" ? "Medium" : "High";
+                    }
                     const synAsset = `asset_zone_${z.name.toLowerCase().replace(/\s+/g, "_")}`;
                     let gmDet = null;
                     const meshes = [];
-                    for (const [mid, m] of goldenMeshStore.entries()) if (m.asset_id === synAsset && m.is_active && !m.deleted_at) meshes.push({ meshId: mid, mesh: m });
+                    for (const [mid, m] of goldenMeshStore.entries()) {
+                        if (m.asset_id === synAsset && m.is_active && !m.deleted_at) {
+                            meshes.push({ meshId: mid, mesh: m });
+                        }
+                    }
                     if (meshes.length) {
                         meshes.sort((a, b) => new Date(b.mesh.scan_date) - new Date(a.mesh.scan_date));
                         const bp = meshes[0].mesh.mesh_data.points || [];
@@ -1731,7 +1987,9 @@ const DATA_SOURCES = {
 };
 
 const SOURCE_REGISTRY = {};
-for (const [k, cfg] of Object.entries(DATA_SOURCES)) SOURCE_REGISTRY[k] = (p) => universalFetch(cfg, p);
+for (const [k, cfg] of Object.entries(DATA_SOURCES)) {
+    SOURCE_REGISTRY[k] = (p) => universalFetch(cfg, p);
+}
 
 const SOURCE_GROUPS = {
     earthquakes: ["usgs_earthquakes", "emsc_earthquakes", "ingv_earthquakes", "geonet_quakes"],
@@ -1760,7 +2018,8 @@ const getRecommendations = (category, severity) => {
 };
 
 const normalizeRisk = (source, category, item) => {
-    const lat = item.latitude, lng = item.longitude;
+    const lat = item.latitude;
+    const lng = item.longitude;
     return {
         id: generateId("rsk"), source, source_id: item.source_id || null, risk_category: category,
         severity: item.severity || "Medium", severity_score: SEVERITY_WEIGHTS[item.severity] || 30,
@@ -1790,11 +2049,13 @@ const universalFetch = async (cfg, params = {}) => {
             setCache(ck, r);
             return r;
         }
-        const tms = cfg.timeoutMs || 30000, hdr = cfg.headers || {};
+        const tms = cfg.timeoutMs || 30000;
+        const hdr = cfg.headers || {};
         let raw = [];
 
         if (cfg.paginationStrategy === "offset") {
-            let off = 0, more = true;
+            let off = 0;
+            let more = true;
             const bs = cfg.paginationBatchSize || 2000;
             while (more) {
                 const r = await fetchWithTimeout(cfg.buildUrl(params, off, bs), { headers: hdr }, tms);
@@ -1809,7 +2070,9 @@ const universalFetch = async (cfg, params = {}) => {
                 const r = await fetchWithTimeout(u.url, { headers: hdr }, tms);
                 return r.ok ? cfg.extractRawItems(await r.json(), params, u.meta) : [];
             }));
-            for (const r of settled) if (r.status === "fulfilled" && Array.isArray(r.value)) raw.push(...r.value);
+            for (const r of settled) {
+                if (r.status === "fulfilled" && Array.isArray(r.value)) raw.push(...r.value);
+            }
         } else if (cfg.paginationStrategy === "batch_locations") {
             const pts = cfg.buildQueryPoints(params);
             if (!pts.length) return [];
@@ -1820,7 +2083,7 @@ const universalFetch = async (cfg, params = {}) => {
                     const r = await fetchWithTimeout(cfg.buildBatchUrl(batch, params), { headers: hdr }, tms);
                     if (!r.ok) continue;
                     raw.push(...cfg.extractRawItems(await r.json(), params, batch));
-                } catch {}
+                } catch (error) {}
             }
         } else if (cfg.paginationStrategy === "state_batch") {
             const states = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
@@ -1839,7 +2102,9 @@ const universalFetch = async (cfg, params = {}) => {
                         try {
                             const r = await fetchWithTimeout(cfg.buildUrl({ ...params, state: st }), { headers: hdr }, tms);
                             return r.ok ? cfg.extractRawItems(await r.json(), { ...params, state: st }) : [];
-                        } catch { return []; }
+                        } catch (error) {
+                            return [];
+                        }
                     }));
                     results.forEach(s => raw.push(...s));
                 }
@@ -1854,8 +2119,11 @@ const universalFetch = async (cfg, params = {}) => {
         for (const item of raw) {
             const n = cfg.transformItem(item, params);
             if (!n) continue;
-            if (Array.isArray(n)) for (const x of n) results.push(normalizeRisk(cfg.sourceName, x._category, x));
-            else results.push(normalizeRisk(cfg.sourceName, n._category, n));
+            if (Array.isArray(n)) {
+                for (const x of n) results.push(normalizeRisk(cfg.sourceName, x._category, x));
+            } else {
+                results.push(normalizeRisk(cfg.sourceName, n._category, n));
+            }
         }
         const filtered = params.min_lat ? results.filter(r => r.latitude && inBounds(r.latitude, r.longitude, params)) : results;
 
@@ -1872,10 +2140,16 @@ const fetchRisk = async (source, params = {}, overrides = {}) => {
     const settled = await Promise.allSettled(keys.map(async (k) => {
         const fn = SOURCE_REGISTRY[k];
         if (!fn) return [];
-        try { return await fn({ ...params, ...(overrides[k] || {}) }); } catch { return []; }
+        try {
+            return await fn({ ...params, ...(overrides[k] || {}) });
+        } catch (error) {
+            return [];
+        }
     }));
     const combined = [];
-    for (const r of settled) if (r.status === "fulfilled" && Array.isArray(r.value)) combined.push(...r.value);
+    for (const r of settled) {
+        if (r.status === "fulfilled" && Array.isArray(r.value)) combined.push(...r.value);
+    }
     return combined;
 };
 
@@ -1909,7 +2183,8 @@ const upsertBatch = async (batch) => {
         await client.query(`SET LOCAL statement_timeout = '${UPSERT_TIMEOUT_MS}'`);
         await client.query(`SET LOCAL lock_timeout = '10000'`);
         const D = String.fromCharCode(36);
-        const values = [], placeholders = [];
+        const values = [];
+        const placeholders = [];
         let pi = 1;
         for (const r of batch) {
             placeholders.push(`(${D}${pi}, ${D}${pi+1}, ${D}${pi+2}, ${D}${pi+3}, ${D}${pi+4}, ${D}${pi+5}, ${D}${pi+6}, ${D}${pi+7}, ${D}${pi+8}, ${D}${pi+9}::jsonb, ${D}${pi+10}, ${D}${pi+11}, ${D}${pi+12}, ${D}${pi+13}, ${D}${pi+14}, ${D}${pi+15}, ${D}${pi+16}, ${D}${pi+17}::jsonb, ${D}${pi+18}::jsonb, ${D}${pi+19}::jsonb, ${D}${pi+20}::jsonb, ${D}${pi+21}::jsonb, ${D}${pi+22}::jsonb, ${D}${pi+23}, ${D}${pi+24}, NOW(), CASE WHEN ${D}${pi+10}::double precision IS NOT NULL AND ${D}${pi+11}::double precision IS NOT NULL THEN ST_SetSRID(ST_MakePoint(${D}${pi+11}::double precision, ${D}${pi+10}::double precision), 4326)::geography ELSE NULL END)`);
@@ -1934,12 +2209,16 @@ const upsertBatch = async (batch) => {
         return batch.length;
     } catch (error) {
         if (client) {
-            try { await client.query("ROLLBACK"); } catch (rbError) {}
+            try {
+                await client.query("ROLLBACK");
+            } catch (rbError) {}
         }
         throw error;
     } finally {
         if (client) {
-            try { client.release(); } catch (relError) {}
+            try {
+                client.release();
+            } catch (relError) {}
         }
     }
 };
@@ -1964,7 +2243,7 @@ const processWriteQueue = async () => {
     try {
         while (writeQueue.length > 0) {
             const stats = poolStats();
-            if (stats.waiting_requests > 8) {
+            if (stats.waiting_requests > POOL_PRESSURE_WAITING_HIGH) {
                 await new Promise(r => setTimeout(r, 2000));
                 continue;
             }
@@ -1984,18 +2263,21 @@ const processWriteQueue = async () => {
 };
 
 const enqueueUpsert = (risks) => {
-    if (!risks || !risks.length) return;
+    if (!risks || !risks.length) return 0;
     const totalQueued = writeQueue.reduce((sum, batch) => sum + batch.length, 0);
+    let acceptedItems = risks;
     if (totalQueued + risks.length > UPSERT_QUEUE_MAX) {
-        const drop = (totalQueued + risks.length) - UPSERT_QUEUE_MAX;
+        const capacity = Math.max(0, UPSERT_QUEUE_MAX - totalQueued);
+        const drop = risks.length - capacity;
         writeQueueDropped += drop;
-        risks = risks.slice(0, Math.max(0, UPSERT_QUEUE_MAX - totalQueued));
-        if (!risks.length) return;
+        acceptedItems = risks.slice(0, capacity);
+        if (!acceptedItems.length) return 0;
     }
-    for (let i = 0; i < risks.length; i += UPSERT_BATCH_SIZE) {
-        writeQueue.push(risks.slice(i, i + UPSERT_BATCH_SIZE));
+    for (let i = 0; i < acceptedItems.length; i += UPSERT_BATCH_SIZE) {
+        writeQueue.push(acceptedItems.slice(i, i + UPSERT_BATCH_SIZE));
     }
     processWriteQueue();
+    return acceptedItems.length;
 };
 
 const upsertToPostGIS = async (risks) => {
@@ -2006,16 +2288,33 @@ const upsertToPostGIS = async (risks) => {
 
 const flushToDb = async () => {
     if (!DB_WRITE_ENABLED || !riskStoreDirty || writeQueueProcessing) return;
-    if (!riskStorePendingDbIds.size) { riskStoreDirty = false; return; }
+    if (!riskStorePendingDbIds.size) {
+        riskStoreDirty = false;
+        return;
+    }
     const pending = [];
+    const pendingIds = [];
     for (const id of riskStorePendingDbIds) {
         const r = riskStore.get(id);
-        if (r) pending.push(r);
+        if (r) {
+            pending.push(r);
+            pendingIds.push(id);
+        }
     }
-    riskStorePendingDbIds.clear();
-    riskStoreDirty = false;
-    if (!pending.length) return;
-    enqueueUpsert(pending);
+    if (!pending.length) {
+        riskStorePendingDbIds.clear();
+        riskStoreDirty = false;
+        return;
+    }
+    const accepted = enqueueUpsert(pending);
+    if (accepted >= pendingIds.length) {
+        riskStorePendingDbIds.clear();
+        riskStoreDirty = false;
+    } else {
+        for (let i = 0; i < accepted; i++) {
+            riskStorePendingDbIds.delete(pendingIds[i]);
+        }
+    }
 };
 
 const startDbFlush = () => {
@@ -2023,7 +2322,10 @@ const startDbFlush = () => {
 };
 
 const stopDbFlush = () => {
-    if (dbWriteTimer) { clearInterval(dbWriteTimer); dbWriteTimer = null; }
+    if (dbWriteTimer) {
+        clearInterval(dbWriteTimer);
+        dbWriteTimer = null;
+    }
 };
 
 const updateGeomPoints = async () => {
@@ -2031,14 +2333,16 @@ const updateGeomPoints = async () => {
         const check = await queryWithTimeout("SELECT COUNT(*) as cnt FROM risk_events_cache WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL", [], 10000);
         const pending = parseInt(check.rows[0].cnt, 10);
         if (pending === 0) return;
-    } catch { return; }
+    } catch (error) {
+        return;
+    }
     const MAX_GEOM_BATCHES = 20;
     let updated = 0;
     let batchCount = 0;
     let hasMore = true;
     while (hasMore && batchCount < MAX_GEOM_BATCHES) {
         const stats = poolStats();
-        if (stats.waiting_requests > 3) {
+        if (stats.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
             break;
         }
         try {
@@ -2061,7 +2365,7 @@ const updateGeomPoints = async () => {
 
 const updateGeomComplex = async () => {
     const stats = poolStats();
-    if (stats.waiting_requests > 3) return;
+    if (stats.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) return;
     try {
         await queryWithTimeout(
             "UPDATE risk_events_cache SET geom = ST_SetSRID(ST_GeomFromGeoJSON(json_build_object('type', geometry_type, 'coordinates', geometry_coordinates)::text), 4326)::geography WHERE id IN (SELECT id FROM risk_events_cache WHERE geom IS NULL AND geometry_coordinates IS NOT NULL AND geometry_type IS NOT NULL AND longitude IS NULL LIMIT 50)",
@@ -2082,7 +2386,7 @@ const runCleanup = async () => {
 
     try {
         const stats = poolStats();
-        if (stats.waiting_requests > 5) {
+        if (stats.waiting_requests > POOL_PRESSURE_WAITING_BACKOFF) {
             cleanupRunning = false;
             return;
         }
@@ -2094,7 +2398,7 @@ const runCleanup = async () => {
 
         for (let i = 0; i < CLEANUP_DELETE_MAX_ITERATIONS; i++) {
             const ps = poolStats();
-            if (ps.waiting_requests > 3) {
+            if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
                 break;
             }
             const rd = await safeQueryWithTimeout(
@@ -2111,7 +2415,7 @@ const runCleanup = async () => {
 
         for (let i = 0; i < 20; i++) {
             const ps = poolStats();
-            if (ps.waiting_requests > 3) {
+            if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
                 break;
             }
             const rd = await safeQueryWithTimeout(
@@ -2128,7 +2432,7 @@ const runCleanup = async () => {
 
         for (let i = 0; i < CLEANUP_DEDUP_MAX_ITERATIONS; i++) {
             const ps = poolStats();
-            if (ps.waiting_requests > 3) {
+            if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
                 break;
             }
             const rd = await safeQueryWithTimeout(
@@ -2145,7 +2449,7 @@ const runCleanup = async () => {
 
         for (let i = 0; i < CLEANUP_GEOM_MAX_ITERATIONS; i++) {
             const ps = poolStats();
-            if (ps.waiting_requests > 3) {
+            if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
                 break;
             }
             const rg = await safeQueryWithTimeout(
@@ -2159,7 +2463,7 @@ const runCleanup = async () => {
             if (rg.rowCount < CLEANUP_GEOM_BATCH_SIZE) break;
             await new Promise(r => setTimeout(r, 300));
         }
-        
+
         await safeQueryWithTimeout("ANALYZE risk_events_cache", [], 60000, "Cleanup ANALYZE risk_events_cache.");
 
         await safeQueryWithTimeout(
@@ -2182,11 +2486,16 @@ const startCleanup = () => {
 };
 
 const stopCleanup = () => {
-    if (cleanupTimer) { clearInterval(cleanupTimer); cleanupTimer = null; }
+    if (cleanupTimer) {
+        clearInterval(cleanupTimer);
+        cleanupTimer = null;
+    }
 };
 
 const refreshAllDynamicData = async () => {
-    try { await fetchUrbanCenters(); } catch {}
+    try {
+        await fetchUrbanCenters();
+    } catch (error) {}
     await Promise.allSettled([fetchAllInfrastructure(), DATA_SOURCES.sentinel1_deformation.refreshZones()].map(p => p.catch(() => {})));
     dynamicDataReady = true;
 };
@@ -2194,7 +2503,7 @@ const refreshAllDynamicData = async () => {
 const startDynamicRefresh = () => {
     refreshAllDynamicData();
     dynamicRefreshTimer = setInterval(refreshAllDynamicData, DYNAMIC_REFRESH_MS);
-    setInterval(() => {
+    cacheCleanupTimer = setInterval(() => {
         const now = Date.now();
         for (const [k, v] of riskCache) {
             if (now - v.ts >= CACHE_MS) riskCache.delete(k);
@@ -2203,7 +2512,14 @@ const startDynamicRefresh = () => {
 };
 
 const stopDynamicRefresh = () => {
-    if (dynamicRefreshTimer) { clearInterval(dynamicRefreshTimer); dynamicRefreshTimer = null; }
+    if (dynamicRefreshTimer) {
+        clearInterval(dynamicRefreshTimer);
+        dynamicRefreshTimer = null;
+    }
+    if (cacheCleanupTimer) {
+        clearInterval(cacheCleanupTimer);
+        cacheCleanupTimer = null;
+    }
 };
 
 const waitForDynamicData = async (timeoutMs) => {
@@ -2249,16 +2565,19 @@ const broadcastIngestionEvent = (event, data) => {
 const runIngestion = async () => {
     if (ingestionRunning) return;
     ingestionRunning = true;
-    const runId = generateId("run"), startedAt = new Date().toISOString();
-    let total = 0, errors = 0;
-    const completed = {}, errDetails = [];
+    const runId = generateId("run");
+    const startedAt = new Date().toISOString();
+    let total = 0;
+    let errors = 0;
+    const completed = {};
+    const errDetails = [];
     try {
         await queryWithTimeout(
             `INSERT INTO ingestion_runs (run_id, started_at, status) VALUES ($1, $2, $3)`,
             [runId, startedAt, "running"],
             10000
         );
-    } catch {}
+    } catch (error) {}
     const ingest = async (grp) => {
         try {
             const ov = {};
@@ -2287,16 +2606,16 @@ const runIngestion = async () => {
         const batch = ingestionGroups.slice(i, i + concurrentIngestionLimit);
         await Promise.allSettled(batch.map(ingest));
         const stats = poolStats();
-        if (stats.waiting_requests > 5) {
+        if (stats.waiting_requests > POOL_PRESSURE_WAITING_BACKOFF) {
             await new Promise(r => setTimeout(r, 3000));
         }
     }
 
-    try { 
-        await updateGeomPoints(); 
+    try {
+        await updateGeomPoints();
     } catch (error) {}
-    try { 
-        await updateGeomComplex(); 
+    try {
+        await updateGeomComplex();
     } catch (error) {}
 
     try {
@@ -2305,7 +2624,7 @@ const runIngestion = async () => {
             [new Date().toISOString(), errors ? "completed_with_errors" : "completed", total, errors, JSON.stringify(completed), JSON.stringify(errDetails), runId],
             10000
         );
-    } catch {}
+    } catch (error) {}
     ingestionRunning = false;
     broadcastIngestionEvent("ingestion_completed", { run_id: runId, total_ingested: total, errors, sources_completed: completed });
 };
@@ -2317,16 +2636,22 @@ const startIngestion = async () => {
 };
 
 const stopIngestion = () => {
-    if (ingestionTimer) { clearInterval(ingestionTimer); ingestionTimer = null; }
+    if (ingestionTimer) {
+        clearInterval(ingestionTimer);
+        ingestionTimer = null;
+    }
 };
 
 const hydrateRow = (r) => {
     return {
         ...r,
         distance_km: r.distance_meters ? parseFloat((r.distance_meters / 1000).toFixed(2)) : (r.distance_km || null),
-        recommendations: parseJson(r.recommendations), metadata: parseJson(r.metadata),
-        properties: parseJson(r.properties), golden_mesh_detection: parseJson(r.golden_mesh_detection),
-        population_impact: parseJson(r.population_impact), geometry_coordinates: parseJson(r.geometry_coordinates),
+        recommendations: parseJson(r.recommendations),
+        metadata: parseJson(r.metadata),
+        properties: parseJson(r.properties),
+        golden_mesh_detection: parseJson(r.golden_mesh_detection),
+        population_impact: parseJson(r.population_impact),
+        geometry_coordinates: parseJson(r.geometry_coordinates),
         coordinates: parseJson(r.coordinates),
         visibility: r.visibility || VISIBILITY_PUBLIC
     };
@@ -2339,12 +2664,13 @@ router.get("/risk/intelligence/historical", async (req, res) => {
     if (!startTime) {
         return res.status(400).json({ success: false, message: "start_time query parameter is required (ISO 8601)." });
     }
-    let startDate, endDate;
+    let startDate;
+    let endDate;
     try {
         startDate = new Date(startTime);
         endDate = new Date(endTime);
-        if (isNaN(startDate) || isNaN(endDate)) throw new Error("Invalid date");
-    } catch {
+        if (isNaN(startDate) || isNaN(endDate)) throw new Error("Invalid date.");
+    } catch (error) {
         return res.status(400).json({ success: false, message: "start_time and end_time must be valid ISO 8601 timestamps." });
     }
     const spanDays = (endDate.getTime() - startDate.getTime()) / 86400000;
@@ -2389,7 +2715,11 @@ router.get("/risk/intelligence/historical", async (req, res) => {
     const passesFilters = (risk) => {
         if (!risk.event_time) return false;
         let evMs;
-        try { evMs = new Date(risk.event_time).getTime(); } catch { return false; }
+        try {
+            evMs = new Date(risk.event_time).getTime();
+        } catch (error) {
+            return false;
+        }
         if (isNaN(evMs)) return false;
         if (evMs < startMs || evMs > endMs) return false;
         if (mnLat != null && mxLat != null && mnLng != null && mxLng != null) {
@@ -2413,7 +2743,6 @@ router.get("/risk/intelligence/historical", async (req, res) => {
         }
     } catch (error) {}
 
-    const HISTORICAL_DB_TIMEOUT_MS = 8000;
     try {
         const D = String.fromCharCode(36);
         let sql = `SELECT ${SELECT_COLUMNS} FROM risk_events_cache WHERE event_time BETWEEN ${D}1 AND ${D}2`;
@@ -2436,7 +2765,10 @@ router.get("/risk/intelligence/historical", async (req, res) => {
         }
         const vis = buildVisibilityClause(orgid, pi);
         sql += vis.clause;
-        for (const v of vis.params) { qp.push(v); pi++; }
+        for (const v of vis.params) {
+            qp.push(v);
+            pi++;
+        }
         sql += ` ORDER BY event_time DESC LIMIT ${D}${pi}`;
         qp.push(Math.min(limit * 2, HISTORICAL_MAX_LIMIT));
         const result = await queryWithTimeout(sql, qp, HISTORICAL_DB_TIMEOUT_MS);
@@ -2496,7 +2828,9 @@ router.get("/risk/intelligence/stream", async (req, res) => {
     initSSE(res);
     const streamId = generateId("stream");
     const params = {};
-    for (const k of ["min_lat","max_lat","min_lng","max_lng"]) if (req.query[k]) params[k] = parseFloat(req.query[k]);
+    for (const k of ["min_lat","max_lat","min_lng","max_lng"]) {
+        if (req.query[k]) params[k] = parseFloat(req.query[k]);
+    }
     if (req.query.start_time) params.start_time = req.query.start_time;
     if (req.query.end_time) params.end_time = req.query.end_time;
     const orgid = req.query.orgid || null;
@@ -2523,8 +2857,8 @@ router.get("/risk/intelligence/stream", async (req, res) => {
         const overrides = overridesMap[cat] || {};
         await fetchRiskStreaming(cat, params, overrides, (sourceKey, risks) => {
             if (closed.value) return;
-            try { 
-                storeRisks(risks); 
+            try {
+                storeRisks(risks);
             } catch (error) {}
             const visibleRisks = filterRisksForOrg(risks, orgid);
             if (!visibleRisks.length) return;
@@ -2582,8 +2916,8 @@ router.get("/risk/intelligence/stream/:group", async (req, res) => {
     req.on("close", () => { closed.value = true; });
     await fetchRiskStreaming(group, params, overrides, (sourceKey, risks) => {
         if (closed.value) return;
-        try { 
-            storeRisks(risks); 
+        try {
+            storeRisks(risks);
         } catch (error) {}
         const visibleRisks = filterRisksForOrg(risks, orgid);
         if (!visibleRisks.length) return;
@@ -2604,10 +2938,12 @@ router.get("/risk/intelligence/stream/:group", async (req, res) => {
 });
 
 router.get("/risk/intelligence/stream/postgis/nearby", async (req, res) => {
-    const lat = parseFloat(req.query.lat), lng = parseFloat(req.query.lng);
+    const lat = parseFloat(req.query.lat);
+    const lng = parseFloat(req.query.lng);
     const rawRadiusKm = parseFloat(req.query.radius_km);
     const radiusKm = (!isNaN(rawRadiusKm) && rawRadiusKm > 0) ? rawRadiusKm : 100;
-    const sev = req.query.severity || null, cat = req.query.category || null;
+    const sev = req.query.severity || null;
+    const cat = req.query.category || null;
     const orgid = req.query.orgid || null;
     const limit = Math.min(parseInt(req.query.limit, 10) || 1000, 5000);
     const batchSize = parseInt(req.query.batch_size, 10) || 200;
@@ -2684,12 +3020,24 @@ router.get("/risk/intelligence/stream/postgis/nearby", async (req, res) => {
         let sql = "SELECT " + SELECT_COLUMNS + ", ST_Distance(geom, ST_SetSRID(ST_MakePoint(" + D + "1, " + D + "2), 4326)::geography) AS distance_meters FROM risk_events_cache WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(" + D + "1, " + D + "2), 4326)::geography, " + D + "3)";
         const qp = [lng, lat, radiusMeters];
         let pi = 4;
-        if (sev) { sql += " AND severity = " + D + pi; qp.push(sev); pi++; }
-        if (cat) { sql += " AND risk_category = " + D + pi; qp.push(cat); pi++; }
+        if (sev) {
+            sql += " AND severity = " + D + pi;
+            qp.push(sev);
+            pi++;
+        }
+        if (cat) {
+            sql += " AND risk_category = " + D + pi;
+            qp.push(cat);
+            pi++;
+        }
         const vis = buildVisibilityClause(orgid, pi);
         sql += vis.clause;
-        for (const v of vis.params) { qp.push(v); pi++; }
-        sql += " ORDER BY distance_meters ASC LIMIT " + D + pi; qp.push(Math.min(limit * 2, 10000));
+        for (const v of vis.params) {
+            qp.push(v);
+            pi++;
+        }
+        sql += " ORDER BY distance_meters ASC LIMIT " + D + pi;
+        qp.push(Math.min(limit * 2, 10000));
         const result = await queryWithTimeout(sql, qp, QUERY_TIMEOUT_MS);
         for (const row of result.rows) {
             const hydrated = hydrateRow(row);
@@ -2754,8 +3102,11 @@ router.get("/risk/intelligence/ingest/stream", async (req, res) => {
 });
 
 router.get("/risk/intelligence/nearby", async (req, res) => {
-    const lat = parseFloat(req.query.lat), lng = parseFloat(req.query.lng);
-    const radiusKm = parseFloat(req.query.radius_km) || 100, sev = req.query.severity, cat = req.query.category;
+    const lat = parseFloat(req.query.lat);
+    const lng = parseFloat(req.query.lng);
+    const radiusKm = parseFloat(req.query.radius_km) || 100;
+    const sev = req.query.severity;
+    const cat = req.query.category;
     const orgid = req.query.orgid || null;
     const limit = parseInt(req.query.limit, 10) || 500;
     if (isNaN(lat) || isNaN(lng)) return res.status(400).json({ success: false, message: "The lat and lng query parameters are required and must be valid numbers." });
@@ -2764,12 +3115,24 @@ router.get("/risk/intelligence/nearby", async (req, res) => {
         let sql = "SELECT " + SELECT_COLUMNS + ", ST_Distance(geom, ST_SetSRID(ST_MakePoint(" + D + "1, " + D + "2), 4326)::geography) AS distance_meters FROM risk_events_cache WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(" + D + "1, " + D + "2), 4326)::geography, " + D + "3)";
         const qp = [lng, lat, radiusKm * 1000];
         let pi = 4;
-        if (sev) { sql += " AND severity = " + D + pi; qp.push(sev); pi++; }
-        if (cat) { sql += " AND risk_category = " + D + pi; qp.push(cat); pi++; }
+        if (sev) {
+            sql += " AND severity = " + D + pi;
+            qp.push(sev);
+            pi++;
+        }
+        if (cat) {
+            sql += " AND risk_category = " + D + pi;
+            qp.push(cat);
+            pi++;
+        }
         const vis = buildVisibilityClause(orgid, pi);
         sql += vis.clause;
-        for (const v of vis.params) { qp.push(v); pi++; }
-        sql += " ORDER BY distance_meters ASC LIMIT " + D + pi; qp.push(limit);
+        for (const v of vis.params) {
+            qp.push(v);
+            pi++;
+        }
+        sql += " ORDER BY distance_meters ASC LIMIT " + D + pi;
+        qp.push(limit);
         const result = await queryWithTimeout(sql, qp, QUERY_TIMEOUT_MS);
         const risks = result.rows.map(hydrateRow);
         return res.status(200).json({ success: true, message: `Found ${risks.length} risk events within ${radiusKm} km.`, location: { latitude: lat, longitude: lng }, radius_km: radiusKm, count: risks.length, risks });
@@ -2787,7 +3150,10 @@ router.get("/risk/intelligence/postgis/category-summary", async (req, res) => {
         let pi = 1;
         const vis = buildVisibilityClause(orgid, pi);
         sql += vis.clause;
-        for (const v of vis.params) { qp.push(v); pi++; }
+        for (const v of vis.params) {
+            qp.push(v);
+            pi++;
+        }
         sql += " GROUP BY risk_category, severity ORDER BY risk_category, severity";
         const result = await queryWithTimeout(sql, qp, QUERY_TIMEOUT_MS);
         const summary = {};
@@ -2804,9 +3170,12 @@ router.get("/risk/intelligence/postgis/category-summary", async (req, res) => {
 });
 
 router.get("/risk/intelligence/postgis/bbox", async (req, res) => {
-    const mnLat = parseFloat(req.query.min_lat), mxLat = parseFloat(req.query.max_lat);
-    const mnLng = parseFloat(req.query.min_lng), mxLng = parseFloat(req.query.max_lng);
-    const sev = req.query.severity, cat = req.query.category;
+    const mnLat = parseFloat(req.query.min_lat);
+    const mxLat = parseFloat(req.query.max_lat);
+    const mnLng = parseFloat(req.query.min_lng);
+    const mxLng = parseFloat(req.query.max_lng);
+    const sev = req.query.severity;
+    const cat = req.query.category;
     const orgid = req.query.orgid || null;
     const limit = parseInt(req.query.limit, 10) || 1000;
     if (isNaN(mnLat) || isNaN(mxLat) || isNaN(mnLng) || isNaN(mxLng)) return res.status(400).json({ success: false, message: "The min_lat, max_lat, min_lng, and max_lng query parameters are required." });
@@ -2815,12 +3184,24 @@ router.get("/risk/intelligence/postgis/bbox", async (req, res) => {
         let sql = "SELECT " + SELECT_COLUMNS + " FROM risk_events_cache WHERE ST_Intersects(geom, ST_SetSRID(ST_MakeEnvelope(" + D + "1, " + D + "2, " + D + "3, " + D + "4), 4326)::geography)";
         const qp = [mnLng, mnLat, mxLng, mxLat];
         let pi = 5;
-        if (sev) { sql += " AND severity = " + D + pi; qp.push(sev); pi++; }
-        if (cat) { sql += " AND risk_category = " + D + pi; qp.push(cat); pi++; }
+        if (sev) {
+            sql += " AND severity = " + D + pi;
+            qp.push(sev);
+            pi++;
+        }
+        if (cat) {
+            sql += " AND risk_category = " + D + pi;
+            qp.push(cat);
+            pi++;
+        }
         const vis = buildVisibilityClause(orgid, pi);
         sql += vis.clause;
-        for (const v of vis.params) { qp.push(v); pi++; }
-        sql += " ORDER BY severity_score DESC LIMIT " + D + pi; qp.push(limit);
+        for (const v of vis.params) {
+            qp.push(v);
+            pi++;
+        }
+        sql += " ORDER BY severity_score DESC LIMIT " + D + pi;
+        qp.push(limit);
         const result = await queryWithTimeout(sql, qp, QUERY_TIMEOUT_MS);
         const risks = result.rows.map(hydrateRow);
         return res.status(200).json({ success: true, message: `Found ${risks.length} risk events within the bounding box.`, bounds: { min_lat: mnLat, max_lat: mxLat, min_lng: mnLng, max_lng: mxLng }, count: risks.length, risks });
@@ -2844,11 +3225,15 @@ router.get("/risk/user/views", async (req, res) => {
 router.put("/risk/user/views", async (req, res) => {
     const { orgid, username, view_id, name, description } = req.body;
     if (!orgid || !username || !view_id) return res.status(400).json({ success: false, message: "orgid, username, and view_id are required." });
-    if (!name || typeof name !== "string" || !name.trim()) return res.status(400).json({ success: false, message: "name is required." });
+    if (!name || typeof name !== "string" || !name.trim()) return res.status(400).json({ success: false, message: "Name is required." });
     const trimmedName = name.trim().substring(0, 200);
     const trimmedDesc = typeof description === "string" ? description.trim().substring(0, 1000) : "";
     const viewData = { ...req.body };
-    delete viewData.orgid; delete viewData.username; delete viewData.view_id; delete viewData.name; delete viewData.description;
+    delete viewData.orgid;
+    delete viewData.username;
+    delete viewData.view_id;
+    delete viewData.name;
+    delete viewData.description;
     try {
         await queryWithTimeout(`INSERT INTO risk_user_views (view_id, orgid, username, name, description, view_data, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW()) ON CONFLICT (view_id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, view_data = EXCLUDED.view_data, updated_at = NOW() WHERE risk_user_views.orgid = EXCLUDED.orgid AND risk_user_views.username = EXCLUDED.username`, [view_id, orgid, username, trimmedName, trimmedDesc, safeJsonStringify(viewData)], 10000);
         return res.status(200).json({ success: true, view_id, message: "Saved view persisted." });
@@ -2878,12 +3263,16 @@ router.post("/risk/intelligence/ingest/trigger", async (req, res) => {
 router.get("/risk/intelligence/ingest/status", async (req, res) => {
     try {
         let recentRuns = [];
-        try { const runs = await queryWithTimeout(`SELECT * FROM ingestion_runs ORDER BY started_at DESC LIMIT 10`, [], 10000); recentRuns = runs.rows; } catch {}
+        try {
+            const runs = await queryWithTimeout(`SELECT * FROM ingestion_runs ORDER BY started_at DESC LIMIT 10`, [], 10000);
+            recentRuns = runs.rows;
+        } catch (error) {}
         const stats = poolStats();
         return res.status(200).json({
             success: true, message: "Ingestion status retrieved successfully.", currently_running: ingestionRunning,
             interval_seconds: INGEST_MS / 1000, in_memory_events: riskStore.size, database_pool: stats,
-            write_queue: { pending_batches: writeQueue.length, pending_items: writeQueue.reduce((sum, batch) => sum + batch.length, 0), processing: writeQueueProcessing, dropped_total: writeQueueDropped, db_write_interval_seconds: DB_WRITE_INTERVAL_MS / 1000, db_writes_enabled: DB_WRITE_ENABLED, store_dirty: riskStoreDirty },
+            pool_pressure: { peak_waiting_requests: peakWaitingRequests, peak_active_connections: peakActiveConnections, last_check: lastPressureCheck },
+            write_queue: { pending_batches: writeQueue.length, pending_items: writeQueue.reduce((sum, batch) => sum + batch.length, 0), processing: writeQueueProcessing, dropped_total: writeQueueDropped, db_write_interval_seconds: DB_WRITE_INTERVAL_MS / 1000, db_writes_enabled: DB_WRITE_ENABLED, store_dirty: riskStoreDirty, pending_db_ids: riskStorePendingDbIds.size },
             cleanup: { currently_running: cleanupRunning, interval_seconds: CLEANUP_INTERVAL_MS / 1000 },
             dynamic_data: { urban_centers_loaded: dynamicStores.urban.data.length, urban_centers_fetched_at: dynamicStores.urban.fetched_at, infrastructure_elements_loaded: dynamicStores.infra.data.length, infrastructure_fetched_at: dynamicStores.infra.fetched_at, deformation_zones_loaded: dynamicStores.deform.data.length, deformation_zones_fetched_at: dynamicStores.deform.fetched_at, fault_lines_loaded: dynamicStores.faults.data.length, fault_lines_fetched_at: dynamicStores.faults.fetched_at },
             recent_runs: recentRuns
@@ -2897,7 +3286,8 @@ const makeSourceEndpoint = (path, group, extraFn) => {
     router.get(path, async (req, res) => {
         const params = { ...req.query };
         const orgid = params.orgid || null;
-        delete params.orgid; delete params.username;
+        delete params.orgid;
+        delete params.username;
         try {
             const data = await fetchRisk(group, params, extraFn ? extraFn(params) : {});
             const visible = filterRisksForOrg(data, orgid);
@@ -2920,19 +3310,27 @@ router.post("/risk/intelligence/assess-location", async (req, res) => {
     const { latitude, longitude, radius_km, categories, orgid } = req.body;
     if (latitude === undefined || longitude === undefined) return res.status(400).json({ success: false, message: "Latitude and longitude are required." });
     const rKm = radius_km || 100;
-    const latD = rKm / 111, lngD = rKm / (111 * Math.cos(latitude * Math.PI / 180));
+    const latD = rKm / 111;
+    const lngD = rKm / (111 * Math.cos(latitude * Math.PI / 180));
     const params = { min_lat: latitude - latD, max_lat: latitude + latD, min_lng: longitude - lngD, max_lng: longitude + lngD };
     try {
         const cats = categories || ["earthquakes","wildfires","weather","floods","volcanoes","ground_deformation"];
         const ovMap = { earthquakes: { usgs_earthquakes: { ...params, min_magnitude: 2.0 } }, floods: { noaa_alerts: { ...params, event: "Flood" } }, ground_deformation: { sentinel1_insar: { ...params, latitude, longitude } } };
         const srcMap = {};
-        await Promise.allSettled(cats.map(async (c) => { srcMap[c] = filterRisksForOrg(await fetchRisk(c, params, ovMap[c] || {}), orgid); }));
+        await Promise.allSettled(cats.map(async (c) => {
+            srcMap[c] = filterRisksForOrg(await fetchRisk(c, params, ovMap[c] || {}), orgid);
+        }));
         const all = [];
-        Object.values(srcMap).forEach(risks => risks.forEach(r => { if (r.latitude && r.longitude) r.distance_km = haversine(latitude, longitude, r.latitude, r.longitude) / 1000; all.push(r); }));
+        Object.values(srcMap).forEach(risks => risks.forEach(r => {
+            if (r.latitude && r.longitude) r.distance_km = haversine(latitude, longitude, r.latitude, r.longitude) / 1000;
+            all.push(r);
+        }));
         all.sort((a, b) => (a.distance_km || Infinity) - (b.distance_km || Infinity));
-        let score = 0; const factors = [];
+        let score = 0;
+        const factors = [];
         all.forEach(r => {
-            const dk = r.distance_km || rKm, pf = Math.max(0, 1 - dk / rKm);
+            const dk = r.distance_km || rKm;
+            const pf = Math.max(0, 1 - dk / rKm);
             const contrib = ((SEVERITY_WEIGHTS[r.severity] || 10) / 2.5) * pf;
             score += contrib;
             if (contrib > 5) factors.push({ category: r.risk_category, severity: r.severity, title: r.title, distance_km: parseFloat(dk.toFixed(1)), contribution: parseFloat(contrib.toFixed(1)), recommendations: r.recommendations?.slice(0, 2) });
@@ -2988,6 +3386,7 @@ router.get("/risk/intelligence/sources", async (req, res) => {
         streaming_endpoints: [
             { path: "/risk/intelligence/stream", method: "GET", description: "SSE stream for all risk categories with orgid scoping.", params: ["categories", "min_lat", "max_lat", "min_lng", "max_lng", "orgid", "username"] },
             { path: "/risk/intelligence/stream/postgis/nearby", method: "GET", description: "SSE stream for nearby results with orgid scoping.", params: ["lat", "lng", "radius_km", "severity", "category", "limit", "batch_size", "orgid"] },
+            { path: "/risk/intelligence/historical", method: "GET", description: "Historical risk events within a time window with optional bbox, category, severity, and orgid filters.", params: ["start_time", "end_time", "min_lat", "max_lat", "min_lng", "max_lng", "categories", "severity", "limit", "orgid"] },
             { path: "/risk/user/views", method: "GET/PUT/DELETE", description: "CRUD for saved map views.", params: ["orgid", "username", "view_id"] }
         ]
     });
@@ -3013,7 +3412,8 @@ router.post("/risk/intelligence/dynamic-data/refresh", async (req, res) => {
 
 router.get("/risk/intelligence/cache/clear", async (req, res) => {
     if (req.query.api_key !== process.env.ADMIN_API_KEY) return res.status(401).json({ success: false, message: "Unauthorized." });
-    const sz = riskCache.size; riskCache.clear();
+    const sz = riskCache.size;
+    riskCache.clear();
     return res.status(200).json({ success: true, message: "Cache cleared successfully.", entries_cleared: sz });
 });
 
@@ -3034,7 +3434,10 @@ router.get("/risk/intelligence/cleanup/status", async (req, res) => {
 router.get("/risk/intelligence/health", async (req, res) => {
     const stats = poolStats();
     let cachedEvents = 0;
-    try { const r = await queryWithTimeout("SELECT reltuples::bigint AS total FROM pg_class WHERE relname = 'risk_events_cache'", [], 3000); cachedEvents = r.rows[0]?.total ? parseInt(r.rows[0].total, 10) : -1; } catch {}
+    try {
+        const r = await queryWithTimeout("SELECT reltuples::bigint AS total FROM pg_class WHERE relname = 'risk_events_cache'", [], 3000);
+        cachedEvents = r.rows[0]?.total ? parseInt(r.rows[0].total, 10) : -1;
+    } catch (error) {}
     const results = [{ name: "PostGIS Database", status: "OK", response_time_ms: 0, cached_events: cachedEvents, pool_stats: stats }];
     return res.status(200).json({
         success: true, message: "Health check completed.", timestamp: new Date().toISOString(),
@@ -3042,7 +3445,8 @@ router.get("/risk/intelligence/health", async (req, res) => {
         ingestion_running: ingestionRunning, ingestion_interval_seconds: INGEST_MS / 1000,
         cleanup_running: cleanupRunning, cleanup_interval_seconds: CLEANUP_INTERVAL_MS / 1000,
         active_streaming_clients: sseClients.size, database_pool: stats,
-        write_queue: { pending_batches: writeQueue.length, pending_items: writeQueue.reduce((sum, batch) => sum + batch.length, 0), processing: writeQueueProcessing, dropped_total: writeQueueDropped },
+        pool_pressure: { peak_waiting_requests: peakWaitingRequests, peak_active_connections: peakActiveConnections, last_check: lastPressureCheck },
+        write_queue: { pending_batches: writeQueue.length, pending_items: writeQueue.reduce((sum, batch) => sum + batch.length, 0), processing: writeQueueProcessing, dropped_total: writeQueueDropped, pending_db_ids: riskStorePendingDbIds.size },
         dynamic_data: { urban_centers: dynamicStores.urban.data.length, infrastructure_elements: dynamicStores.infra.data.length, deformation_zones: dynamicStores.deform.data.length, fault_lines: dynamicStores.faults.data.length, last_refresh: dynamicStores.urban.fetched_at },
         results
     });

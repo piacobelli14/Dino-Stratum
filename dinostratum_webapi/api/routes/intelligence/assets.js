@@ -1852,8 +1852,7 @@ router.post("/risk/assets/golden-mesh", async (req, res) => {
 
         let resolvedFilePath = null;
         if (mesh_file_id) {
-            const candidates = [".laz", ".las", ".copc.laz"];
-            for (const ext of candidates) {
+            for (const ext of ALLOWED_MESH_EXTENSIONS) {
                 const candidate = path.join(MESH_UPLOAD_DIR, `${mesh_file_id}${ext}`);
                 if (fs.existsSync(candidate)) {
                     resolvedFilePath = candidate;
@@ -2312,16 +2311,16 @@ router.get("/risk/assets/:assetId/history", async (req, res) => {
         let params = [assetId, orgid];
         let pi = 3;
         if (start_date) {
-            query += ` AND recorded_at >= ${pi}`;
+            query += ` AND recorded_at >= $${pi}`;
             params.push(start_date);
             pi++;
         }
         if (end_date) {
-            query += ` AND recorded_at <= ${pi}`;
+            query += ` AND recorded_at <= $${pi}`;
             params.push(end_date);
             pi++;
         }
-        query += ` ORDER BY recorded_at DESC LIMIT ${pi}`;
+        query += ` ORDER BY recorded_at DESC LIMIT $${pi}`;
         params.push(Math.min(parseInt(limit) || 100, 1000));
         const result = await pool.query(query, params);
         return res.status(200).json({
@@ -2354,7 +2353,7 @@ router.put("/risk/assets/:assetId", async (req, res) => {
         let pi = 1;
         const addField = (fieldName, value) => {
             if (value !== undefined) {
-                updateFields.push(`${fieldName} = ${pi}`);
+                updateFields.push(`${fieldName} = $${pi}`);
                 updateValues.push(value);
                 pi++;
             }
@@ -2375,30 +2374,30 @@ router.put("/risk/assets/:assetId", async (req, res) => {
         addField("image_url", image_url);
         addField("external_id", external_id);
         if (metadata !== undefined) {
-            updateFields.push(`metadata = ${pi}`);
+            updateFields.push(`metadata = $${pi}`);
             updateValues.push(JSON.stringify(metadata));
             pi++;
         }
         if (risk_score !== undefined) {
-            updateFields.push(`risk_score = ${pi}`);
+            updateFields.push(`risk_score = $${pi}`);
             updateValues.push(risk_score);
             pi++;
             updateFields.push(`last_assessment_at = NOW()`);
         }
         if (risk_factors !== undefined) {
-            updateFields.push(`risk_factors = ${pi}`);
+            updateFields.push(`risk_factors = $${pi}`);
             updateValues.push(JSON.stringify(risk_factors));
             pi++;
         }
         if (tags !== undefined) {
-            updateFields.push(`tags = ${pi}`);
+            updateFields.push(`tags = $${pi}`);
             updateValues.push(tags);
             pi++;
         }
         if (updateFields.length === 0) return res.status(400).json({ success: false, message: "No fields to update." });
         updateFields.push(`updated_at = NOW()`);
         updateValues.push(assetId, orgid);
-        const result = await pool.query(`UPDATE risk_assets SET ${updateFields.join(", ")} WHERE asset_id = ${pi} AND orgid = ${pi + 1} RETURNING *`, updateValues);
+        const result = await pool.query(`UPDATE risk_assets SET ${updateFields.join(", ")} WHERE asset_id = $${pi} AND orgid = $${pi + 1} RETURNING *`, updateValues);
         if (risk_score !== undefined) {
             await pool.query(`INSERT INTO risk_asset_history (history_id, asset_id, orgid, risk_score, risk_factors, status, source) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
                 [generateId("rah"), assetId, orgid, risk_score, JSON.stringify(risk_factors || {}), status || oldValues.status, "manual_update"]);
@@ -2473,21 +2472,21 @@ router.post("/risk/assets/nearby", async (req, res) => {
         let params = [orgid, latitude, longitude, radius_meters];
         let pi = 5;
         if (asset_type) {
-            query += ` AND asset_type = ${pi}`;
+            query += ` AND asset_type = $${pi}`;
             params.push(asset_type);
             pi++;
         }
         if (priority) {
-            query += ` AND priority = ${pi}`;
+            query += ` AND priority = $${pi}`;
             params.push(priority);
             pi++;
         }
         if (status) {
-            query += ` AND status = ${pi}`;
+            query += ` AND status = $${pi}`;
             params.push(status);
             pi++;
         }
-        query += ` ORDER BY distance_meters ASC LIMIT ${pi}`;
+        query += ` ORDER BY distance_meters ASC LIMIT $${pi}`;
         params.push(Math.min(parseInt(limit) || 100, 500));
         const result = await pool.query(query, params);
         return res.status(200).json({

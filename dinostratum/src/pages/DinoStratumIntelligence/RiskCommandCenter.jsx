@@ -31,10 +31,6 @@ const ASSET_LAYER_MODE_ALL = "all";
 const ASSET_LAYER_MODE_OWNED = "owned";
 const ASSET_LAYER_MODE_HIDDEN = "hidden";
 
-const HEATMAP_RADIUS_PIXELS = 60;
-const HEATMAP_INTENSITY = 1;
-const HEATMAP_THRESHOLD = 0.03;
-
 const SAVED_VIEWS_STORAGE_KEY = "riskSavedViews";
 const SAVED_VIEWS_MAX = 50;
 const USER_AREA_STORAGE_KEY = "riskUserArea";
@@ -258,7 +254,7 @@ function formatRiskTime(ts) {
   if (!ts) return "Unknown";
   try {
     return new Date(ts).toLocaleString();
-  } catch {
+  } catch (error) {
     return ts;
   }
 }
@@ -274,7 +270,7 @@ function getRelativeTime(ts) {
     if (h < 24) return `${h}h ago`;
     if (d < 30) return `${d}d ago`;
     return new Date(ts).toLocaleDateString();
-  } catch {
+  } catch (error) {
     return "";
   }
 }
@@ -505,19 +501,19 @@ function isRiskEventExpired(risk) {
   if (risk.expires_at) {
     try {
       if (new Date(risk.expires_at).getTime() < Date.now()) return true;
-    } catch { }
+    } catch (error) { }
   }
 
   if (!isPersistent && risk.event_time) {
     try {
       if (Date.now() - new Date(risk.event_time).getTime() > RISK_EVENT_TTL_MS) return true;
-    } catch { }
+    } catch (error) { }
   }
 
   if (!isPersistent && risk._ingested_at) {
     try {
       if (Date.now() - new Date(risk._ingested_at).getTime() > RISK_EVENT_TTL_MS) return true;
-    } catch { }
+    } catch (error) { }
   }
 
   return false;
@@ -709,7 +705,7 @@ function loadStoredArea() {
       return parsed;
     }
     return null;
-  } catch {
+  } catch (error) {
     return null;
   }
 }
@@ -717,7 +713,7 @@ function loadStoredArea() {
 function loadStoredAreaFilterActive() {
   try {
     return localStorage.getItem(AREA_FILTER_ACTIVE_STORAGE_KEY) === "true";
-  } catch {
+  } catch (error) {
     return false;
   }
 }
@@ -729,7 +725,7 @@ function loadStoredSavedViews() {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(v => v && typeof v === "object" && v.view_id);
-  } catch {
+  } catch (error) {
     return [];
   }
 }
@@ -737,7 +733,7 @@ function loadStoredSavedViews() {
 function persistSavedViewsLocal(views) {
   try {
     localStorage.setItem(SAVED_VIEWS_STORAGE_KEY, JSON.stringify(views.slice(0, SAVED_VIEWS_MAX)));
-  } catch { }
+  } catch (error) { }
 }
 
 function generateViewId() {
@@ -1115,7 +1111,6 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   const [currentLocation, setCurrentLocation] = useState("Globe");
   const [activeProvider, setActiveProvider] = useState(MAP_PROVIDER_DECKGL);
 
-  const [show3DTerrain, setShow3DTerrain] = useState(true);
   const [showSatellite, setShowSatellite] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [showBuildings, setShowBuildings] = useState(true);
@@ -1251,12 +1246,22 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   const apiFetch = useCallback(async (url, options = {}) => {
     const response = await fetch(url, options);
-    return response.json();
+    try {
+      return await response.json();
+    } catch (error) {
+      return { success: false, message: `Server returned a non-JSON response with status ${response.status}.` };
+    }
   }, []);
 
   const apiFetchWithStatus = useCallback(async (url, options = {}) => {
     const response = await fetch(url, options);
-    return { status: response.status, data: await response.json() };
+    let data;
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = { success: false, message: `Server returned a non-JSON response with status ${response.status}.` };
+    }
+    return { status: response.status, data };
   }, []);
 
   const getVisibleBounds = useCallback(() => {
@@ -1315,8 +1320,16 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           const seg = segments[i];
           const dS = (lastPt.lat - seg[0].lat) ** 2 + (lastPt.lng - seg[0].lng) ** 2;
           const dE = (lastPt.lat - seg[seg.length - 1].lat) ** 2 + (lastPt.lng - seg[seg.length - 1].lng) ** 2;
-          if (dS < bestDist) { bestDist = dS; bestIdx = i; bestReverse = false; }
-          if (dE < bestDist) { bestDist = dE; bestIdx = i; bestReverse = true; }
+          if (dS < bestDist) {
+            bestDist = dS;
+            bestIdx = i;
+            bestReverse = false;
+          }
+          if (dE < bestDist) {
+            bestDist = dE;
+            bestIdx = i;
+            bestReverse = true;
+          }
         }
         if (bestIdx === -1) break;
         used.add(bestIdx);
@@ -1339,7 +1352,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       country: "addr:country"
     };
     const addr = {};
-    Object.entries(tagMap).forEach(([k, t]) => { if (tags[t]) addr[k] = tags[t]; });
+    Object.entries(tagMap).forEach(([k, t]) => {
+      if (tags[t]) addr[k] = tags[t];
+    });
     return Object.keys(addr).length > 0 ? addr : null;
   }, []);
 
@@ -1357,7 +1372,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       opening_hours: "hours"
     };
     if (tags.building && tags.building !== "yes") details.buildingType = tags.building;
-    Object.entries(tagMap).forEach(([t, k]) => { if (tags[t]) details[k] = tags[t]; });
+    Object.entries(tagMap).forEach(([t, k]) => {
+      if (tags[t]) details[k] = tags[t];
+    });
     return Object.keys(details).length > 0 ? details : null;
   }, []);
 
@@ -1468,7 +1485,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     setRiskEventExpired(false);
   }, [selectedRiskEvent, removeExpiredRiskFromState]);
 
-  const fetchRiskIntelligenceAll = useCallback((bounds = null, areaFilter = null) => {
+  const fetchRiskIntelligenceAll = useCallback((bounds = null) => {
     if (riskStreamRef.current) {
       riskStreamRef.current.close();
       riskStreamRef.current = null;
@@ -1505,7 +1522,6 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         const now = new Date().toISOString();
         for (const risk of risks) {
           if (isRiskEventExpired(risk)) continue;
-          if (areaFilter && !isPointInArea(risk.latitude, risk.longitude, areaFilter)) continue;
           risk._ingested_at = risk._ingested_at || now;
           if (!risk.visibility) risk.visibility = getRiskVisibility(risk);
           const bucket = categorizeRisk(risk);
@@ -1572,7 +1588,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       source: "source",
       limit: "limit"
     };
-    Object.entries(paramMapping).forEach(([k, v]) => { if (params[k]) qp.append(v, params[k].toString()); });
+    Object.entries(paramMapping).forEach(([k, v]) => {
+      if (params[k]) qp.append(v, params[k].toString());
+    });
     if (orgid) qp.append("orgid", orgid);
 
     return new Promise((resolve) => {
@@ -1907,10 +1925,16 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         const merged = [];
         const seenIds = new Set();
         for (const v of data.views) {
-          if (!seenIds.has(v.view_id)) { seenIds.add(v.view_id); merged.push(v); }
+          if (!seenIds.has(v.view_id)) {
+            seenIds.add(v.view_id);
+            merged.push(v);
+          }
         }
         for (const v of local) {
-          if (!seenIds.has(v.view_id)) { seenIds.add(v.view_id); merged.push(v); }
+          if (!seenIds.has(v.view_id)) {
+            seenIds.add(v.view_id);
+            merged.push(v);
+          }
         }
         setSavedViews(merged);
         persistSavedViewsLocal(merged);
@@ -2178,7 +2202,6 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         risk_layers_visible: { ...riskLayersVisible }
       } : null,
       layers: saveViewFormData.include_layers ? {
-        show_3d_terrain: show3DTerrain,
         show_satellite: showSatellite,
         show_buildings: showBuildings,
         show_asset_markers: showAssetMarkers,
@@ -2193,7 +2216,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     persistSavedViewToBackend(view);
     setActiveModal(null);
     showNotification(`Saved view: ${name}.`);
-  }, [saveViewFormData, captureCurrentView, areaFilterActive, userArea, riskLayersVisible, show3DTerrain, showSatellite, showBuildings, showAssetMarkers, assetLayerMode, showHeatmap, showVisibilityBadges, savedViews, persistSavedViewToBackend, showNotification]);
+  }, [saveViewFormData, captureCurrentView, areaFilterActive, userArea, riskLayersVisible, showSatellite, showBuildings, showAssetMarkers, assetLayerMode, showHeatmap, showVisibilityBadges, savedViews, persistSavedViewToBackend, showNotification]);
 
   const applySavedView = useCallback((view) => {
     if (!view) return;
@@ -2212,7 +2235,6 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       if (view.filters.area_filter_active !== undefined) setAreaFilterActive(!!view.filters.area_filter_active);
     }
     if (view.layers) {
-      if (view.layers.show_3d_terrain !== undefined) setShow3DTerrain(!!view.layers.show_3d_terrain);
       if (view.layers.show_satellite !== undefined) setShowSatellite(!!view.layers.show_satellite);
       if (view.layers.show_buildings !== undefined) setShowBuildings(!!view.layers.show_buildings);
       if (view.layers.show_asset_markers !== undefined) setShowAssetMarkers(!!view.layers.show_asset_markers);
@@ -2380,7 +2402,13 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   }, [fetchReverseGeocode, fetchWikipediaExtract, fetchElevation, fetchNearbyPOIs, fetchNearbyStreets, fetchAdminBoundaries, fetchLandUseContext, extractAddressFromTags, extractBuildingDetails]);
 
   const clearSelectionOverlays = useCallback(() => {
-    if (appleMapRef.current) selectionOverlaysRef.current.forEach(o => { try { appleMapRef.current.removeOverlay(o); } catch { } });
+    if (appleMapRef.current) {
+      selectionOverlaysRef.current.forEach(o => {
+        try {
+          appleMapRef.current.removeOverlay(o);
+        } catch (error) { }
+      });
+    }
     selectionOverlaysRef.current = [];
     selectionGeoJsonRef.current = null;
     setDeckLayersVersion(v => v + 1);
@@ -2738,7 +2766,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     const layers = [];
 
     const allRisks = [];
-    Object.entries(filteredRiskData).forEach(([cat, risks]) => { if (riskLayersVisible[cat] && risks?.length > 0) allRisks.push(...risks); });
+    Object.entries(filteredRiskData).forEach(([cat, risks]) => {
+      if (riskLayersVisible[cat] && risks?.length > 0) allRisks.push(...risks);
+    });
 
     if (showHeatmap && allRisks.length > 0 && dk.HeatmapLayer) {
       const MAX_PER_CATEGORY = 500;
@@ -2972,7 +3002,11 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         pickable: true,
         autoHighlight: true,
         highlightColor: [255, 255, 0, 100],
-        onClick: info => { if (info.object) { handleSelectRiskEvent(info.object._original); } }
+        onClick: info => {
+          if (info.object) {
+            handleSelectRiskEvent(info.object._original);
+          }
+        }
       }));
 
       if (showVisibilityBadges && riskPoints.some(p => p.isPrivate)) {
@@ -3043,7 +3077,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
             const coords = r.geometry_coordinates[0];
             if (!coords || coords.length < 3) return null;
             return { polygon: coords.map(c => [c[0], c[1]]), color: hexToRGBA(SEVERITY_COLORS[r.severity] || "#FFEA00", 38) };
-          } catch {
+          } catch (error) {
             return null;
           }
         }).filter(Boolean);
@@ -3052,7 +3086,7 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
             const coords = r.geometry_coordinates[0];
             if (!coords || coords.length < 3) return null;
             return { path: coords.map(c => [c[0], c[1]]), color: hexToRGBA(SEVERITY_COLORS[r.severity] || "#FFEA00", 200) };
-          } catch {
+          } catch (error) {
             return null;
           }
         }).filter(Boolean);
@@ -3243,7 +3277,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     if (deckOverlayRef.current && window.deck) deckOverlayRef.current.setProps({ layers: buildDeckLayers() });
   }, [buildDeckLayers]);
 
-  useEffect(() => { updateDeckLayers(); }, [visibleAssets, showAssetMarkers, assetLayerMode, filteredRiskData, riskLayersVisible, deckLayersVersion, mapZoom, areaFilterActive, userArea, showHeatmap, showVisibilityBadges, updateDeckLayers]);
+  useEffect(() => {
+    updateDeckLayers();
+  }, [visibleAssets, showAssetMarkers, assetLayerMode, filteredRiskData, riskLayersVisible, deckLayersVersion, mapZoom, areaFilterActive, userArea, showHeatmap, showVisibilityBadges, updateDeckLayers]);
 
   const createAnnotationElement = useCallback((asset) => {
     const tc = ASSET_TYPES[asset.type] || ASSET_TYPES[asset.asset_type] || { color: "#888888" };
@@ -3253,8 +3289,14 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     const el = document.createElement("div");
     el.style.cssText = "display:flex;flex-direction:column;align-items:center;cursor:pointer;position:relative;transition:transform 0.2s ease;";
     el.innerHTML = buildAssetPinHTML(tc.color, rc, animated, asset.name);
-    el.addEventListener("mouseenter", () => { el.style.transform = "scale(1.1)"; el.style.zIndex = "100"; });
-    el.addEventListener("mouseleave", () => { el.style.transform = "scale(1)"; el.style.zIndex = ""; });
+    el.addEventListener("mouseenter", () => {
+      el.style.transform = "scale(1.1)";
+      el.style.zIndex = "100";
+    });
+    el.addEventListener("mouseleave", () => {
+      el.style.transform = "scale(1)";
+      el.style.zIndex = "";
+    });
     return el;
   }, []);
 
@@ -3280,7 +3322,13 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
   }, [createMarkerElement, showVisibilityBadges]);
 
   const removeAppleAnnotations = useCallback(() => {
-    if (appleMapRef.current) annotationsRef.current.forEach(a => { try { appleMapRef.current.removeAnnotation(a); } catch { } });
+    if (appleMapRef.current) {
+      annotationsRef.current.forEach(a => {
+        try {
+          appleMapRef.current.removeAnnotation(a);
+        } catch (error) { }
+      });
+    }
     annotationsRef.current = [];
   }, []);
 
@@ -3317,9 +3365,21 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   const clearAppleRiskMarkers = useCallback(() => {
     if (appleMapRef.current) {
-      riskMarkersRef.current.forEach(m => { try { appleMapRef.current.removeAnnotation(m); } catch { } });
-      riskOverlaysRef.current.forEach(o => { try { appleMapRef.current.removeOverlay(o); } catch { } });
-      impactCirclesRef.current.forEach(c => { try { appleMapRef.current.removeOverlay(c); } catch { } });
+      riskMarkersRef.current.forEach(m => {
+        try {
+          appleMapRef.current.removeAnnotation(m);
+        } catch (error) { }
+      });
+      riskOverlaysRef.current.forEach(o => {
+        try {
+          appleMapRef.current.removeOverlay(o);
+        } catch (error) { }
+      });
+      impactCirclesRef.current.forEach(c => {
+        try {
+          appleMapRef.current.removeOverlay(c);
+        } catch (error) { }
+      });
     }
     riskMarkersRef.current = [];
     riskOverlaysRef.current = [];
@@ -3361,7 +3421,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
       }
       const factory = () => {
         const el = createRiskEventMarkerElement(risk);
-        el.addEventListener("click", event => { event.stopPropagation(); handleSelectRiskEvent(risk); });
+        el.addEventListener("click", event => {
+          event.stopPropagation();
+          handleSelectRiskEvent(risk);
+        });
         return el;
       };
       const ann = new window.mapkit.Annotation(coord, factory, { anchorOffset: new DOMPoint(0, 0), calloutEnabled: false, animates: false });
@@ -3373,9 +3436,15 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
   const clearAppleUserAreaOverlays = useCallback(() => {
     if (appleMapRef.current) {
-      userAreaOverlaysRef.current.forEach(o => { try { appleMapRef.current.removeOverlay(o); } catch { } });
+      userAreaOverlaysRef.current.forEach(o => {
+        try {
+          appleMapRef.current.removeOverlay(o);
+        } catch (error) { }
+      });
       if (userAreaAnnotationRef.current) {
-        try { appleMapRef.current.removeAnnotation(userAreaAnnotationRef.current); } catch { }
+        try {
+          appleMapRef.current.removeAnnotation(userAreaAnnotationRef.current);
+        } catch (error) { }
       }
     }
     userAreaOverlaysRef.current = [];
@@ -3437,8 +3506,21 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     }
   }, [areaFilterActive, userArea, clearAppleUserAreaOverlays]);
 
-  const addAnnotations = useCallback(() => { activeProvider === MAP_PROVIDER_APPLE ? addAppleAnnotationsNow() : setDeckLayersVersion(v => v + 1); }, [activeProvider, addAppleAnnotationsNow]);
-  const addRiskMarkers = useCallback(() => { activeProvider === MAP_PROVIDER_APPLE ? addAppleRiskMarkersNow() : setDeckLayersVersion(v => v + 1); }, [activeProvider, addAppleRiskMarkersNow]);
+  const addAnnotations = useCallback(() => {
+    if (activeProvider === MAP_PROVIDER_APPLE) {
+      addAppleAnnotationsNow();
+    } else {
+      setDeckLayersVersion(v => v + 1);
+    }
+  }, [activeProvider, addAppleAnnotationsNow]);
+
+  const addRiskMarkers = useCallback(() => {
+    if (activeProvider === MAP_PROVIDER_APPLE) {
+      addAppleRiskMarkersNow();
+    } else {
+      setDeckLayersVersion(v => v + 1);
+    }
+  }, [activeProvider, addAppleRiskMarkersNow]);
 
   const navigateToLocation = useCallback((lat, lng, zoom = 10, pitch = 60, bearing = 0, name = "") => {
     const useApple = zoom >= APPLE_MAPS_ZOOM_THRESHOLD && appleMapReadyRef.current;
@@ -3477,7 +3559,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     }
   }, [userArea, navigateToLocation, fitToBoundsDeferred]);
 
-  useEffect(() => { flyToUserAreaRef.current = flyToUserArea; }, [flyToUserArea]);
+  useEffect(() => {
+    flyToUserAreaRef.current = flyToUserArea;
+  }, [flyToUserArea]);
 
   const resetToGlobe = useCallback(() => {
     if (activeProvider !== MAP_PROVIDER_DECKGL) switchToProvider(MAP_PROVIDER_DECKGL, 20, 0, 2, 0, 0);
@@ -3539,21 +3623,6 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     }
   }, [fallbackSearch]);
 
-  const toggle3DTerrain = useCallback(() => {
-    const nv = !show3DTerrain;
-    setShow3DTerrain(nv);
-    if (deckglMapRef.current) {
-      try {
-        if (nv) {
-          if (!deckglMapRef.current.getSource("terrain-source")) deckglMapRef.current.addSource("terrain-source", { type: "raster-dem", tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"], tileSize: 256, maxzoom: 15, encoding: "terrarium" });
-          deckglMapRef.current.setTerrain({ source: "terrain-source", exaggeration: 1.5 });
-        } else {
-          deckglMapRef.current.setTerrain(null);
-        }
-      } catch (error) { }
-    }
-  }, [show3DTerrain]);
-
   const toggleSatellite = useCallback(() => {
     const nv = !showSatellite;
     setShowSatellite(nv);
@@ -3591,23 +3660,38 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     });
   }, []);
 
-  useEffect(() => { document.body.className = `risk-theme-${theme}`; return () => { document.body.className = ""; }; }, [theme]);
+  useEffect(() => {
+    document.body.className = `risk-theme-${theme}`;
+    return () => {
+      document.body.className = "";
+    };
+  }, [theme]);
+
   useEffect(() => {
     let t;
     if (searchTerm) t = setTimeout(() => searchLocation(searchTerm), 300);
     else setSearchResults([]);
     return () => clearTimeout(t);
   }, [searchTerm, searchLocation]);
+
   useEffect(() => {
     selectionModeRef.current = selectionMode;
-    if (deckglMapRef.current) selectionMode ? deckglMapRef.current.doubleClickZoom.disable() : deckglMapRef.current.doubleClickZoom.enable();
+    if (deckglMapRef.current) {
+      if (selectionMode) deckglMapRef.current.doubleClickZoom.disable();
+      else deckglMapRef.current.doubleClickZoom.enable();
+    }
   }, [selectionMode]);
-  useEffect(() => { queryFeatureAtPointRef.current = queryFeatureAtPoint; }, [queryFeatureAtPoint]);
+
+  useEffect(() => {
+    queryFeatureAtPointRef.current = queryFeatureAtPoint;
+  }, [queryFeatureAtPoint]);
 
   useEffect(() => {
     showHeatmapRef.current = showHeatmap;
     if (deckglMapRef.current) {
-      try { deckglMapRef.current.setMaxZoom(showHeatmap ? 18 : 7); } catch (error) { }
+      try {
+        deckglMapRef.current.setMaxZoom(showHeatmap ? 18 : 7);
+      } catch (error) { }
     }
   }, [showHeatmap]);
 
@@ -3634,9 +3718,17 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     fetchRiskIntelligenceAll(null);
   }, [mapReady]);
 
-  useEffect(() => { if (mapReady && visibleAssets.length >= 0) addAnnotations(); }, [mapReady, visibleAssets, assetLayerMode, addAnnotations]);
-  useEffect(() => { if (mapReady) addRiskMarkers(); }, [mapReady, filteredRiskData, riskLayersVisible, addRiskMarkers]);
-  useEffect(() => { if (mapReady && activeProvider === MAP_PROVIDER_APPLE) drawAppleUserAreaNow(); }, [mapReady, activeProvider, areaFilterActive, userArea, drawAppleUserAreaNow]);
+  useEffect(() => {
+    if (mapReady && visibleAssets.length >= 0) addAnnotations();
+  }, [mapReady, visibleAssets, assetLayerMode, addAnnotations]);
+
+  useEffect(() => {
+    if (mapReady) addRiskMarkers();
+  }, [mapReady, filteredRiskData, riskLayersVisible, addRiskMarkers]);
+
+  useEffect(() => {
+    if (mapReady && activeProvider === MAP_PROVIDER_APPLE) drawAppleUserAreaNow();
+  }, [mapReady, activeProvider, areaFilterActive, userArea, drawAppleUserAreaNow]);
 
   useEffect(() => {
     pruneIntervalRef.current = setInterval(() => {
@@ -3651,7 +3743,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         return pruned;
       });
     }, 60000);
-    return () => { if (pruneIntervalRef.current) clearInterval(pruneIntervalRef.current); };
+    return () => {
+      if (pruneIntervalRef.current) clearInterval(pruneIntervalRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -3691,7 +3785,8 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         deckglMapReadyRef.current = true;
         setMapReady(true);
       };
-      map.loaded() ? onReady() : map.on("load", onReady);
+      if (map.loaded()) onReady();
+      else map.on("load", onReady);
       map.on("error", () => { });
     });
 
@@ -3708,7 +3803,9 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           if (settled) return;
           settled = true;
           mapkit.removeEventListener("error", onErr);
-          try { map.destroy(); } catch { }
+          try {
+            map.destroy();
+          } catch (error) { }
           reject(new Error("MapKit authorization failed."));
         };
         mapkit.addEventListener("error", onErr);
@@ -3724,19 +3821,47 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
     });
 
     initDeck().then(() => {
-      if (!cancelled) return initApple().catch(() => { setMapProviderError("Apple Maps unavailable for close zoom. Using Deck.gl only."); });
+      if (!cancelled) return initApple().catch(() => {
+        setMapProviderError("Apple Maps unavailable for close zoom. Using Deck.gl only.");
+      });
     }).catch(() => {
-      if (!cancelled) { setMapProviderError("Map provider failed to load."); }
+      if (!cancelled) {
+        setMapProviderError("Map provider failed to load.");
+      }
     });
 
     return () => {
       cancelled = true;
-      if (riskStreamRef.current) { riskStreamRef.current.close(); riskStreamRef.current = null; }
-      if (nearbyStreamRef.current) { nearbyStreamRef.current.close(); nearbyStreamRef.current = null; }
-      if (ingestionStreamRef.current) { ingestionStreamRef.current.close(); ingestionStreamRef.current = null; }
-      if (deckOverlayRef.current && deckglMapRef.current) { try { deckglMapRef.current.removeControl(deckOverlayRef.current); } catch { } deckOverlayRef.current = null; }
-      if (appleMapRef.current) { try { appleMapRef.current.destroy(); } catch { } appleMapRef.current = null; }
-      if (deckglMapRef.current) { try { deckglMapRef.current.remove(); } catch { } deckglMapRef.current = null; }
+      if (riskStreamRef.current) {
+        riskStreamRef.current.close();
+        riskStreamRef.current = null;
+      }
+      if (nearbyStreamRef.current) {
+        nearbyStreamRef.current.close();
+        nearbyStreamRef.current = null;
+      }
+      if (ingestionStreamRef.current) {
+        ingestionStreamRef.current.close();
+        ingestionStreamRef.current = null;
+      }
+      if (deckOverlayRef.current && deckglMapRef.current) {
+        try {
+          deckglMapRef.current.removeControl(deckOverlayRef.current);
+        } catch (error) { }
+        deckOverlayRef.current = null;
+      }
+      if (appleMapRef.current) {
+        try {
+          appleMapRef.current.destroy();
+        } catch (error) { }
+        appleMapRef.current = null;
+      }
+      if (deckglMapRef.current) {
+        try {
+          deckglMapRef.current.remove();
+        } catch (error) { }
+        deckglMapRef.current = null;
+      }
       mapRef.current = null;
     };
   }, [loadMapKitJS, loadDeckGlDeps, initAppleMap, initDeckGlMap]);
@@ -3851,7 +3976,11 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
             {searchResults.length > 0 && (
               <div className="riskSearchResults">
                 {searchResults.map(r => (
-                  <div key={r.id} className="riskSearchResultItem" onClick={() => { navigateToLocation(r.lat, r.lng, 12, 50, 0, r.name.split(",")[0]); setSearchTerm(""); setSearchResults([]); }}>
+                  <div key={r.id} className="riskSearchResultItem" onClick={() => {
+                    navigateToLocation(r.lat, r.lng, 12, 50, 0, r.name.split(",")[0]);
+                    setSearchTerm("");
+                    setSearchResults([]);
+                  }}>
                     <span className="riskSearchResultName">{r.name.substring(0, 60)}...</span>
                   </div>
                 ))}
@@ -3891,10 +4020,12 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           </div>
           <div className="riskSidebarMapControls">
             {[
-              [`${show3DTerrain ? "Disable" : "Enable"} 3D Terrain`, toggle3DTerrain],
               [`${showSatellite ? "Topo View" : "Satellite View"}`, toggleSatellite],
               [`${showBuildings ? "Hide" : "Show"} Points of Interest`, toggleBuildings],
-              ["Reset Rotation", () => { if (appleMapRef.current) appleMapRef.current.rotation = 0; if (deckglMapRef.current) deckglMapRef.current.setBearing(0); }],
+              ["Reset Rotation", () => {
+                if (appleMapRef.current) appleMapRef.current.rotation = 0;
+                if (deckglMapRef.current) deckglMapRef.current.setBearing(0);
+              }],
               [`Assets: ${assetLayerMode === ASSET_LAYER_MODE_ALL ? "All" : assetLayerMode === ASSET_LAYER_MODE_OWNED ? "Owned" : "Hidden"}`, cycleAssetLayerMode],
               [`${showHeatmap ? "Hide" : "Show"} Heatmap`, () => setShowHeatmap(v => !v)],
               [`${showVisibilityBadges ? "Hide" : "Show"} Visibility Badges`, () => setShowVisibilityBadges(v => !v)]
@@ -3963,7 +4094,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
               <button className="riskHeaderButton" onClick={openSaveViewModal} title="Save current view">
                 <FontAwesomeIcon icon={faBookmark} /> Save View
               </button>
-              <button className={`riskHeaderButton ${selectionMode ? "riskButtonActive" : ""}`} onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) clearSelection(); }}>
+              <button className={`riskHeaderButton ${selectionMode ? "riskButtonActive" : ""}`} onClick={() => {
+                setSelectionMode(!selectionMode);
+                if (selectionMode) clearSelection();
+              }}>
                 <FontAwesomeIcon icon={faObjectGroup} /> Select
               </button>
               <button className="riskHeaderButton" onClick={() => assessLocationRisk(mapCenter.lat, mapCenter.lng, 100)} disabled={isAssessingLocation}>
@@ -4022,7 +4156,12 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
               <div className="riskFormGroup">
                 <label>Address (geocoded to coordinates)</label>
                 <div style={{ display: "flex", gap: "var(--risk-spacing-sm)" }}>
-                  <input type="text" value={areaFormData.address} onChange={e => handleAreaFormChange("address", e.target.value)} placeholder="e.g. Houston, TX or 1600 Pennsylvania Ave" style={{ flex: 1 }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleGeocodeArea(); } }} />
+                  <input type="text" value={areaFormData.address} onChange={e => handleAreaFormChange("address", e.target.value)} placeholder="e.g. Houston, TX or 1600 Pennsylvania Ave" style={{ flex: 1 }} onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleGeocodeArea();
+                    }
+                  }} />
                   <button type="button" className="riskModalBtnSecondary" onClick={handleGeocodeArea} disabled={isGeocodingArea || !areaFormData.address?.trim()}>
                     {isGeocodingArea ? <><FontAwesomeIcon icon={faSpinner} spin /> Geocoding</> : <><FontAwesomeIcon icon={faLocationCrosshairs} /> Geocode</>}
                   </button>
@@ -4084,7 +4223,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
 
         <Modal open={activeModal === "savedViews"} onClose={() => setActiveModal(null)} title={`Saved Views (${savedViews.length})`} size="Large">
           <div className="riskGoldenMeshActions">
-            <button className="riskModalBtnPrimary" onClick={() => { setActiveModal(null); openSaveViewModal(); }}><FontAwesomeIcon icon={faPlus} /> Save Current View</button>
+            <button className="riskModalBtnPrimary" onClick={() => {
+              setActiveModal(null);
+              openSaveViewModal();
+            }}><FontAwesomeIcon icon={faPlus} /> Save Current View</button>
             <button className="riskModalBtnSecondary" onClick={fetchSavedViewsFromBackend}><FontAwesomeIcon icon={faRefresh} /> Refresh</button>
           </div>
           {savedViews.length === 0 ? (
@@ -4153,7 +4295,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
               )}
               <div className="riskIntelFeedList">
                 {(nearbyRisks.risks || []).slice(0, 50).map((risk, idx) => (
-                  <div key={idx} className="riskIntelFeedItem" onClick={() => { navigateToRiskEvent(risk); setActiveModal(null); }}>
+                  <div key={idx} className="riskIntelFeedItem" onClick={() => {
+                    navigateToRiskEvent(risk);
+                    setActiveModal(null);
+                  }}>
                     <div className="riskIntelFeedItemIcon" style={{ backgroundColor: SEVERITY_COLORS[risk.severity] }}><FontAwesomeIcon icon={getRiskCategoryIcon(risk.risk_category)} /></div>
                     <div className="riskIntelFeedItemInfo">
                       <span className="riskIntelFeedItemTitle">
@@ -4171,7 +4316,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           )}
         </Modal>
 
-        <Modal open={activeModal === "ingestionStatus"} onClose={() => { setActiveModal(null); disconnectIngestionStream(); }} title="Ingestion Worker Status" size="Large">
+        <Modal open={activeModal === "ingestionStatus"} onClose={() => {
+          setActiveModal(null);
+          disconnectIngestionStream();
+        }} title="Ingestion Worker Status" size="Large">
           <div className="riskGoldenMeshActions">
             <button className="riskModalBtnSecondary" onClick={fetchIngestionStatus} disabled={isLoadingIngestionStatus}><FontAwesomeIcon icon={faRefresh} spin={isLoadingIngestionStatus} /> Refresh Status</button>
             <button className={`riskModalBtn${ingestionStreamConnected ? "Danger" : "Primary"}`} onClick={ingestionStreamConnected ? disconnectIngestionStream : connectIngestionStream}>
@@ -4226,34 +4374,63 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
                 ))}
               </div>
               {ingestionStatus.by_category && (
-                <><div className="riskStatsDivider" /><div className="riskStatsSection"><h4>Cache by Category</h4><StatsList items={Object.entries(ingestionStatus.by_category).map(([k, v]) => ({ label: k, value: formatNumber(v) }))} /></div></>
+                <>
+                  <div className="riskStatsDivider" />
+                  <div className="riskStatsSection">
+                    <h4>Cache by Category</h4>
+                    <StatsList items={Object.entries(ingestionStatus.by_category).map(([k, v]) => ({ label: k, value: formatNumber(v) }))} />
+                  </div>
+                </>
               )}
               {ingestionStatus.by_severity && (
-                <><div className="riskStatsDivider" /><div className="riskStatsSection"><h4>Cache by Severity</h4><StatsList items={Object.entries(ingestionStatus.by_severity).map(([k, v]) => ({ label: k, value: formatNumber(v), color: SEVERITY_COLORS[k] }))} /></div></>
+                <>
+                  <div className="riskStatsDivider" />
+                  <div className="riskStatsSection">
+                    <h4>Cache by Severity</h4>
+                    <StatsList items={Object.entries(ingestionStatus.by_severity).map(([k, v]) => ({ label: k, value: formatNumber(v), color: SEVERITY_COLORS[k] }))} />
+                  </div>
+                </>
               )}
               {ingestionStatus.recent_runs?.length > 0 && (
-                <><div className="riskStatsDivider" /><div className="riskStatsSection"><h4>Recent Ingestion Runs</h4>
-                  <div className="riskDetectionHistoryList">
-                    {ingestionStatus.recent_runs.map((run, idx) => (
-                      <div key={idx} className="riskDetectionHistoryItem">
-                        <div className="riskDetectionHistoryItemHeader">
-                          <span className="riskDetectionHistoryBadge" style={{ backgroundColor: run.status === "completed" ? "#00E676" : run.status === "completed_with_errors" || run.status === "partial" ? "#FFEA00" : "#FF1744" }}>{run.status || "Unknown"}</span>
-                          <span className="riskDetectionHistoryDate">{formatRiskTime(run.started_at || run.timestamp)}</span>
+                <>
+                  <div className="riskStatsDivider" />
+                  <div className="riskStatsSection">
+                    <h4>Recent Ingestion Runs</h4>
+                    <div className="riskDetectionHistoryList">
+                      {ingestionStatus.recent_runs.map((run, idx) => (
+                        <div key={idx} className="riskDetectionHistoryItem">
+                          <div className="riskDetectionHistoryItemHeader">
+                            <span className="riskDetectionHistoryBadge" style={{ backgroundColor: run.status === "completed" ? "#00E676" : run.status === "completed_with_errors" || run.status === "partial" ? "#FFEA00" : "#FF1744" }}>{run.status || "Unknown"}</span>
+                            <span className="riskDetectionHistoryDate">{formatRiskTime(run.started_at || run.timestamp)}</span>
+                          </div>
+                          <div className="riskDetectionHistoryItemBody">
+                            <span>Events: {formatNumber(run.total_ingested || 0)}</span>
+                            {run.duration_ms !== undefined && <span>Duration: {formatDuration(run.duration_ms)}</span>}
+                            {run.errors > 0 && <span style={{ color: "#FF1744" }}>Errors: {run.errors}</span>}
+                          </div>
                         </div>
-                        <div className="riskDetectionHistoryItemBody">
-                          <span>Events: {formatNumber(run.total_ingested || 0)}</span>
-                          {run.duration_ms !== undefined && <span>Duration: {formatDuration(run.duration_ms)}</span>}
-                          {run.errors > 0 && <span style={{ color: "#FF1744" }}>Errors: {run.errors}</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div></div></>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
               {ingestionStatus.error_counts && Object.keys(ingestionStatus.error_counts).length > 0 && (
-                <><div className="riskStatsDivider" /><div className="riskStatsSection"><h4>Error Counts by Source</h4><StatsList items={Object.entries(ingestionStatus.error_counts).map(([k, v]) => ({ label: k, value: v, color: "#FF9100", valueColor: "#FF1744" }))} /></div></>
+                <>
+                  <div className="riskStatsDivider" />
+                  <div className="riskStatsSection">
+                    <h4>Error Counts by Source</h4>
+                    <StatsList items={Object.entries(ingestionStatus.error_counts).map(([k, v]) => ({ label: k, value: v, color: "#FF9100", valueColor: "#FF1744" }))} />
+                  </div>
+                </>
               )}
               {ingestionStatus.last_successful_run && (
-                <><div className="riskStatsDivider" /><div className="riskStatsSection"><h4>Last Successful Run</h4><StatsList items={[{ label: "Time", value: formatRiskTime(ingestionStatus.last_successful_run) }, { label: "Relative", value: getRelativeTime(ingestionStatus.last_successful_run) }]} /></div></>
+                <>
+                  <div className="riskStatsDivider" />
+                  <div className="riskStatsSection">
+                    <h4>Last Successful Run</h4>
+                    <StatsList items={[{ label: "Time", value: formatRiskTime(ingestionStatus.last_successful_run) }, { label: "Relative", value: getRelativeTime(ingestionStatus.last_successful_run) }]} />
+                  </div>
+                </>
               )}
             </>
           ) : <EmptyState text="No ingestion status data available." />}
@@ -4382,8 +4559,16 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           </div>
           <div className="riskLayersDivider" />
           <div className="riskLayersActions">
-            {[["Show All", () => { const all = {}; RISK_INTELLIGENCE_CATEGORIES.forEach(c => all[c.id] = true); setRiskLayersVisible(all); }],
-            ["Hide All", () => { const all = {}; RISK_INTELLIGENCE_CATEGORIES.forEach(c => all[c.id] = false); setRiskLayersVisible(all); }]
+            {[["Show All", () => {
+              const all = {};
+              RISK_INTELLIGENCE_CATEGORIES.forEach(c => all[c.id] = true);
+              setRiskLayersVisible(all);
+            }],
+            ["Hide All", () => {
+              const all = {};
+              RISK_INTELLIGENCE_CATEGORIES.forEach(c => all[c.id] = false);
+              setRiskLayersVisible(all);
+            }]
             ].map(([label, action], i) => <button key={i} className="riskLayersActionBtn" onClick={action}>{label}</button>)}
             <button className="riskLayersActionBtn riskLayersActionBtnPrimary" onClick={refreshRiskIntelligence} disabled={riskIntelligenceLoading}><FontAwesomeIcon icon={faRefresh} spin={riskIntelligenceLoading} /> Refresh Data</button>
           </div>
@@ -4398,7 +4583,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
           <div className="riskIntelFeedList">
             {Object.entries(riskIntelligenceData).flatMap(([cat, risks]) =>
               risks.slice(0, 10).map((risk, idx) => (
-                <div key={`${cat}-${idx}`} className="riskIntelFeedItem" onClick={() => { navigateToRiskEvent(risk); setActiveModal(null); }}>
+                <div key={`${cat}-${idx}`} className="riskIntelFeedItem" onClick={() => {
+                  navigateToRiskEvent(risk);
+                  setActiveModal(null);
+                }}>
                   <div className="riskIntelFeedItemIcon" style={{ backgroundColor: SEVERITY_COLORS[risk.severity] }}><FontAwesomeIcon icon={getRiskCategoryIcon(risk.risk_category)} /></div>
                   <div className="riskIntelFeedItemInfo">
                     <span className="riskIntelFeedItemTitle">
@@ -4434,7 +4622,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
                 </div>
               </div>
               {locationAssessment.assessment.ground_deformation_zones > 0 && (
-                <><div className="riskAssessmentDeformationBanner"><FontAwesomeIcon icon={faLayerGroup} style={{ color: "#B388FF" }} /><span>{locationAssessment.assessment.ground_deformation_zones} active ground deformation zone{locationAssessment.assessment.ground_deformation_zones > 1 ? "s" : ""} detected via Sentinel-1 InSAR.</span></div><div className="riskAssessmentDivider" /></>
+                <>
+                  <div className="riskAssessmentDeformationBanner"><FontAwesomeIcon icon={faLayerGroup} style={{ color: "#B388FF" }} /><span>{locationAssessment.assessment.ground_deformation_zones} active ground deformation zone{locationAssessment.assessment.ground_deformation_zones > 1 ? "s" : ""} detected via Sentinel-1 InSAR.</span></div>
+                  <div className="riskAssessmentDivider" />
+                </>
               )}
               {locationAssessment.location.critical_infrastructure_nearby?.length > 0 && (
                 <div className="riskAssessmentInfraSection">
@@ -4481,7 +4672,10 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
                   <div className="riskAssessmentFactorsTitle">Nearby Risks ({locationAssessment.nearby_risks.length})</div>
                   <div className="riskAssessmentNearbyList">
                     {locationAssessment.nearby_risks.slice(0, 10).map((risk, idx) => (
-                      <div key={idx} className="riskAssessmentNearbyItem" onClick={() => { navigateToRiskEvent(risk); setActiveModal(null); }}>
+                      <div key={idx} className="riskAssessmentNearbyItem" onClick={() => {
+                        navigateToRiskEvent(risk);
+                        setActiveModal(null);
+                      }}>
                         <span className="riskAssessmentNearbyTitle">{risk.title}</span>
                         <span className="riskAssessmentNearbyDistance">{risk.distance_km?.toFixed(1)} km</span>
                       </div>
@@ -4517,9 +4711,21 @@ export default function RiskCommandCenter({ orgid: propOrgid, username: propUser
         featureDetails={featureDetails}
         isFetchingDetails={isFetchingDetails}
         riskEventExpired={riskEventExpired}
-        onClose={() => { setSelectedRiskEvent(null); setRiskEventExpired(false); setDetailedAsset(null); setSelectedAsset(null); clearSelection(); }}
-        onCloseRisk={() => { setSelectedRiskEvent(null); setRiskEventExpired(false); }}
-        onCloseAsset={() => { setDetailedAsset(null); setSelectedAsset(null); }}
+        onClose={() => {
+          setSelectedRiskEvent(null);
+          setRiskEventExpired(false);
+          setDetailedAsset(null);
+          setSelectedAsset(null);
+          clearSelection();
+        }}
+        onCloseRisk={() => {
+          setSelectedRiskEvent(null);
+          setRiskEventExpired(false);
+        }}
+        onCloseAsset={() => {
+          setDetailedAsset(null);
+          setSelectedAsset(null);
+        }}
         onCloseFeature={clearSelection}
         onNavigateToRisk={navigateToRiskEvent}
         onDismissExpired={handleDismissExpiredRiskEvent}

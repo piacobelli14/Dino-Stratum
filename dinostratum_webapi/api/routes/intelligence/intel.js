@@ -74,6 +74,8 @@ const SEARCH_CACHE = new Map();
 const RISK_OBJECT_CACHE = new Map();
 const SOURCE_BUNDLE_CACHE = new Map();
 const USER_SETTINGS_CACHE = new Map();
+const INFLIGHT_BRIEFINGS = new Map();
+const INFLIGHT_SUMMARIES = new Map();
 
 const generateId = (prefix) => {
     return `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
@@ -1860,6 +1862,83 @@ const saveUserSettings = async (username, orgid, sourcesEnabled, defaultScope) =
     }
 };
 
+const collectMinimalSummaryContext = async (risk, enabledSources) => {
+    const t = timer("collectMinimalSummaryContext");
+    const dateRange = extractDateRange(risk);
+    const newsQuery = buildSearchQuery(risk, "news");
+    const broadQuery = buildSearchQuery(risk, "news_broad");
+    const academicQuery = buildSearchQuery(risk, "academic");
+    const enabled = enabledSources || DEFAULT_USER_SETTINGS.sources_enabled;
+
+    const fetches = [];
+
+    if (enabled.gdelt !== false) {
+        fetches.push(fetchGDELT(newsQuery, dateRange, 10).catch(() => []));
+        fetches.push(fetchGDELT(broadQuery, dateRange, 6).catch(() => []));
+    } else {
+        fetches.push(Promise.resolve([]));
+        fetches.push(Promise.resolve([]));
+    }
+    if (enabled.gnews !== false) {
+        fetches.push(fetchGNews(newsQuery, 8).catch(() => []));
+    } else {
+        fetches.push(Promise.resolve([]));
+    }
+    if (enabled.reddit !== false) {
+        fetches.push(fetchRedditPosts(newsQuery, 5).catch(() => []));
+    } else {
+        fetches.push(Promise.resolve([]));
+    }
+    if (enabled.semantic_scholar !== false) {
+        fetches.push(fetchSemanticScholar(academicQuery, 5).catch(() => []));
+    } else {
+        fetches.push(Promise.resolve([]));
+    }
+    if (enabled.reliefweb !== false) {
+        fetches.push(fetchReliefWebReport(newsQuery).catch(() => []));
+    } else {
+        fetches.push(Promise.resolve([]));
+    }
+    fetches.push(getRelatedRisks(risk, 10).catch(() => []));
+
+    const results = await Promise.allSettled(fetches);
+
+    const gdeltMain = results[0].status === "fulfilled" ? results[0].value : [];
+    const gdeltBroad = results[1].status === "fulfilled" ? results[1].value : [];
+    const gnews = results[2].status === "fulfilled" ? results[2].value : [];
+    const reddit = results[3].status === "fulfilled" ? results[3].value : [];
+    const academic = results[4].status === "fulfilled" ? results[4].value : [];
+    const reliefweb = results[5].status === "fulfilled" ? results[5].value : [];
+    const related = results[6].status === "fulfilled" ? results[6].value : [];
+
+    let articles = [...gdeltMain, ...gdeltBroad, ...gnews];
+    articles = dedupeArticles(articles);
+    articles = articles.filter(a => isDateRelevant(a.publishedAt, risk));
+    articles.forEach(a => { a._score = scoreArticle(a, risk); });
+    articles.sort((a, b) => b._score - a._score);
+    articles = articles.slice(0, 12);
+
+    const ms = t.done({
+        articles: articles.length,
+        reddit: reddit.length,
+        academic: academic.length,
+        reliefweb: reliefweb.length,
+        related: related.length
+    });
+
+    return {
+        articles,
+        reddit,
+        academic,
+        reliefweb,
+        related,
+        videos: [],
+        images: [],
+        wikipedia: [],
+        google_results: []
+    };
+};
+
 const buildFullBriefing = async (risk, options = {}) => {
     const briefingId = generateId("brief");
     const tTotal = timer(`FULL BRIEFING ${briefingId}`);
@@ -2034,6 +2113,56 @@ const buildFullBriefing = async (risk, options = {}) => {
     return briefing;
 };
 
+const buildFullBriefingDeduped = (risk, options = {}) => {
+    const riskId = resolveRiskId(risk);
+    const scope = options.scope || "viewport";
+    const inflightKey = riskId ? `${riskId}_${scope}` : null;
+    if (inflightKey) {
+        const existing = INFLIGHT_BRIEFINGS.get(inflightKey);
+        if (existing) {
+            return existing;
+        }
+    }
+    const promise = buildFullBriefing(risk, options);
+    if (inflightKey) {
+        INFLIGHT_BRIEFINGS.set(inflightKey, promise);
+        promise.finally(() => {
+            INFLIGHT_BRIEFINGS.delete(inflightKey);
+        });
+    }
+    return promise;
+};
+
+const generateSummaryWithContextDeduped = (risk, options = {}) => {
+    const riskId = resolveRiskId(risk);
+    const scope = options.scope || "viewport";
+    const enabledSources = options.enabledSources || DEFAULT_USER_SETTINGS.sources_enabled;
+    const orgid = options.orgid || null;
+    const inflightKey = riskId ? `summary_${riskId}_${scope}` : null;
+    if (inflightKey) {
+        const existing = INFLIGHT_SUMMARIES.get(inflightKey);
+        if (existing) {
+            return existing;
+        }
+    }
+    const promise = (async () => {
+        const collected = await collectMinimalSummaryContext(risk, enabledSources);
+        let assetContext = null;
+        if (scope === "assets" && orgid && risk.latitude && risk.longitude) {
+            assetContext = await buildAssetContext(orgid, risk.latitude, risk.longitude, risk.impact_radius_km);
+        }
+        const summary = await generateAISummary(risk, collected, { scope, assetContext });
+        return { summary, collected, assetContext };
+    })();
+    if (inflightKey) {
+        INFLIGHT_SUMMARIES.set(inflightKey, promise);
+        promise.finally(() => {
+            INFLIGHT_SUMMARIES.delete(inflightKey);
+        });
+    }
+    return promise;
+};
+
 router.post("/risk/intel/briefing/summary", async (req, res) => {
     const { risk, scope, orgid, username, viewport_bbox } = req.body;
     const tReq = timer("POST /briefing/summary");
@@ -2059,10 +2188,13 @@ router.post("/risk/intel/briefing/summary", async (req, res) => {
     let summary;
     let assetContext = null;
     try {
-        if (effectiveScope === "assets" && orgid && risk.latitude && risk.longitude) {
-            assetContext = await buildAssetContext(orgid, risk.latitude, risk.longitude, risk.impact_radius_km);
-        }
-        summary = await generateAISummary(risk, { articles: [], reddit: [], academic: [], related: [] }, { scope: effectiveScope, assetContext });
+        const result = await generateSummaryWithContextDeduped(risk, {
+            scope: effectiveScope,
+            enabledSources: userSettings.sources_enabled,
+            orgid
+        });
+        summary = result.summary;
+        assetContext = result.assetContext;
     } catch (error) {
         summary = null;
     }
@@ -2105,7 +2237,7 @@ router.get("/risk/intel/briefing/:riskId", async (req, res) => {
 
     try {
         const userSettings = await getUserSettings(username, orgid);
-        const briefing = await buildFullBriefing(risk, {
+        const briefing = await buildFullBriefingDeduped(risk, {
             enabledSources: userSettings.sources_enabled,
             scope,
             orgid,
@@ -2146,7 +2278,7 @@ router.post("/risk/intel/briefing", async (req, res) => {
     }
 
     try {
-        const briefing = await buildFullBriefing(risk, {
+        const briefing = await buildFullBriefingDeduped(risk, {
             enabledSources: userSettings.sources_enabled,
             scope: effectiveScope,
             orgid,
@@ -2646,7 +2778,7 @@ router.get("/risk/intel/briefing/feedback/recent", async (req, res) => {
             params.push(orgid);
         }
         params.push(limit);
-        const sql = `SELECT feedback_id, briefing_id, risk_id, orgid, submitted_by, flag_reason, flag_category, comments, created_at FROM intel_briefing_feedback ${where} ORDER BY created_at DESC LIMIT ${params.length}`;
+        const sql = `SELECT feedback_id, briefing_id, risk_id, orgid, submitted_by, flag_reason, flag_category, comments, created_at FROM intel_briefing_feedback ${where} ORDER BY created_at DESC LIMIT $${params.length}`;
         const result = await pool.query(sql, params);
         tReq.done({ count: result.rows.length });
         return res.status(200).json({ success: true, count: result.rows.length, feedback: result.rows });
@@ -2798,11 +2930,15 @@ router.get("/risk/intel/cache/clear", async (req, res) => {
     const rSize = RISK_OBJECT_CACHE.size;
     const sbSize = SOURCE_BUNDLE_CACHE.size;
     const usSize = USER_SETTINGS_CACHE.size;
+    const ibSize = INFLIGHT_BRIEFINGS.size;
+    const isSize = INFLIGHT_SUMMARIES.size;
     BRIEFING_CACHE.clear();
     SEARCH_CACHE.clear();
     RISK_OBJECT_CACHE.clear();
     SOURCE_BUNDLE_CACHE.clear();
     USER_SETTINGS_CACHE.clear();
+    INFLIGHT_BRIEFINGS.clear();
+    INFLIGHT_SUMMARIES.clear();
     return res.status(200).json({
         success: true,
         message: "Intel caches cleared.",
@@ -2810,7 +2946,9 @@ router.get("/risk/intel/cache/clear", async (req, res) => {
         search_entries_cleared: sSize,
         risk_object_entries_cleared: rSize,
         source_bundle_entries_cleared: sbSize,
-        user_settings_entries_cleared: usSize
+        user_settings_entries_cleared: usSize,
+        inflight_briefings_cleared: ibSize,
+        inflight_summaries_cleared: isSize
     });
 });
 
@@ -2853,7 +2991,9 @@ router.get("/risk/intel/sources", async (req, res) => {
             source_bundle_capture: true,
             briefing_feedback: true,
             asset_scoped_briefings: true,
-            per_user_source_toggles: true
+            per_user_source_toggles: true,
+            inflight_request_deduplication: true,
+            summary_with_minimal_context: true
         },
         cache_status: {
             briefing_entries: BRIEFING_CACHE.size,
@@ -2861,6 +3001,8 @@ router.get("/risk/intel/sources", async (req, res) => {
             risk_object_entries: RISK_OBJECT_CACHE.size,
             source_bundle_entries: SOURCE_BUNDLE_CACHE.size,
             user_settings_entries: USER_SETTINGS_CACHE.size,
+            inflight_briefings: INFLIGHT_BRIEFINGS.size,
+            inflight_summaries: INFLIGHT_SUMMARIES.size,
             cache_ttl_minutes: CACHE_TTL_MS / 60000
         }
     });
@@ -2950,22 +3092,30 @@ router.get("/risk/intel/health", async (req, res) => {
             search_entries: SEARCH_CACHE.size,
             risk_object_entries: RISK_OBJECT_CACHE.size,
             source_bundle_entries: SOURCE_BUNDLE_CACHE.size,
-            user_settings_entries: USER_SETTINGS_CACHE.size
+            user_settings_entries: USER_SETTINGS_CACHE.size,
+            inflight_briefings: INFLIGHT_BRIEFINGS.size,
+            inflight_summaries: INFLIGHT_SUMMARIES.size
         },
         checks
     });
 });
 
 router.buildFullBriefing = buildFullBriefing;
+router.buildFullBriefingDeduped = buildFullBriefingDeduped;
 router.generateAISummary = generateAISummary;
+router.generateSummaryWithContextDeduped = generateSummaryWithContextDeduped;
 router.buildSourceBundle = buildSourceBundle;
+router.collectMinimalSummaryContext = collectMinimalSummaryContext;
 router.getUserSettings = getUserSettings;
 router.computeConfidenceMetrics = computeConfidenceMetrics;
 
 global.buildFullBriefing = buildFullBriefing;
+global.buildFullBriefingDeduped = buildFullBriefingDeduped;
 global.BRIEFING_CACHE = BRIEFING_CACHE;
 global.SEARCH_CACHE = SEARCH_CACHE;
 global.RISK_OBJECT_CACHE = RISK_OBJECT_CACHE;
+global.INFLIGHT_BRIEFINGS = INFLIGHT_BRIEFINGS;
+global.INFLIGHT_SUMMARIES = INFLIGHT_SUMMARIES;
 global.saveBriefingToDb = saveBriefingToDb;
 global.resolveRisk = resolveRisk;
 global.resolveRiskId = resolveRiskId;

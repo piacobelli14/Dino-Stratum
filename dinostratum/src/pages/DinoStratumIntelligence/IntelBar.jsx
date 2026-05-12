@@ -417,7 +417,21 @@ export default function IntelBar({
   const fetchFullBriefing = useCallback(async () => {
     const risk = selectedRiskRef.current;
     if (!risk) return;
+    setLoadingKey("summary", true);
+    setLoadingKey("articles", true);
+    setLoadingKey("videos", true);
+    setLoadingKey("images", true);
+    setLoadingKey("academic", true);
+    setLoadingKey("social", true);
+    setLoadingKey("related", true);
     setLoadingKey("full", true);
+    setErrorKey("summary", null);
+    setErrorKey("articles", null);
+    setErrorKey("videos", null);
+    setErrorKey("images", null);
+    setErrorKey("academic", null);
+    setErrorKey("social", null);
+    setErrorKey("related", null);
     try {
       const body = { risk, scope: scopeRef.current, username, orgid, viewport_bbox: viewportBbox || null };
       const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing`, body);
@@ -431,10 +445,19 @@ export default function IntelBar({
         if (data.related_risks) setRelatedData({ count: data.related_risks.count, items: data.related_risks.items });
         if (data.asset_context) setAssetContext(data.asset_context);
         if (data.briefing_id) setCurrentBriefingId(data.briefing_id);
+      } else {
+        setErrorKey("summary", data?.message || "Failed to generate intelligence briefing.");
       }
     } catch (error) {
       setErrorKey("summary", error.message);
     }
+    setLoadingKey("summary", false);
+    setLoadingKey("articles", false);
+    setLoadingKey("videos", false);
+    setLoadingKey("images", false);
+    setLoadingKey("academic", false);
+    setLoadingKey("social", false);
+    setLoadingKey("related", false);
     setLoadingKey("full", false);
   }, [username, orgid, viewportBbox]);
 
@@ -1225,6 +1248,7 @@ export default function IntelBar({
             </div>
             {renderConfidenceCard()}
             {renderSourceBundleCard()}
+            {renderAssetContextCard()}
             <div className="ibSummaryCard ibSummaryCardStats">
               <div className="ibSummaryCardHeader">
                 <div className="ibSummaryCardIcon ibSummaryCardIconStats">
@@ -1328,7 +1352,11 @@ export default function IntelBar({
             <a key={i} href={a.url} target="_blank" rel="noopener noreferrer" className="ibCard ibCardArticle">
               {a.image_url && (
                 <div className="ibCardImage">
-                  <img src={a.image_url} alt="" loading="lazy" onError={error => { error.target.parentElement.style.display = "none"; }} />
+                  <img src={a.image_url} alt="" loading="lazy" onError={error => {
+                    if (error.target.dataset.failed === "true") return;
+                    error.target.dataset.failed = "true";
+                    error.target.parentElement.style.display = "none";
+                  }} />
                 </div>
               )}
               <div className="ibCardBody">
@@ -1395,7 +1423,11 @@ export default function IntelBar({
         <div className="ibImageGrid" ref={scrollRefs.images}>
           {imagesData.items.map((img, i) => (
             <div key={i} className="ibImageCard" onClick={() => setImageViewerIdx(i)}>
-              <img src={img.thumbnail_url || img.url} alt={img.title || ""} loading="lazy" onError={error => { error.target.src = ""; error.target.parentElement.style.display = "none"; }} />
+              <img src={img.thumbnail_url || img.url} alt={img.title || ""} loading="lazy" onError={error => {
+                if (error.target.dataset.failed === "true") return;
+                error.target.dataset.failed = "true";
+                error.target.parentElement.style.display = "none";
+              }} />
               <div className="ibImageOverlay">
                 <span className="ibImageTitle">{truncate(img.title, 60)}</span>
                 {img.source && <span className="ibImageSource">{img.source}</span>}
@@ -1643,7 +1675,7 @@ export default function IntelBar({
             <div className="ibModalBody">
               <div>
                 <span className="ibModalLabel">Default Scope</span>
-                <select className="ibModalSelect" value={scope} onChange={error => setScope(error.target.value)}>
+                <select className="ibModalSelect" value={scope} onChange={error => handleScopeChange(error.target.value)}>
                   <option value="viewport">Viewport (everything happening here)</option>
                   <option value="assets">My Assets (bias toward our operations)</option>
                 </select>
