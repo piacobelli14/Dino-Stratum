@@ -1,3 +1,28 @@
+:root {
+    --st-bg-void: #08090c;
+    --st-bg-base: #0a0c0f;
+    --st-bg-primary: #0d0f13;
+    --st-bg-secondary: #101216;
+    --st-bg-tertiary: #13151a;
+    --st-bg-elevated: #16181d;
+    --st-bg-surface: #12141a;
+    --st-bg-panel: #0f1115;
+
+    --st-text-primary: rgba(235, 240, 248, 0.95);
+    --st-text-secondary: rgba(205, 212, 228, 0.82);
+    --st-text-tertiary: rgba(170, 180, 200, 0.72);
+    --st-text-muted: rgba(145, 155, 175, 0.58);
+
+    --st-border-primary: rgba(50, 55, 70, 0.45);
+    --st-border-subtle: rgba(40, 45, 58, 0.35);
+    --st-border-glow: rgba(60, 68, 85, 0.5);
+
+    --st-accent-primary: #6a7a8a;
+    --st-accent-secondary: #5a6a7a;
+    --st-accent-blue: #4a8aba;
+    --st-accent-cyan: #4ECDC4;
+}
+
 * {
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
 } 
@@ -9,7 +34,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #DEDED3 0%, #fcfcfb 50%, #DEDED3 100%);
+    background: linear-gradient(135deg, #08090c 0%, #0a0c0f 50%, #08090c 100%);
 } 
 
 .catchallHeroBackgroundWrapper {
@@ -41,13 +66,13 @@ body {
 .catchallBackgroundBlur1 {
    top: -10rem;
     right: -10rem;
-    background: rgba(242, 250, 253, 1);
+    background: rgba(78, 205, 196, 0.25);
 }
 
 .catchallBackgroundBlur2 {
      bottom: -10rem;
     left: -10rem;
-    background: rgba(242, 250, 253, 1);
+    background: rgba(74, 138, 186, 0.22);
     animation-delay: 0.1s;
 }
 
@@ -57,7 +82,7 @@ body {
     transform: translate(-50%, -50%);
     width: 24rem;
     height: 24rem;
-    background: rgba(242, 250, 253, 1);
+    background: rgba(78, 205, 196, 0.15);
     animation-delay: 0.1s;
 }
 
@@ -70,8 +95,8 @@ body {
   position: absolute;
     inset: 0;
     background-image: 
-        linear-gradient(rgba(153, 151, 157, 0.4) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(153, 151, 157, 0.4) 1px, transparent 1px);
+        linear-gradient(rgba(78, 205, 196, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(78, 205, 196, 0.08) 1px, transparent 1px);
     background-size: 60px 60px;
     opacity: 0.6;
     z-index: 0; 
@@ -87,14 +112,14 @@ body {
 
 .mainCell, 
 .mainCellSmall {
-    background: linear-gradient(135deg, #DEDED3 0%, #fcfcfb 50%, #DEDED3 100%);
+    background: linear-gradient(135deg, #101216 0%, #13151a 50%, #101216 100%);
     border: none; 
     border-radius: 0.6rem;
     display: flex; 
     flex-direction: column; 
     align-items: center;
     justify-content: center; 
-    box-shadow: 0 0 20px black; 
+    box-shadow: 0 0 20px rgba(78, 205, 196, 0.18); 
     max-width: 80%; 
     max-height: 90%; 
 }
@@ -120,18 +145,18 @@ body {
 }
 
 .mainTitle {
-    color: #c1c1c1; 
+    color: var(--st-text-primary); 
     font-size: 1.4rem; 
     font-weight: 600; 
     margin-bottom: 1rem; 
     width: 70%; 
     text-align: center; 
-    text-shadow: 0 0 1px white;
+    text-shadow: 0 0 1px rgba(78, 205, 196, 0.5);
     font-style: italic;
 }
 
 .mainSubtitle {
-    color: #f5f5f5; 
+    color: var(--st-text-primary); 
     font-size: 0.9rem; 
     font-weight: 800; 
     margin-bottom: 1rem; 
@@ -142,7 +167,7 @@ body {
 
 .mainText {
     width: 70%; 
-    color: #c1c1c1; 
+    color: var(--st-text-secondary); 
     font-size: 0.8rem; 
     font-weight: 500; 
     margin-bottom: 2px; 
@@ -152,7 +177,7 @@ body {
 }
 
 .mainText span a {
-    color: #ec4899;
+    color: var(--st-accent-cyan);
 }
 
 .mainText span a:hover {
@@ -170,13 +195,13 @@ body {
     border: none; 
     border-radius: 6px; 
     cursor: pointer; 
-    box-shadow: 0 0 3px white; 
+    box-shadow: 0 0 3px rgba(78, 205, 196, 0.6); 
     margin-bottom: 1rem; 
     z-index: 2;
-    border: 1px solid #A3A3A3; 
-    color: #f5f5f5; 
+    border: 1px solid var(--st-border-primary); 
+    color: var(--st-text-primary); 
     text-decoration: none; 
-    background: linear-gradient(135deg, #A855F7, #60A5FA); 
+    background: linear-gradient(135deg, #4ECDC4, #06b6d4); 
     transition: transform 0.3s ease; 
 }
 
@@ -184,7 +209,7 @@ body {
 .supportLinkText {
     font-size: 0.8rem; 
     font-weight: 600; 
-    color: white; 
+    color: #08090c; 
     cursor: pointer; 
     text-overflow: ellipsis;
     overflow: hidden; 
@@ -226,10 +251,10 @@ body {
 .gitLogo {
     width: 70px; 
     height: 70px; 
-    background-color: rgba(255,255,255,0.2); 
+    background-color: var(--st-bg-tertiary); 
     border-radius: 6px;
     padding: 10px;
-    box-shadow: 0 0 10px black; 
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.8); 
     margin: 0; 
 }
 
@@ -237,7 +262,7 @@ body {
     border-radius: 50%; 
     height: 5px; 
     width: 5px; 
-    background-color: rgba(255,255,255,0.8); 
+    background-color: var(--st-accent-cyan); 
     opacity: 0.8;
 }
 
@@ -260,7 +285,7 @@ body {
     display: flex; 
     justify-content: center;
     align-items: center;
-    background-color: rgba(255,255,255,0.8); 
+    background-color: transparent; 
 }
 
 .inputWrapper .togglePassword {
@@ -271,7 +296,7 @@ body {
     background: none;
     border: none;
     cursor: pointer;
-    color: #121212;
+    color: var(--st-text-tertiary);
     font-size: 0.8rem;
     padding: 0;
 }
@@ -280,34 +305,34 @@ body {
     width: 100%;
     font-size: 0.8rem !important; 
     font-weight: 600; 
-    color: #121212; 
+    color: var(--st-text-primary); 
     padding: 15px 10px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--st-border-primary);
     border-radius: 4px;
-    background-color: rgba(255,255,255,0.05); 
-    box-shadow: 0 0 6px black;
+    background-color: var(--st-bg-tertiary); 
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
     outline: none;
 }
 
 .loginInput:hover, 
 .loginInput:focus {
-    border: 1px solid #ccc;
+    border: 1px solid var(--st-accent-cyan);
     outline: none; 
 }
 
 .loginButton {
     width: 100%;
     padding: 12px 10px;
-    background-color: #007bff;
-    color: white;
+    background-color: #06b6d4;
+    color: #08090c;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-size: 0.8rem !important; 
     font-weight: 700; 
-    color: #f5f5f5 !important; 
-    box-shadow: 0 0 6px black;
-    background: linear-gradient(135deg, #A855F7, #60A5FA); 
+    color: #08090c !important; 
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+    background: linear-gradient(135deg, #4ECDC4, #06b6d4); 
 }
 
 .loginButton:hover {

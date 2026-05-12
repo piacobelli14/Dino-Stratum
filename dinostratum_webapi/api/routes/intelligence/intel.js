@@ -2646,110 +2646,13 @@ router.get("/risk/intel/briefing/feedback/recent", async (req, res) => {
             params.push(orgid);
         }
         params.push(limit);
-        const sql = `SELECT feedback_id, briefing_id, risk_id, orgid, submitted_by, flag_reason, flag_category, comments, created_at FROM intel_briefing_feedback ${where} ORDER BY created_at DESC LIMIT $${params.length}`;
+        const sql = `SELECT feedback_id, briefing_id, risk_id, orgid, submitted_by, flag_reason, flag_category, comments, created_at FROM intel_briefing_feedback ${where} ORDER BY created_at DESC LIMIT ${params.length}`;
         const result = await pool.query(sql, params);
         tReq.done({ count: result.rows.length });
         return res.status(200).json({ success: true, count: result.rows.length, feedback: result.rows });
     } catch (error) {
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to retrieve feedback list." });
-    }
-});
-
-router.get("/risk/intel/briefings/recent", async (req, res) => {
-    const tReq = timer("GET /briefings/recent");
-    const orgid = req.query.orgid;
-    const username = req.query.username;
-    const limit = parseInt(req.query.limit, 10) || 20;
-    const bboxMinLat = parseFloat(req.query.min_lat);
-    const bboxMaxLat = parseFloat(req.query.max_lat);
-    const bboxMinLng = parseFloat(req.query.min_lng);
-    const bboxMaxLng = parseFloat(req.query.max_lng);
-    const hasBbox = !isNaN(bboxMinLat) && !isNaN(bboxMaxLat) && !isNaN(bboxMinLng) && !isNaN(bboxMaxLng);
-    try {
-        const params = [];
-        const conditions = [];
-        if (orgid) {
-            params.push(orgid);
-            conditions.push(`orgid = $${params.length}`);
-        }
-        if (hasBbox) {
-            params.push(bboxMinLat);
-            conditions.push(`risk_latitude >= $${params.length}`);
-            params.push(bboxMaxLat);
-            conditions.push(`risk_latitude <= $${params.length}`);
-            params.push(bboxMinLng);
-            conditions.push(`risk_longitude >= $${params.length}`);
-            params.push(bboxMaxLng);
-            conditions.push(`risk_longitude <= $${params.length}`);
-        }
-        const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-        params.push(limit);
-        const sql = `SELECT briefing_id, risk_id, orgid, created_by, risk_category, severity, title, confidence_level, confidence_score, scope, asset_count, risk_latitude, risk_longitude, generation_time_ms, created_at, media_counts, research_counts FROM intel_briefings ${where} ORDER BY created_at DESC LIMIT $${params.length}`;
-        const result = await pool.query(sql, params);
-        const briefings = result.rows.map(r => ({
-            ...r,
-            media_counts: typeof r.media_counts === "string" ? JSON.parse(r.media_counts) : r.media_counts,
-            research_counts: typeof r.research_counts === "string" ? JSON.parse(r.research_counts) : r.research_counts
-        }));
-        const ms = tReq.done({ count: briefings.length });
-        return res.status(200).json({ success: true, count: briefings.length, briefings });
-    } catch (error) {
-        tReq.done({ error: error.message });
-        return res.status(500).json({ success: false, message: "Failed to retrieve recent briefings." });
-    }
-});
-
-router.get("/risk/intel/briefings/by-risk/:riskId", async (req, res) => {
-    const tReq = timer(`GET /briefings/by-risk/${req.params.riskId}`);
-    const riskId = req.params.riskId;
-    const limit = parseInt(req.query.limit, 10) || 20;
-    try {
-        const result = await pool.query(
-            `SELECT briefing_id, risk_id, orgid, created_by, risk_category, severity, title, ai_briefing, confidence_level, confidence_score, scope, asset_count, generation_time_ms, created_at FROM intel_briefings WHERE risk_id = $1 ORDER BY created_at DESC LIMIT $2`,
-            [riskId, limit]
-        );
-        const briefings = result.rows.map(r => ({
-            ...r,
-            ai_briefing: typeof r.ai_briefing === "string" ? JSON.parse(r.ai_briefing) : r.ai_briefing
-        }));
-        tReq.done({ count: briefings.length });
-        return res.status(200).json({ success: true, count: briefings.length, briefings });
-    } catch (error) {
-        tReq.done({ error: error.message });
-        return res.status(500).json({ success: false, message: "Failed to retrieve briefings for this risk." });
-    }
-});
-
-router.get("/risk/intel/briefings/history", async (req, res) => {
-    const tReq = timer("GET /risk/intel/briefings/history");
-    const orgid = req.query.orgid;
-    const limit = parseInt(req.query.limit, 10) || 50;
-    try {
-        const qp = [];
-        let pi = 1;
-        let whereClause = "";
-        if (orgid) {
-            whereClause = ` WHERE orgid = $${pi}`;
-            qp.push(orgid);
-            pi++;
-        }
-        const sql = `SELECT briefing_id, risk_id, orgid, created_by, risk_category, severity, title, media_counts, research_counts, confidence_level, confidence_score, scope, asset_count, generation_time_ms, created_at FROM intel_briefings${whereClause} ORDER BY created_at DESC LIMIT $${pi}`;
-        qp.push(limit);
-        const result = await pool.query(sql, qp);
-        tReq.done({ count: result.rows.length });
-        return res.status(200).json({
-            success: true,
-            count: result.rows.length,
-            briefings: result.rows.map(r => ({
-                ...r,
-                media_counts: typeof r.media_counts === "string" ? JSON.parse(r.media_counts) : r.media_counts,
-                research_counts: typeof r.research_counts === "string" ? JSON.parse(r.research_counts) : r.research_counts
-            }))
-        });
-    } catch (error) {
-        tReq.done({ error: error.message });
-        return res.status(500).json({ success: false, message: "Failed to retrieve briefing history." });
     }
 });
 
@@ -2786,134 +2689,6 @@ router.post("/risk/intel/user-settings", async (req, res) => {
     } catch (error) {
         tReq.done({ error: error.message });
         return res.status(500).json({ success: false, message: "Failed to save user settings." });
-    }
-});
-
-router.post("/risk/intel/briefing/create-alert", async (req, res) => {
-    const tReq = timer("POST /briefing/create-alert");
-    const { briefing_id, risk_id, orgid, username, rule_name, channels, geography, override, condition } = req.body;
-    if (!briefing_id && !risk_id) {
-        tReq.done({ error: "missing_id" });
-        return res.status(400).json({ success: false, message: "Either briefing_id or risk_id is required." });
-    }
-    if (!orgid || !username) {
-        tReq.done({ error: "missing_auth" });
-        return res.status(400).json({ success: false, message: "orgid and username are required." });
-    }
-    try {
-        let categoryGuess = override?.risk_category || null;
-        let severityGuess = override?.severity_threshold || null;
-        let geographyGuess = geography || null;
-        let briefingTitle = null;
-        if (briefing_id) {
-            const result = await pool.query(
-                `SELECT risk_category, severity, risk_latitude, risk_longitude, title FROM intel_briefings WHERE briefing_id = $1 LIMIT 1`,
-                [briefing_id]
-            );
-            if (result.rows.length) {
-                const row = result.rows[0];
-                briefingTitle = row.title;
-                if (!categoryGuess) categoryGuess = row.risk_category;
-                if (!severityGuess) severityGuess = row.severity;
-                if (!geographyGuess && row.risk_latitude && row.risk_longitude) {
-                    geographyGuess = { latitude: row.risk_latitude, longitude: row.risk_longitude, radius_km: 100 };
-                }
-            }
-        }
-        const severityScoreMap = { Critical: 100, High: 75, Medium: 50, Low: 25 };
-        const conditionField = condition?.field || "severity_score";
-        const conditionOperator = condition?.operator || ">=";
-        const conditionValue = condition?.value !== undefined ? parseFloat(condition.value) : (severityScoreMap[severityGuess] || 50);
-        const alertId = generateId("alert");
-        const finalRuleName = sanitize(rule_name || `Briefing alert: ${categoryGuess || "risk"} events`, 200);
-        const descParts = [
-            `Auto-generated from intelligence briefing.`,
-            briefing_id ? `Briefing: ${briefing_id}.` : "",
-            risk_id ? `Origin risk: ${risk_id}.` : "",
-            briefingTitle ? `Context: ${truncatePlain(briefingTitle, 120)}.` : "",
-            geographyGuess ? `Geofence: ${geographyGuess.latitude?.toFixed(4)}, ${geographyGuess.longitude?.toFixed(4)} @ ${geographyGuess.radius_km}km.` : ""
-        ].filter(Boolean).join(" ");
-        const notificationChannels = Array.isArray(channels) && channels.length > 0 ? channels : ["in_app"];
-        const cooldown = condition?.cooldown_minutes || 60;
-        await pool.query(
-            `INSERT INTO risk_alerts (alert_id, orgid, created_by, name, description, alert_type, risk_category, condition_field, condition_operator, condition_value, severity, enabled, notification_channels, cooldown_minutes, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, $12, $13, NOW(), NOW())`,
-            [
-                alertId,
-                orgid,
-                username,
-                finalRuleName,
-                sanitize(descParts, 1000),
-                "risk_event_briefing",
-                categoryGuess || "any",
-                conditionField,
-                conditionOperator,
-                conditionValue,
-                severityGuess || "Medium",
-                JSON.stringify(notificationChannels),
-                cooldown
-            ]
-        );
-        const ms = tReq.done({ success: true });
-        return res.status(200).json({
-            success: true,
-            alert_id: alertId,
-            alert_rule_id: alertId,
-            rule: {
-                alert_id: alertId,
-                alert_rule_id: alertId,
-                rule_name: finalRuleName,
-                name: finalRuleName,
-                risk_category: categoryGuess,
-                severity_threshold: severityGuess,
-                severity: severityGuess,
-                condition_field: conditionField,
-                condition_operator: conditionOperator,
-                condition_value: conditionValue,
-                geography: geographyGuess,
-                channels: notificationChannels,
-                notification_channels: notificationChannels,
-                cooldown_minutes: cooldown,
-                enabled: true
-            },
-            message: "Alert rule created in risk_alerts."
-        });
-    } catch (error) {
-        tReq.done({ error: error.message });
-        return res.status(500).json({ success: false, message: "Failed to create alert rule." });
-    }
-});
-
-router.get("/risk/intel/alert-rules", async (req, res) => {
-    const tReq = timer("GET /alert-rules");
-    const orgid = req.query.orgid;
-    const limit = parseInt(req.query.limit, 10) || 100;
-    const fromBriefingsOnly = req.query.from_briefings === "true";
-    try {
-        const params = [];
-        const conditions = ["deleted_at IS NULL"];
-        if (orgid) {
-            params.push(orgid);
-            conditions.push(`orgid = ${params.length}`);
-        }
-        if (fromBriefingsOnly) {
-            conditions.push(`alert_type = 'risk_event_briefing'`);
-        }
-        params.push(limit);
-        const where = `WHERE ${conditions.join(" AND ")}`;
-        const sql = `SELECT alert_id, orgid, created_by, name, description, alert_type, risk_category, asset_id, zone_id, condition_field, condition_operator, condition_value, severity, enabled, notification_channels, cooldown_minutes, last_triggered_at, trigger_count, created_at FROM risk_alerts ${where} ORDER BY created_at DESC LIMIT ${params.length}`;
-        const result = await pool.query(sql, params);
-        const rules = result.rows.map(r => ({
-            ...r,
-            alert_rule_id: r.alert_id,
-            rule_name: r.name,
-            severity_threshold: r.severity,
-            channels: typeof r.notification_channels === "string" ? JSON.parse(r.notification_channels) : r.notification_channels
-        }));
-        tReq.done({ count: rules.length });
-        return res.status(200).json({ success: true, count: rules.length, rules });
-    } catch (error) {
-        tReq.done({ error: error.message });
-        return res.status(500).json({ success: false, message: "Failed to list alert rules." });
     }
 });
 
@@ -3077,9 +2852,7 @@ router.get("/risk/intel/sources", async (req, res) => {
             confidence_scoring: true,
             source_bundle_capture: true,
             briefing_feedback: true,
-            briefing_history: true,
             asset_scoped_briefings: true,
-            alert_rule_generation: true,
             per_user_source_toggles: true
         },
         cache_status: {
@@ -3101,7 +2874,6 @@ router.get("/risk/intel/health", async (req, res) => {
         { name: "Intel Briefings Table", fn: async () => { await pool.query("SELECT 1 FROM intel_briefings LIMIT 1"); return true; } },
         { name: "Intel Feedback Table", fn: async () => { await pool.query("SELECT 1 FROM intel_briefing_feedback LIMIT 1"); return true; } },
         { name: "Intel User Settings Table", fn: async () => { await pool.query("SELECT 1 FROM intel_user_settings LIMIT 1"); return true; } },
-        { name: "Risk Alerts Table", fn: async () => { await pool.query("SELECT 1 FROM risk_alerts LIMIT 1"); return true; } },
         { name: "Risk Assets Table", fn: async () => { await pool.query("SELECT 1 FROM risk_assets LIMIT 1"); return true; } },
         { name: "GDELT", fn: async () => { const r = await fetchWithTimeout("https://api.gdeltproject.org/api/v2/doc/doc?query=test&mode=ArtList&maxrecords=1&format=json", {}, 10000); return r.ok; } },
         { name: "GNews", fn: async () => { if (!process.env.GNEWS_API_KEY) return "not_configured"; const r = await fetchWithTimeout(`https://gnews.io/api/v4/search?q=test&lang=en&max=1&apikey=${process.env.GNEWS_API_KEY}`, {}, 5000); return r.ok; } },

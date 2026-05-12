@@ -13,8 +13,8 @@ import {
   faCrosshairs, faBullseye, faTrash, faRefresh,
   faExclamationCircle, faPersonShelter, faKitMedical,
   faPeopleGroup, faCubes, faRuler, faObjectGroup,
-  faBuilding, faLocationCrosshairs, faFlag, faBell, faGear,
-  faHistory, faGlobe, faDatabase, faSliders, faFilter,
+  faBuilding, faLocationCrosshairs, faFlag, faGear,
+  faGlobe, faDatabase, faSliders, faFilter,
   faCircleCheck, faSave, faPaperPlane
 } from "@fortawesome/free-solid-svg-icons";
 import "../../styles/mainStyles/Intelligence/IntelBar.css";
@@ -58,8 +58,7 @@ const TAB_CONFIG = [
   { id: "images", label: "Images", icon: faImage },
   { id: "academic", label: "Academic", icon: faGraduationCap },
   { id: "social", label: "Social", icon: faUsers },
-  { id: "related", label: "Related", icon: faLink },
-  { id: "history", label: "History", icon: faHistory }
+  { id: "related", label: "Related", icon: faLink }
 ];
 
 const FLAG_CATEGORIES = [
@@ -178,7 +177,6 @@ export default function IntelBar({
   onAssessLocation,
   onOpenNearby,
   onZoomToFeature,
-  onAlertRuleCreated,
   expandedRiskSections,
   toggleRiskSection
 }) {
@@ -199,7 +197,6 @@ export default function IntelBar({
   const [relatedData, setRelatedData] = useState(null);
   const [sourceBundle, setSourceBundle] = useState(null);
   const [assetContext, setAssetContext] = useState(null);
-  const [historyData, setHistoryData] = useState(null);
 
   const [loading, setLoading] = useState({});
   const [errors, setErrors] = useState({});
@@ -208,19 +205,12 @@ export default function IntelBar({
   const [userSettings, setUserSettings] = useState(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
-  const [alertModalOpen, setAlertModalOpen] = useState(false);
 
   const [feedbackCategory, setFeedbackCategory] = useState(FLAG_CATEGORIES[0]);
   const [feedbackReason, setFeedbackReason] = useState("");
   const [feedbackComments, setFeedbackComments] = useState("");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackResult, setFeedbackResult] = useState(null);
-
-  const [alertRuleName, setAlertRuleName] = useState("");
-  const [alertRadiusKm, setAlertRadiusKm] = useState(100);
-  const [alertSeverity, setAlertSeverity] = useState("Medium");
-  const [alertSubmitting, setAlertSubmitting] = useState(false);
-  const [alertResult, setAlertResult] = useState(null);
 
   const [showSources, setShowSources] = useState(false);
   const [currentBriefingId, setCurrentBriefingId] = useState(null);
@@ -233,8 +223,7 @@ export default function IntelBar({
     images: useRef(null),
     academic: useRef(null),
     social: useRef(null),
-    related: useRef(null),
-    history: useRef(null)
+    related: useRef(null)
   };
 
   const prevRiskIdRef = useRef(null);
@@ -470,32 +459,6 @@ export default function IntelBar({
     setLoadingKey("sources", false);
   }, []);
 
-  const fetchHistory = useCallback(async () => {
-    setLoadingKey("history", true);
-    setErrorKey("history", null);
-    try {
-      const params = new URLSearchParams();
-      if (orgid) params.append("orgid", orgid);
-      if (username) params.append("username", username);
-      if (viewportBbox && viewportBbox.min_lat !== undefined) {
-        params.append("min_lat", viewportBbox.min_lat);
-        params.append("max_lat", viewportBbox.max_lat);
-        params.append("min_lng", viewportBbox.min_lng);
-        params.append("max_lng", viewportBbox.max_lng);
-      }
-      params.append("limit", "30");
-      const data = await getJson(`${API_BASE}/risk/intel/briefings/recent?${params.toString()}`);
-      if (data && data.success !== false) {
-        setHistoryData({ count: data.count, items: data.briefings });
-      } else {
-        setErrorKey("history", data?.message || "Failed to load briefing history.");
-      }
-    } catch (error) {
-      setErrorKey("history", error.message);
-    }
-    setLoadingKey("history", false);
-  }, [orgid, username, viewportBbox]);
-
   const fetchAllIntel = useCallback(() => {
     fetchSummary();
     fetchArticles();
@@ -534,12 +497,6 @@ export default function IntelBar({
   }, [featureId]);
 
   useEffect(() => {
-    if (activeTab === "history" && !historyData && !loading.history) {
-      fetchHistory();
-    }
-  }, [activeTab, historyData, loading.history, fetchHistory]);
-
-  useEffect(() => {
     if (showSources && currentBriefingId && !sourceBundle && !loading.sources) {
       fetchSourceBundle(currentBriefingId);
     }
@@ -571,11 +528,10 @@ export default function IntelBar({
       images: () => { setImagesData(null); fetchImages(); },
       academic: () => { setAcademicData(null); fetchAcademic(); },
       social: () => { setSocialData(null); fetchSocial(); },
-      related: () => { setRelatedData(null); fetchRelated(); },
-      history: () => { setHistoryData(null); fetchHistory(); }
+      related: () => { setRelatedData(null); fetchRelated(); }
     };
     tabFetchers[activeTab]?.();
-  }, [activeTab, fetchSummary, fetchArticles, fetchVideos, fetchImages, fetchAcademic, fetchSocial, fetchRelated, fetchHistory]);
+  }, [activeTab, fetchSummary, fetchArticles, fetchVideos, fetchImages, fetchAcademic, fetchSocial, fetchRelated]);
 
   const handleToggleSource = useCallback((sourceKey) => {
     if (!userSettings) return;
@@ -643,55 +599,6 @@ export default function IntelBar({
     setFeedbackSubmitting(false);
   }, [currentBriefingId, orgid, username, feedbackReason, feedbackCategory, feedbackComments, summaryData, sourceBundle]);
 
-  const handleSubmitAlert = useCallback(async () => {
-    setAlertSubmitting(true);
-    setAlertResult(null);
-    try {
-      const risk = selectedRiskRef.current;
-      const geography = risk && risk.latitude && risk.longitude
-        ? { latitude: risk.latitude, longitude: risk.longitude, radius_km: parseFloat(alertRadiusKm) || 100 }
-        : null;
-      const body = {
-        briefing_id: currentBriefingId,
-        risk_id: risk ? resolveRiskId(risk) : null,
-        orgid,
-        username,
-        rule_name: alertRuleName || (risk ? `Alert for ${risk.risk_category} near ${risk.title}` : "New alert rule"),
-        channels: ["in_app"],
-        geography,
-        override: {
-          risk_category: risk?.risk_category,
-          severity_threshold: alertSeverity
-        }
-      };
-      const data = await postJson(`${API_BASE}/risk/intel/briefing/create-alert`, body);
-      if (data && data.success !== false) {
-        setAlertResult({ success: true, message: "Alert rule created.", rule: data.rule });
-        if (onAlertRuleCreated) onAlertRuleCreated(data.rule);
-        setTimeout(() => {
-          setAlertModalOpen(false);
-          setAlertResult(null);
-          setAlertRuleName("");
-        }, 1500);
-      } else {
-        setAlertResult({ success: false, message: data?.message || "Failed to create alert rule." });
-      }
-    } catch (error) {
-      setAlertResult({ success: false, message: error.message });
-    }
-    setAlertSubmitting(false);
-  }, [currentBriefingId, orgid, username, alertRuleName, alertRadiusKm, alertSeverity, onAlertRuleCreated]);
-
-  const openAlertModal = useCallback(() => {
-    const risk = selectedRiskRef.current;
-    if (risk) {
-      setAlertRuleName(`Alert for ${risk.risk_category} events near ${truncate(risk.title, 40)}`);
-      setAlertSeverity(risk.severity || "Medium");
-      setAlertRadiusKm(risk.impact_radius_km || 100);
-    }
-    setAlertModalOpen(true);
-  }, []);
-
   const handleCloseContext = (error) => {
     error.stopPropagation();
     if (activeContext === "risk") onCloseRisk?.();
@@ -707,9 +614,8 @@ export default function IntelBar({
     images: imagesData?.count || 0,
     academic: academicData?.count || 0,
     social: socialData?.count || 0,
-    related: relatedData?.count || 0,
-    history: historyData?.count || 0
-  }), [summaryData, articlesData, videosData, imagesData, academicData, socialData, relatedData, historyData]);
+    related: relatedData?.count || 0
+  }), [summaryData, articlesData, videosData, imagesData, academicData, socialData, relatedData]);
 
   const visibleTabs = useMemo(() => {
     if (activeContext === "risk") return TAB_CONFIG;
@@ -786,7 +692,6 @@ export default function IntelBar({
                 {risk.latitude && risk.longitude && (
                   <button className="ibActionBtn" onClick={() => onOpenNearby?.(risk.latitude, risk.longitude)}><FontAwesomeIcon icon={faBullseye} /> Nearby</button>
                 )}
-                <button className="ibActionBtn ibActionBtnPrimary" onClick={openAlertModal}><FontAwesomeIcon icon={faBell} /> Create Alert</button>
               </div>
             </div>
           </div>
@@ -1310,9 +1215,6 @@ export default function IntelBar({
                   <button className="ibIconButton ibIconButtonWarn" onClick={() => setFeedbackModalOpen(true)} title="Flag this briefing">
                     <FontAwesomeIcon icon={faFlag} />
                   </button>
-                  <button className="ibIconButton" onClick={openAlertModal} title="Create alert rule">
-                    <FontAwesomeIcon icon={faBell} />
-                  </button>
                 </div>
               </div>
               <div className="ibSummaryCardScrollable">
@@ -1623,48 +1525,6 @@ export default function IntelBar({
     );
   };
 
-  const renderHistoryTab = () => {
-    if (loading.history) return renderLoading("Loading briefing history…");
-    if (errors.history) return renderError(errors.history);
-    if (!historyData?.items?.length) return renderEmpty("No prior briefings recorded for this viewport.");
-
-    return (
-      <div className="ibContentPanel">
-        <div className="ibHistoryList" ref={scrollRefs.history}>
-          {historyData.items.map((b, i) => (
-            <div
-              key={b.briefing_id || i}
-              className={`ibHistoryItem ${b.briefing_id === currentBriefingId ? "ibHistoryItemActive" : ""}`}
-              onClick={() => {
-                if (b.risk_id && onNavigateToRisk) {
-                  onNavigateToRisk({ id: b.risk_id });
-                }
-              }}
-            >
-              <div className="ibHistoryItemBadge" style={{ backgroundColor: SEVERITY_COLORS[b.severity] || "#FFE66D" }}>
-                <FontAwesomeIcon icon={getRiskIcon(b.risk_category)} />
-              </div>
-              <div className="ibHistoryItemBody">
-                <span className="ibHistoryItemTitle">{truncate(b.title, 100)}</span>
-                <div className="ibHistoryItemMeta">
-                  <span>{b.risk_category}</span>
-                  <span>· {formatRelativeTime(b.created_at)}</span>
-                  {b.confidence_level && (
-                    <span className={`ibHistoryConfidenceTag ${getConfidenceClass(b.confidence_level)}`}>
-                      {b.confidence_level}
-                    </span>
-                  )}
-                  {b.scope && <span className="ibHistoryScopeTag">{b.scope}</span>}
-                  {b.asset_count > 0 && <span>· {b.asset_count} assets</span>}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   const TAB_RENDERERS = {
     details: renderDetailsTab,
     summary: renderSummaryTab,
@@ -1673,8 +1533,7 @@ export default function IntelBar({
     images: renderImagesTab,
     academic: renderAcademicTab,
     social: renderSocialTab,
-    related: renderRelatedTab,
-    history: renderHistoryTab
+    related: renderRelatedTab
   };
 
   const getHandleTitle = () => {
@@ -1875,85 +1734,6 @@ export default function IntelBar({
               <button className="ibActionBtn ibActionBtnPrimary" onClick={handleSubmitFeedback} disabled={feedbackSubmitting || (!feedbackReason && !feedbackComments)}>
                 <FontAwesomeIcon icon={feedbackSubmitting ? faSpinner : faPaperPlane} spin={feedbackSubmitting} />
                 Submit Feedback
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {alertModalOpen && (
-        <div className="ibModalOverlay" onClick={() => setAlertModalOpen(false)}>
-          <div className="ibModal" onClick={error => error.stopPropagation()}>
-            <div className="ibModalHeader">
-              <span className="ibModalTitle">
-                <FontAwesomeIcon icon={faBell} />
-                Create Alert Rule
-              </span>
-              <button className="ibIconButton ibIconButtonDanger" onClick={() => setAlertModalOpen(false)}>
-                <FontAwesomeIcon icon={faTimes} />
-              </button>
-            </div>
-            <div className="ibModalBody">
-              <div>
-                <span className="ibModalLabel">Rule Name</span>
-                <input className="ibModalInput" value={alertRuleName} onChange={error => setAlertRuleName(error.target.value)} placeholder="Descriptive rule name" />
-              </div>
-              <div>
-                <span className="ibModalLabel">Severity Threshold</span>
-                <select className="ibModalSelect" value={alertSeverity} onChange={error => setAlertSeverity(error.target.value)}>
-                  <option value="Low">Low or higher</option>
-                  <option value="Medium">Medium or higher</option>
-                  <option value="High">High or higher</option>
-                  <option value="Critical">Critical only</option>
-                </select>
-              </div>
-              <div>
-                <span className="ibModalLabel">Radius (km)</span>
-                <input
-                  className="ibModalInput"
-                  type="number"
-                  min="1"
-                  max="1000"
-                  value={alertRadiusKm}
-                  onChange={error => setAlertRadiusKm(error.target.value)}
-                />
-              </div>
-              {selectedRisk && (
-                <div>
-                  <span className="ibModalLabel">Pre-filled From Briefing</span>
-                  <div className="ibConfidenceMetricsGrid">
-                    <div className="ibConfidenceMetric">
-                      <span className="ibConfidenceMetricLabel">Category</span>
-                      <span className="ibConfidenceMetricValue">{selectedRisk.risk_category || "any"}</span>
-                    </div>
-                    <div className="ibConfidenceMetric">
-                      <span className="ibConfidenceMetricLabel">Center</span>
-                      <span className="ibConfidenceMetricValue">{selectedRisk.latitude?.toFixed(3)}, {selectedRisk.longitude?.toFixed(3)}</span>
-                    </div>
-                    <div className="ibConfidenceMetric">
-                      <span className="ibConfidenceMetricLabel">Channel</span>
-                      <span className="ibConfidenceMetricValue">In-app</span>
-                    </div>
-                    <div className="ibConfidenceMetric">
-                      <span className="ibConfidenceMetricLabel">Source</span>
-                      <span className="ibConfidenceMetricValue">Briefing</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {alertResult && (
-                <div className={alertResult.success ? "ibConfidenceIndicator" : "ibErrorState"}>
-                  <FontAwesomeIcon icon={alertResult.success ? faCircleCheck : faExclamationTriangle} />
-                  <span>{alertResult.message}</span>
-                </div>
-              )}
-            </div>
-            <div className="ibModalFooter">
-              <button className="ibActionBtn" onClick={() => setAlertModalOpen(false)} disabled={alertSubmitting}>
-                <FontAwesomeIcon icon={faTimes} /> Cancel
-              </button>
-              <button className="ibActionBtn ibActionBtnPrimary" onClick={handleSubmitAlert} disabled={alertSubmitting}>
-                <FontAwesomeIcon icon={alertSubmitting ? faSpinner : faBell} spin={alertSubmitting} />
-                Create Rule
               </button>
             </div>
           </div>
