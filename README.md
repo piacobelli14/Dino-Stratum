@@ -6,7 +6,7 @@ DinoStratum sits alongside DinoLabs and DinoSat in the same family of projects. 
 
 The backend here is doing real work. It polls each of the upstream hazard feeds on its own cadence and normalizes them into a single envelope so the frontend doesn't have to care which agency produced what. It also owns the asset store and runs the PostGIS spatial queries that drive exposure scoring on the server side. The frontend still handles all of the rendering, the interactive recompute path, and the report generation, but the split here is closer to symmetric than the deliberately-thin-server pattern I lean on in the other platforms.
 
-Hosted at **[DinoStratum](https://dino-stratum.vercel.app/login)**. Account creation, sessions, and team management are handled through Dino Auth (see below).
+Hosted at **[DinoStratum](https://dino-stratum.vercel.app/login)**. Account creation, sessions, and team management are handled through DinoAuth (see below).
 
 **Stack:** React + Vite + Deck.gl + MapLibre GL + Apple MapKit JS on the frontend, Node.js + Express + PostgreSQL with PostGIS on the backend. IndexedDB for cached intel snapshots and the per-pair exposure score cache.
 
@@ -142,130 +142,127 @@ The run-detection action will open up another modal with two detection modes. Au
 
 ## Architecture
 
-DinoStratum is split across two repos: a React frontend (`dinostratumweb/`) and a Node.js/Express backend (`dinostratum_webapi/`). The backend hosts the asset and portfolio CRUD routes, the intel-bar feed proxy and its cache, the server-side exposure scoring path, and the Dino Auth integration. The frontend handles all of the map rendering, the interactive scoring path, and the report generation. Exposure scoring is implemented on both sides, the client runs it interactively for everything that lives in its cache, and the server runs it on demand for any asset-event pair the client doesn't already have a result for, and for report generation jobs.
+DinoStartum is a two-repo project: a React frontend (`dinostratumweb/`) and a Node.js/Express backend (`dinostratum_webapi/`). the backend is home to the asset and portfolio management routes, the intel-bar feed proxy and its cache, the server-side exposure scoring path, and the DinoAuth integration. The frontend is responsible for all of the map rendering, the interactive scoring path, and report generation. 
 
-### Frontend (`dinostratumweb/`)
+## Frontend (`dinostratum/`)
 
 ```
-dinostratumweb/
+dinostratum/
 ├── public/
-│   ├── hazard-icons/            Per-hazard-family icon set used by the intel bar and map
-│   ├── map-styles/              MapLibre style JSON files
-│   ├── ref-images/              Reference imagery
-│   ├── ref-logos/               Brand assets
-│   ├── DinoStratumLogo*.png
-│   └── EarthBackground.mp4
+│   ├── DinoStratumLogo_Text.png
+│   ├── DinoStratumLogo.png
+│   └── LandscapeBackground.mp4
 ├── src/
+│   ├── assets/
+│   │   ├── DinoStratumLogo_Text.png
+│   │   └── DinoStratumLogo.png
+│   ├── configs/
+│   │   ├── index.css
+│   │   └── main.js
+│   ├── helpers/
+│   │   ├── PlottingHelpers/
+│   │   ├── Alert.jsx
+│   │   ├── ColorPicker.jsx
+│   │   ├── Loading.jsx
+│   │   ├── Mobile.jsx
+│   │   └── Nav.jsx
 │   ├── pages/
+│   │   ├── Account/
+│   │   │   ├── Account.jsx              # Personal account settings
+│   │   │   └── Team.jsx                 # Org/team management
 │   │   ├── Authentication/
 │   │   │   ├── AuthLogin.jsx
 │   │   │   ├── AuthRegister.jsx
 │   │   │   ├── AuthReset.jsx
 │   │   │   └── AuthVerifyEmail.jsx
-│   │   ├── DinoStratumAccount/
-│   │   │   ├── DinoStratumAccount.jsx
-│   │   │   └── DinoStratumTeam.jsx
-│   │   ├── DinoStratumRisk/
-│   │   │   ├── RiskCommandCenter.jsx          ~2000-line dual-provider map shell
-│   │   │   ├── IntelBar.jsx                   Right-rail selection inspector
-│   │   │   ├── DinoStratumEventList.jsx
-│   │   │   ├── DinoStratumExposure/
-│   │   │   │   ├── earthquakes.js
-│   │   │   │   ├── wildfires.js
-│   │   │   │   ├── cyclones.js
-│   │   │   │   ├── severeWeather.js
-│   │   │   │   ├── volcanoes.js
-│   │   │   │   ├── tsunami.js
-│   │   │   │   ├── floods.js
-│   │   │   │   ├── airQuality.js
-│   │   │   │   └── groundDeformation.js
-│   │   │   └── DinoStratumReport.jsx
-│   │   ├── DinoStratumAssets/
-│   │   │   ├── DinoStratumAssetTable.jsx
-│   │   │   ├── DinoStratumAssetMap.jsx
-│   │   │   ├── DinoStratumAssetDrawer.jsx
-│   │   │   ├── DinoStratumImporter.jsx
-│   │   │   └── DinoStratumPortfolios.jsx
-│   │   ├── DinoStratum.jsx                Workspace shell
-│   │   └── DinoStratumNoPortfolio.jsx
-│   ├── helpers/
-│   │   ├── MapHelpers/
-│   │   │   ├── ClusterIcon.jsx
-│   │   │   ├── LayerStyles.js
-│   │   │   └── GeometryEdit.js
-│   │   ├── FeedHelpers/
-│   │   │   ├── FeedClient.js              Calls the backend SSE endpoints, manages IndexedDB cache
-│   │   │   └── FeedNormalizers.js         Per-family normalizers to the envelope shape
-│   │   ├── Alert.jsx
-│   │   ├── ColorPicker.jsx
-│   │   ├── Loading.jsx
-│   │   ├── Mobile.jsx
-│   │   ├── Nav.jsx
-│   │   └── Unavailable.jsx
+│   │   ├── DinoStratumIntelligence/
+│   │   │   ├── IntelBar.jsx             # Right-rail selection inspector
+│   │   │   └── RiskCommandCenter.jsx    # Dual-provider map shell
+│   │   └── DinoStratumManagement/
+│   │       └── AssetManagement.jsx      # Asset CRUD, exposure, threat dashboard
 │   ├── styles/
-│   │   ├── helperStyles/        Shared component styles
-│   │   └── mainStyles/          Per-page styles
+│   │   ├── helperStyles/
+│   │   │   ├── Alert.css
+│   │   │   ├── Checkbox.css
+│   │   │   ├── ColorPicker.css
+│   │   │   ├── Disconnected.css
+│   │   │   ├── Errors.css
+│   │   │   ├── HighlightKit.css
+│   │   │   ├── LoadingSpinner.css
+│   │   │   ├── Mobile.css
+│   │   │   ├── NavBar.css
+│   │   │   ├── Slider.css
+│   │   │   ├── Switch.css
+│   │   │   └── Tooltip.css
+│   │   ├── mainStyles/
+│   │   │   ├── Account/
+│   │   │   │   ├── Account.css
+│   │   │   │   └── Team.css
+│   │   │   ├── Authentication/
+│   │   │   │   ├── AuthLogin.css
+│   │   │   │   ├── AuthRegister.css
+│   │   │   │   ├── AuthReset.css
+│   │   │   │   └── AuthVerifyEmail.css
+│   │   │   ├── Intelligence/
+│   │   │   │   ├── IntelBar.css
+│   │   │   │   └── RiskCommandCenter.css
+│   │   │   └── Management/
+│   │   │       └── AssetManagement.css
+│   │   └── App.css
 │   ├── App.jsx
 │   ├── ErrorBoundary.jsx
-│   ├── ProtectedRoute.jsx       Token gate, redirects to Dino Auth
-│   ├── TouchDevice.jsx          Mobile-block screen
-│   └── UseAuth.jsx              Dino Auth hook
-├── Dockerfile
+│   ├── ProtectedRoute.jsx               # Token gate, redirects to Dino Auth
+│   ├── TouchDevice.jsx                  # Mobile-block screen
+│   └── UseAuth.jsx                      # Dino Auth hook
+├── .env
+├── .gitignore
 ├── eslint.config.js
-├── vite.config.js
-└── vercel.json
+├── index.html
+├── package-lock.json
+├── package.json
+├── README.md
+├── vercel.json
+└── vite.config.js
 ```
 
-### Backend (`dinostratum_webapi/`)
+## Backend (`dinostratum_webapi/`)
 
 ```
 dinostratum_webapi/
 ├── api/
 │   ├── config/
-│   │   ├── db.js                PostgreSQL pool with PostGIS enabled
-│   │   ├── s3.js                Object storage client, used for report PDFs
-│   │   └── smtp.js              Transactional mail
-│   ├── middleware/
-│   │   ├── auth.js              Dino Auth token validation
-│   │   ├── errorLogger.js
-│   │   └── rateLimiter.js
+│   │   ├── db.js                        # PostgreSQL pool with PostGIS
+│   │   ├── s3.js                        # Object storage client
+│   │   └── smtp.js                      # Transactional mail
+│   ├── middleware/                      # Auth, validation, rate limiting
+│   ├── onetime/
+│   │   ├── AuthKey_ZFH74W9662.p8
+│   │   ├── cleanup.js
+│   │   └── keygen.js
+│   ├── public/
+│   │   ├── assets/
+│   │   │   ├── DinoStratumLogo_Text.png
+│   │   │   └── DinoStratumLogo.png
+│   │   ├── styles/
+│   │   │   └── catchall.css
+│   │   └── catchall.html
 │   ├── routes/
-│   │   └── dinostratum-playground/
-│   │       ├── dinostratum-playground-assets.js
-│   │       ├── dinostratum-playground-portfolios.js
-│   │       ├── dinostratum-playground-intel.js         Streaming SSE intel endpoints
-│   │       ├── dinostratum-playground-exposure.js
-│   │       └── dinostratum-playground-user-area.js     My Area and Saved Views
+│   │   ├── intelligence/
+│   │   │   ├── areas.js
+│   │   │   ├── assets.js
+│   │   │   ├── intel.js
+│   │   │   └── risk.js
+│   │   └── data.js
 │   ├── workers/
-│   │   ├── feedFetcher.js       Universal dispatcher across 28 upstream feeds
-│   │   ├── writeQueue.js        Batched PostGIS upserts with retry and backoff
-│   │   ├── cleanupWorker.js     30-minute cleanup cycle
-│   │   ├── dynamicRefresh.js    24-hour Wikidata SPARQL refresh
-│   │   └── reportBuilder.js     Server-side fallback for exposure report PDF generation
-│   ├── public/                  Catchall and static
-│   ├── docs/
+│   │   └── connectionManager.js
+│   ├── .env
 │   └── index.js
+├── package-lock.json
+├── package.json
 └── vercel.json
 ```
 
-The backend has a lot more going on than the DinoLabs backend because the hazard feeds need a polite consumer in front of them and because the spatial joins are most efficient where the geometry already lives.
-
-The **asset and portfolio routes** are standard REST against PostGIS-aware tables. The **intel routes** serve all hazard families through a unified streaming endpoint per category and through a streaming nearby-spatial endpoint, both built on SSE rather than long-poll, with per-source chunks emitted as each upstream feed resolves. The **exposure route** runs `ST_Intersects`, `ST_Distance`, and `ST_DWithin` against the active portfolio and the cached event geometries when invoked from the server side. The **user area routes** handle the per-user preferred area (point-radius or bbox) with the area's PostGIS geometry materialized at write time (via `ST_Buffer` for radii and `ST_MakeEnvelope` for boxes) so that intersection queries against `risk_events_cache` are a single indexed spatial join. Everything user-related, auth, profile, team, passes through to Dino Auth.
-
-A handful of operational endpoints also sit alongside the data routes: `/risk/intelligence/ingest/status`, `/risk/intelligence/ingest/trigger`, `/risk/intelligence/cleanup/status`, `/risk/intelligence/cleanup/trigger`, `/risk/intelligence/health`, `/risk/intelligence/dynamic-data/status`, and `/risk/intelligence/dynamic-data/refresh`. These are what back the in-page Health, Ingestion, and Cleanup dashboards described above, and they're also useful as a one-stop check when something looks wrong in the data.
-
-### Persistence
-- **PostgreSQL + PostGIS.** Holds assets, portfolios, the asset edit history log, the server-side hazard event cache (`risk_events_cache` with a `geom geography(Geometry, 4326)` column for indexed spatial queries), the per-user preferred area (`risk_user_areas`), the saved views (`risk_user_views`), and the ingestion run audit log (`ingestion_runs`). Asset geometry is a real PostGIS geometry column, which is what makes the server-side exposure path inexpensive enough to be the fallback rather than a workaround.
-- **IndexedDB.** Cached intel feed snapshots, in-flight asset edits before they're committed, and the per-pair exposure score cache. All of it survives reloads.
-- **Local Storage.** The user's preferred area and area-filter active state are mirrored here in addition to PostGIS, so the UI can render the area immediately on reload without waiting on a server round-trip. Saved views are similarly mirrored.
-- **In-Memory Stores.** The backend keeps a `riskStore` of up to fifty thousand recent events keyed by id with severity-weighted eviction, a Wikidata-sourced dynamic reference cache (urban centers, infrastructure, deformation zones, fault lines) refreshed every twenty-four hours, an Overpass query cache with FNV-hashed keys and twenty-four hour TTL, and a fixed-budget write queue in front of PostGIS that batches up to five hundred upserts at a time with up to three retries and exponential backoff with jitter on retryable errors.
-
-### Map
-The frontend uses Deck.gl with MapLibre GL for global views and Apple MapKit JS for close-in views, with an automatic handoff at zoom level six. The hosted version uses Apple's MapKit JS token and Esri World Imagery tiles for the MapLibre side. Self-hosters can substitute their own MapKit token and any MapLibre-compatible style.
-
 ### Data sources
-
-The platform is now pulling from roughly twenty-eight upstream feeds across ten hazard families:
 
 - **USGS Earthquake Hazards Program.** Public GeoJSON feeds, no key required.
 - **EMSC (European-Mediterranean Seismological Centre).** Public FDSN-format JSON feed.
@@ -299,17 +296,32 @@ The platform is now pulling from roughly twenty-eight upstream feeds across ten 
 
 ---
 
+## Authentication and Accounts
+
+All of your account information, settings, and profile and team management are handled through my secure internal platform DinoAuth. DinoAuth is not part of this repository, is not open-sourced, and is not available for self-hosting. DinoStratum is simply integrated with it: the platform does not implement its own auth, does not store passwords, and does not roll its own session management.
+
+What this means in practice:
+
+- For the sake of this platform's simplicity and overall security, all sign-up, login, reset, and verification all flows through DinoAuth.
+- Sessions come back as bearer tokens that have the user ID embedded in them, along with an optional org ID.
+- All account management happens on the `Account.jsx` page in the frontend, and all backend calls are proxied through DinoAuth.
+- All team management happens on the `Team.jsx` page in the frontend, and all backend calls are proxied through DinoAuth.
+
+**Existing DinoLabs accounts work here.** If you already have an account from one of my other open-source DinoLabs platforms (DinoLabs, DinoSat etc.), those credentials sign you straight into DinoStratum. One account, every product. Forks intending to run standalone will need to swap in their own auth provider.
+
+---
+
 ## Hosted Version
 
-The supported way to use DinoStratum is the hosted version at [DinoStratum](https://dino-stratum.vercel.app/login). The hosted instance is what owns the feed polling schedule, the cache layer, and the report generation queue, running these in a single shared backend is what keeps the platform a good citizen of the upstream agency APIs. Account creation and usage are free for now.
+The intended way to use DinoStratum is at my hosted version available at[DinoStratum](https://dino-stratum.vercel.app/login). It runs on infrastructure that is set up to handle the feed polling schedule, the cache layer, and the report generation queue. Account creation, usage, storage, and everything else is completely free, barring an unforeseen increase in traffic.
 
-This repository is here as a reference and as the development home of the project. Self-hosting works but isn't the supported path, and the upstream feeds will rate-limit you faster than you'd expect if you try to run the platform without the proxy and cache layer in place.
+This repository exists primarily as a reference and as the development home of the project. Self-hosting is possible but is not the supported path.
 
 ---
 
 ## Setup (self-hosting)
 
-If you do want to stand it up yourself, here's the shape of it.
+If you do want to run it yourself, this is roughly what you're signing up for.
 
 ### Requirements
 - Node.js 20 or later
