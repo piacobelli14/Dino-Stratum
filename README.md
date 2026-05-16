@@ -4,7 +4,7 @@ DinoStratum is built to be a free, browser-based operational risk platform. It p
 
 DinoStratum sits alongside DinoLabs and DinoSat in the same family of projects. DinoLabs is the flagship; DinoStratum is narrower by design, focused on a single operational workflow rather than a broad toolkit. It is still a side project, the hazard math is intentionally transparent rather than commercial-grade, and the cadence of improvements depends on the rest of my life. Feedback is welcome.
 
-Unlike some of my other Dino platforms, the backend here is doing real work. It polls each of the upstream hazard feeds on its own cadence and normalizes them into a single envelope so the frontend doesn't have to care which agency produced what. It also owns the asset store and runs the PostGIS spatial queries that drive exposure scoring on the server side. The frontend still handles all of the rendering, the interactive recompute path, and the report generation, but the split here is closer to symmetric than the deliberately-thin-server pattern I lean on in the other platforms.
+The backend here is doing real work. It polls each of the upstream hazard feeds on its own cadence and normalizes them into a single envelope so the frontend doesn't have to care which agency produced what. It also owns the asset store and runs the PostGIS spatial queries that drive exposure scoring on the server side. The frontend still handles all of the rendering, the interactive recompute path, and the report generation, but the split here is closer to symmetric than the deliberately-thin-server pattern I lean on in the other platforms.
 
 Hosted at **[DinoStratum](https://dino-stratum.vercel.app/login)**. Account creation, sessions, and team management are handled through Dino Auth (see below).
 
@@ -26,192 +26,23 @@ Hosted at **[DinoStratum](https://dino-stratum.vercel.app/login)**. Account crea
 
 ## The Pages
 
-There are only two pages and they're built to work as a pair. **Risk Management** is the live operational view, the map, the intel bar, the active-event list, and the inspector that exposes the math behind any given asset-event pairing. **Asset Management** is where you maintain the portfolio that Risk Management scores against. The two pages share both an asset store and the cached hazard feed, so an edit on one side propagates to the other without a reload.
+There are only two pages within the platform and they are built to work together. the risk management page is the live operational view including the map, the intel. bar, and the active event-list. the asset management page is the hub where you can maintain your asset portfolio that the risk management page will score against. The two pages share an asset store and the cached hazards feed, so an edit on either side will propagate to the other without need for a refresh. 
 
 ### Risk Management
 
-This is the primary surface of the platform and by far the densest single page in the codebase. The component, `RiskCommandCenter.jsx`, runs to roughly two thousand lines and is responsible for everything from the dual-provider map handoff to the per-category metadata renderers in the right rail. The page is anchored by a full-bleed map with three overlay regions arranged around it: the intel bar pinned across the top, a left rail that lists active events, exposes the hazard filter controls, the user's preferred area, and the saved views, and a right rail (the Intel Bar component) that flips between three inspector modes depending on what's selected.
+This is the primary visualization of the platform. It is primarily responsible for everything from the dual-color provider map handoff to the per-category metadata renderers in the right side bar. The page uses a full-bleed map with overlay regions arranged around it including the intel bar to examine specific hazards or assets in detail, a side bar to view summary stats and control the view, and a top bar to toggle between viewing modes. 
 
 #### Dual Map Providers with Automatic Handoff
 
-The map is not a single provider. The component initializes two map instances side by side, only one visible at a time, and swaps between them based on zoom level. Below zoom six the page renders through **Deck.gl plus MapLibre GL**, which gives the platform a proper globe-scale view with vector tiles from Esri World Imagery, optional 3D terrain from the Mapzen Terrarium tileset, and a deck.gl `MapboxOverlay` interleaved into the MapLibre style for every custom layer. From zoom six and above the page hands off to **Apple MapKit JS**, which is much stronger for close-in satellite imagery, building footprints, and points of interest.
-
-The handoff is handled by a `switchToProvider` routine that synchronizes camera state (center, zoom, pitch, bearing) between the two providers, hides one DOM container and shows the other, and re-emits the relevant markers and overlays on whichever provider is now active. A `switchingProviderRef` guards against re-entry during the swap, and a deferred `pendingAppleMarkerRefreshRef` flag ensures Apple annotations are rebuilt one frame after the provider becomes visible (you cannot add annotations to a hidden MapKit container and have them render correctly).
-
-The deck.gl side is the one that handles the heavy custom layer load. The Apple side mostly carries native annotations and MapKit `CircleOverlay` / `PolygonOverlay` primitives for risk impact zones and the user's preferred area.
+The map is not a single provider. the component initializes two map instances the work with each other, swapping between the two instantiations on zoom. Below a zoom value of six the page renders through Deck.gl plus MapLibre GL, which gives the page a solid globe-scale view with vector tiles from Esri World Imagery, and a Deck.gl `MapboxOverlay` interleaved into the MapLibre style for each of the custom layers. Beyond a zoom level of six the map renders using Apple MapKit JS, which is a lot stronger for close-in satellite imagery, building footprints, and points of interest. This handoff is handled by a custom-built routine that synchronizes the camera state (center, zoom, pitch, bearing) between the two map providers, hides one DOM container and shows the other, and re-emits the relevant markers and overlays on whichever provider is now active. A guard is also implemented to protect against re-entry during the swap. and a deferred flag ensure Apple annotations are rebuilt one frame after the provider becomes visible (you can't add annotations to a hidden MarkKit container and have them render correctly). The Deck.gl side is the one that handles the heavy custom layer loading, while the Apple Maps side carries native annotations and MapKit markers with radii. 
 
 #### Intel Bar
 
-The intel bar (here implemented as the left-rail summary panel rather than a literal top strip; the component named `IntelBar` is actually the right-rail inspector, kept as a separate file) is organized as a per-hazard-family roll-up with severity counts, last-updated timestamp, and a per-category visibility toggle that doubles as a filter chip. Clicking a category narrows the map markers and the active-event list to that single family; a "Show All" / "Hide All" pair in the Risk Layers modal handles bulk toggling.
+The intel bar is the tabbed bottom drawer that mounts only when one of the hazards, assets, or selectable body is clicked. The intel bar has two different selection contexts, a risk context that shows all eight of the tabs and a feature context that is set by the Overpass click-to-identify integration which will show only the details of your selection. Selecting a different risk, asset, or selectable body will reset all of the per-tab data and re-fire the fetches to ensure the info is updated to the current selection. 
 
-The bar covers eight hazard families today, and unlike the original design every family is wired all the way through to the backend's ingestion worker rather than to the agencies directly from the browser:
+The tab set in the intel bar when an vent is clicked includes summary, details, articles, videos, images, academic, social, and related tabs. Each tab has its own loading and error state and its own refetch path. the header refresh button will refresh whichever of these tabs is currently active. 
 
-- **Earthquakes**, sourced from four independent agencies: **USGS**, **EMSC**, **INGV** (Italy and the Mediterranean), and **GeoNet** (New Zealand). Each event carries magnitude, magnitude type, depth, place name, origin time, alert level, CDI and MMI where available, station count, RMS, azimuthal gap, an estimated count of expected aftershocks, and the energy released in joules with the TNT equivalent.
-- **Wildfires**, from **NIFC WFIGS** active fire perimeters. Each event carries acres burned, percent contained, fire behavior, fire cause (general and specific), discovery date, duration in days, primary and secondary fuel models, total personnel, structures destroyed and threatened, fatalities, injuries, an estimated cost to date, and the IRWIN ID for cross-referencing with other incident systems.
-- **Severe weather**, from **NOAA NWS** alerts, **NOAA SPC** convective outlooks (day 1, 2, and 3), and **Open-Meteo Marine** for global sea state. Watches, warnings, and advisories filtered by event type (tornado, severe thunderstorm, flash flood, winter storm, ice storm, red flag, extreme heat) carry the official alert polygon, the full headline and instruction text, the issuing office, urgency, certainty, and response type.
-- **Tropical cyclones and tornadoes** are surfaced through the NWS alerts feed and through **GDACS** for global coverage. Cyclone tracks themselves come through GDACS event geometries.
-- **Volcanic activity**, from the **USGS Volcano Hazards Program** via the Smithsonian GVP backing dataset. Alert level (Normal / Advisory / Watch / Warning) and aviation color code (Green / Yellow / Orange / Red), elevation, volcanic explosivity index, last eruption date, Holocene activity flag, dominant rock type, and the GVP volcano number.
-- **Tsunami**, from the **NWS Tsunami** alert feed, with the source earthquake cross-referenced where available and the impacted coastline polygons attached.
-- **Floods**, from **USGS Water Services** real-time gauge observations and **Open-Meteo GloFAS** for global river discharge forecasts. Currently-flooded gauges carry stage in feet, flood category (Normal / Action Stage / Minor / Moderate / Major), site code, HUC, drainage area, and recent stage history. GloFAS adds a seven-day peak discharge forecast with peak-to-average ratio.
-- **Air quality**, from **Open-Meteo Air Quality** (CAMS global atmospheric composition), which gives global coverage rather than just the United States. PM2.5, PM10, ozone, NO2, SO2, CO, and the US AQI bucket with the standard six-tier category coloring and a tailored health recommendation per bucket.
 
-Two additional hazard families that did not fit the original eight are now also wired in:
-
-- **Ground deformation**, from **ESA Sentinel-1 InSAR** GUNW products via the ASF DAAC, supplemented by a dynamically maintained catalog of known deformation zones (subsidence basins, extraction fields, mining districts, geothermal areas, deltas, polders) sourced from Wikidata SPARQL and from the Copernicus EGMS ground motion service. Each event carries cumulative displacement, current rate, estimated coherence, perpendicular and temporal baselines, displacement direction, and a list of nearby critical infrastructure with proximity-weighted risk relevance.
-- **Space weather**, from the full **NOAA SWPC** suite: human-readable alerts, the planetary Kp index (current and forecast), GOES X-ray flux, DSCOVR / ACE solar wind plasma, and the interplanetary magnetic field Bz component. Each event carries the relevant storm scale (G1 through G5, S1 through S5, R1 through R5) and an explicit per-system impact summary covering power systems, spacecraft operations, HF radio, navigation, and aurora visibility.
-
-Add to that the broader multi-hazard sources (**GDACS** for global disasters, **NASA EONET** for ongoing natural events, **FEMA** for US disaster declarations), and the platform is now pulling from roughly twenty-eight upstream feeds rather than the original eight.
-
-All of these route through the backend's ingestion worker rather than going to the agencies directly from the browser. The worker runs on a five-minute cycle, fans out to every source in parallel with a concurrency limit of three at a time to keep database pressure manageable, caches each source's normalized output in memory and in PostGIS, and serves the frontend over a single Server-Sent Events stream that emits one chunk per source as that source finishes resolving. The client doesn't have to know about per-agency payload shapes, just the unified `risk_events_cache` envelope.
-
-The bar also exposes a "Refresh" button that re-runs the streaming fetch immediately rather than waiting for the next ingestion cycle, and a per-category event count that updates live as new chunks arrive.
-
-#### Streaming Ingestion and Cache
-
-The ingestion side deserves its own note. The backend (`risk-intelligence.js`) implements:
-
-- A **universal fetch dispatcher** with five pagination strategies (single request, offset-based pagination, multi-URL fan-out, batch by location, batch by US state, and fully custom per-source) so that each upstream feed's quirks are encoded once and never leak into the rest of the pipeline.
-- A **multi-mirror failover** layer for Overpass queries (used by the Asset Management page for click-to-select feature identification) that rotates across four public Overpass instances and applies an in-memory FNV-hashed query cache with a twenty-four hour TTL.
-- A **write queue** in front of PostGIS upserts with a concurrency limit, exponential backoff with jitter on retryable errors (deadlocks, serialization failures, lock timeouts), and a hard cap on queue depth to shed load rather than blow up the pool under pressure.
-- A **cleanup worker** that runs every thirty minutes to delete rows without coordinates, delete expired events past the grace period, deduplicate by `(source, source_id)` keeping the newest row, backfill the PostGIS `geom` column for any rows that landed without one, run `ANALYZE risk_events_cache` to keep the planner honest, and purge old ingestion run records.
-- A **dynamic reference data refresh** on a twenty-four hour cycle that pulls roughly six hundred urban centers and a few thousand pieces of critical infrastructure from Wikidata SPARQL (dams, pipelines, ports, nuclear plants, bridges, tunnels, fault lines, extraction sites, mines) and feeds them into the location-batched air quality and flood queries as well as into the ground deformation zone synthesis.
-
-The frontend consumes all of this through three separate SSE endpoints (full intelligence stream, nearby-spatial stream, ingestion progress stream) and locally maintains an in-memory `riskIntelligenceData` keyed by category, with a sixty-second prune cycle that drops events past their twenty-four hour client-side TTL (with Ground Deformation exempted as a persistent category since InSAR observations represent ongoing conditions rather than discrete events).
-
-#### My Area and Saved Views
-
-Two operational features sit on top of the intel bar that the original design didn't have.
-
-**My Area** is a persistent geographic filter. Users can save either a point-and-radius (circular area around an address or coordinates, with built-in Nominatim geocoding) or a bounding box, and toggle the filter on or off independently of having an area saved. When active, the filter is applied to every risk category, every summary count, every map marker, and every modal that lists nearby events, all in a single `useMemo` pass that runs `isPointInArea` over the in-memory risk data. The area is persisted both to local storage (so it survives reloads without a server round-trip) and to the backend (so it survives a fresh device).
-
-The geometry is drawn on both providers. On deck.gl the area renders as a `SolidPolygonLayer` fill with a `PathLayer` stroke, the polygon ring computed by a geodesic-circle algorithm at ninety-six segments, with a center pin (outer / inner / label) sitting on top. On Apple Maps the same area renders as either a `CircleOverlay` or a `PolygonOverlay` with a dashed cyan stroke and a translucent fill, plus a labeled annotation at the center.
-
-**Saved Views** capture the current camera (center, zoom, pitch, bearing, bounds), the current filter state (My Area, active risk layers), and the current layer toggle state (3D terrain, satellite versus topographic basemap, building POIs, asset visibility mode, heatmap on or off, visibility badges on or off) under a user-supplied name and description. They're stored both client-side and in the backend's `risk_user_views` table, capped at fifty per user, and applied with a single click that flies the map to the saved camera and restores every toggle. The "Apply" path is also wired to a `?view=` query parameter so saved views can be shared as deep links.
-
-Both features are coupled to the same backend user table set, so an org admin who shares an account or a workspace can hand off their preferred areas and views without re-entering them.
-
-#### Map and Hazard Layers
-
-The deck.gl layer stack is built fresh on every relevant state change by a `buildDeckLayers` callback and pushed into the overlay through `setProps({ layers })`. The full set, in render order, is:
-
-- **Heatmap layer** (optional, toggled by the user). Drawn from up to five hundred events per category with severity-weighted intensity, dynamic radius and intensity that scale with the current zoom (200 pixel radius at z10 and above, down to 50 pixels at z3 and below), and a six-stop color ramp from transparent cyan through to opaque red. When the heatmap is on, individual risk markers and impact circles are suppressed to keep the canvas readable.
-- **Asset polylines, polygons, and points**. Line assets (pipelines, transmission corridors) render through a `PathLayer` colored by asset type and widened by risk score. Polygon assets (refinery footprints, mine boundaries, data center campuses) render as a translucent fill plus a stroke. Point assets render as a two-layer scatterplot (outer ring colored by risk score, inner dot colored by asset type) plus a `TextLayer` for the asset name, billboard-aligned with a black outline so labels stay legible on any basemap.
-- **Risk event markers**. A single `ScatterplotLayer` carries every active hazard event, sized by severity (Critical at 14 pixels, High at 11, Medium at 9, Low at 7), filled with the severity color, and stroked with the category color so you can see both dimensions at a glance.
-- **Visibility badges**. A small gold dot is overlaid on any risk event whose `visibility` is `org-private`, distinguishing your organization's privately-ingested events from the public agency feeds. The badge is toggleable independently of the markers themselves.
-- **Impact circles**. For any event with a defined impact radius, a translucent circle is drawn at that radius in meters, with the fill and stroke alpha both scaled down as the circle count grows so a dense view doesn't turn into a single opaque blob. Capped at two hundred circles per render with the largest impact radii prioritized.
-- **Risk polygon overlays**. For any event delivered with a real `Polygon` geometry (NWS alert polygons, wildfire perimeters, tsunami coastal segments), a `SolidPolygonLayer` plus `PathLayer` pair renders the actual footprint rather than just the centroid marker. This is the difference between knowing a tornado warning exists in Oklahoma and being able to see which counties it actually covers.
-- **My Area** rendered as described above.
-- **Selection highlight**. When a feature is selected through the click-to-identify mode, its geometry is drawn as a cyan fill plus stroke on top of everything else.
-
-On the Apple side most of these become native primitives: `Annotation` for markers (with a per-marker DOM factory that builds a CSS pin and an animated pulse for Critical and High severities), `CircleOverlay` for impact radii, and `PolygonOverlay` for risk polygon footprints and the bounding-box My Area.
-
-Symbol sizing is severity-driven and family-specific in the data layer (magnitude for earthquakes, intensity classification for cyclones, AQI bucket for air quality, fire radiative power for wildfires) and severity-tier-driven in the marker layer. Clustering happens implicitly through deck.gl's GPU-side rendering at low zoom; at high zoom every event gets its own marker.
-
-#### Click-to-Identify Feature Selection
-
-A "Select" toggle in the page header puts the map into a feature-identification mode that's powered by Overpass rather than by any of the hazard feeds. Click anywhere on the map and the page runs an Overpass query within a zoom-tiered radius (3 meters at z21, scaling out to 15 kilometers at z6 and below), picks the best matching polygon (preferring features the click is inside, breaking ties by smallest area, then by edge distance plus an area-tiebreaker term), and opens a feature-detail panel with:
-
-- The feature's address (assembled from OSM tags if present, otherwise reverse-geocoded through Nominatim)
-- A Wikipedia summary if the feature has a `wikipedia` tag, fetched through the Wikipedia REST API
-- The ground elevation at the centroid from Open-Elevation
-- A list of nearby points of interest (amenities, shops, tourism, transit) within three hundred meters
-- A list of nearby named streets within one hundred fifty meters
-- The administrative boundaries the feature sits inside, sorted by admin level
-- A land-use context summary based on a five-hundred-meter Overpass query
-- Geographic context (estimated timezone from longitude, climate zone from latitude, hemisphere)
-- The full set of polygon measurements: area, perimeter, dimensions (north-south extent, east-west extent, diagonal, longest and shortest edges, average edge, equivalent circular diameter, aspect ratio), and the geometric bounding box
-
-The geometry is drawn as a cyan highlight on top of the basemap and a "Zoom to feature" button fits the map to its bounding box. All of this lives client-side; the only server cost is the Overpass and Nominatim and Wikipedia rate limits, which the multi-mirror caching layer keeps polite.
-
-#### Active Event List
-
-The left rail's active event list mirrors whatever the current filter and viewport contain, sorted by severity (the default), most-recent-first, or proximity to the map center. Each row shows the family icon, headline, severity badge, time-ago, and a small chip listing any of your assets whose footprint intersects the event. Selecting a row in the list selects the event on the map and opens it in the inspector simultaneously.
-
-#### Selection Inspector (IntelBar)
-
-The right rail is a dedicated component (`IntelBar.jsx`) that lights up whenever something on the map is selected. It supports two selection contexts: a hazard event (which gets the full intelligence briefing treatment across nine tabs) and a map feature identified through the click-to-identify path (which gets a single details tab with measurements and the enrichment data described above). The component is large, roughly fifteen hundred lines, and behind it sits a separate backend route that runs the actual fan-out across the upstream intelligence sources and the Gemini-powered analysis pipeline. This is where DinoStratum stops being just a map of where the bad things are and starts becoming an analyst tool that explains them.
-
-##### The Nine-Tab Briefing
-
-When a hazard event is selected, the IntelBar exposes nine tabs.
-
-The **Details** tab is the source-of-truth view, the same per-category metadata renderer described before (earthquake, wildfire, weather, flood, volcano, air quality, ground deformation, golden mesh detection, global disaster), but presented as a horizontal scrolling stack of cards: Overview with severity badge and quick actions (Source, Assess, Nearby, Create Alert), Location & Timing, Population Impact (density tier, estimated population, nearest city, distance), Detailed Data flattened from the per-source metadata blob, Golden Mesh Detection when present, Safety Recommendations, and a Source Info card with the internal ID and the upstream source ID. If the event has expired past its TTL, a prominent banner offers to dismiss it or refresh the entire risk feed.
-
-The **AI Summary** tab is the headline feature. On selection, the backend kicks off a parallel fetch across the entire upstream intelligence stack (more on which sources below), filters every returned item against the risk event through a Gemini-powered relevance scorer, runs the curated set through a second Gemini call that generates a structured intelligence briefing (executive summary, five key findings, six contextual statistics, impact assessment, affected areas, recommendations, and a chronological timeline), and returns the whole thing as a multi-card layout. Each card scrolls independently. Confidence is computed separately from the count and tier of corroborating sources (tier-one outlets like Reuters, AP, BBC, NYT, Washington Post, Guardian, AFP; tier-two like CNN, NBC, NPR, DW; verified video channels; academic count; ReliefWeb count; distinct source count) and surfaced both as a colored HIGH/MEDIUM/LOW badge on the IntelBar header and as a dedicated Confidence card in the summary with per-tier indicator breakdown. If the AI summary is unavailable (no Gemini API key, or the call fails), a fallback summary is built from the raw event metadata with confidence forced to LOW.
-
-The **News** tab shows aggregated news coverage from GDELT (the global news event database), GNews (when configured), and Google Custom Search. Each result is deduplicated by URL, date-filtered against the event window, scored by relevance to the event (matching against category, location, magnitude, place name, with a publication-date-versus-event-date proximity bonus and a source-tier bonus), passed through the Gemini relevance filter for a final 0 to 10 score, and rendered as cards with the article image, source, publication time, a Verified/Likely/Unverified badge based on the relevance score, and the provider tag.
-
-The **Videos** tab is the same pattern against the YouTube Data API: search, fetch view/like/duration stats in a second batch call, filter by date window, score by relevance with a view-count bonus and a verified-channel bonus for the major news outlets, and render as cards with the thumbnail, duration, view count, channel, and a relevance badge.
-
-The **Images** tab pulls from Google Images (when configured), Wikimedia Commons (which is unkeyed and surprisingly good for event imagery), and any image URLs extracted from the news articles fetched in the News tab. Images are deduplicated by URL, passed through a dedicated Gemini image-relevance filter that flags generic stock photos and wrong-location maps for removal, and rendered as a grid. Clicking any image opens an in-component lightbox with previous/next navigation, a source link, and a caption.
-
-The **Academic** tab runs against the Semantic Scholar API, mapping the risk category to a discipline term (seismology for earthquakes, hydrology for floods, tropical cyclone for hurricanes, volcanology for volcanic events, and so on) so that "Wildfire in California" queries against "wildfire fire science combustion California" rather than the literal event title. Each paper card shows the title, first five authors, abstract excerpt, year, citation count, and a DOI link when available.
-
-The **Social** tab queries the unauthenticated Reddit search endpoint, filters by relevance through Gemini, and renders each post with the subreddit, score, comment count, author, time, excerpt, and a Relevant/Maybe/Off-topic badge.
-
-The **Related** tab is the only one that doesn't go out to upstream sources at all: it runs a `ST_DWithin` PostGIS query against the in-database hazard cache within the risk's impact radius (capped at five hundred kilometers), sorts by severity score and distance, and returns up to twenty nearby risks. Clicking one navigates the map to that risk and re-opens the briefing in that risk's context.
-
-The **History** tab queries the briefings audit table for the org's most recent briefings, optionally bbox-filtered to the current map viewport, and renders them as a chronological list with the category, severity, title, confidence level, scope (viewport or assets), and asset count. Selecting a row navigates to that risk on the map and reopens the briefing.
-
-##### Viewport vs Asset Scope
-
-A scope toggle in the settings panel switches the briefing between two modes. **Viewport scope** is the default and treats the briefing as a general-purpose analysis of the event for anyone viewing it. **Asset scope** runs an additional PostGIS spatial query against the org's asset registry inside the risk's impact radius, ranks the returned assets by criticality and proximity, surfaces them as a dedicated Org Assets card in the AI Summary tab, and prepends the asset list to the Gemini prompt with an explicit instruction to tailor the impact assessment, recommendations, and key findings toward operational exposure to those named assets. The same briefing for the same event will read very differently in the two modes: viewport reads like a news brief, asset reads like an internal advisory memo addressed to the operations team responsible for the named sites.
-
-##### Source Toggles, Feedback, Alert Rules
-
-Three modal flows sit on top of the briefing.
-
-The **Settings** modal exposes per-source enable/disable toggles for all eleven upstream providers (GDELT, GNews, Google CSE, YouTube, Google Images, Wikimedia, Article Images, Semantic Scholar, Reddit, ReliefWeb, Wikipedia) plus the scope default. Settings persist per username and orgid to a dedicated `intel_user_settings` table and are honored on every subsequent briefing fetch, including the per-tab refresh paths. A disabled source short-circuits its backend call immediately and returns an empty array, so toggling sources off reduces external API load rather than just hiding results.
-
-The **Flag this briefing** modal lets a user submit a structured complaint against any briefing they think is wrong. The categories are intentionally specific: Inaccurate summary, Wrong location, Off-topic sources, Hallucinated content, Outdated information, Other. The submission captures a snapshot of the full source bundle (every URL, every relevance score, every provider tag that fed the AI summary) and the AI summary itself, then stores all of it in `intel_briefing_feedback`. The intent is to be able to reproduce and debug a bad briefing from the audit trail alone, without needing to re-run the upstream feeds at the time of complaint.
-
-The **Create Alert** modal pre-fills from the current briefing and creates a row in the platform's main `risk_alerts` table. Rule name, severity threshold, radius, and category are all pre-populated from the event being briefed; the user adjusts and submits. From that point on, the alert rule is owned by the standard alerting engine and the briefing is just where it was born.
-
-##### Source Bundle and Audit Trail
-
-Every full briefing captures the complete set of sources that informed it (article titles, URLs, providers, publication dates, relevance scores, video stats, paper metadata, Reddit thread context) into the `source_bundle` JSONB column on the briefing record. The AI Summary tab has a Sources button that surfaces this bundle as a dedicated card with per-provider groupings (Articles, Videos, Academic, Reddit, ReliefWeb, Wikipedia, Google Results), each item linked back to its origin and tagged with the relevance score that put it there. This is what makes feedback complaints actionable and what makes asset-scoped briefings defensible: every claim in the AI summary has a paper trail.
-
-##### Performance, Caching, Fallbacks
-
-The briefing path is heavily cached at multiple levels: full briefings in `BRIEFING_CACHE`, per-source search results in `SEARCH_CACHE`, the resolved risk objects themselves in `RISK_OBJECT_CACHE`, captured source bundles in `SOURCE_BUNDLE_CACHE`, and per-user settings in `USER_SETTINGS_CACHE`. All caches use a thirty-minute TTL and a sliding LRU eviction. A second-tier cache lives in the per-source fetchers themselves, so a GDELT query for "Wildfire California" hit by two different briefings within the cache window only makes one outbound call.
-
-Every upstream call goes through a timeout-and-retry wrapper that backs off exponentially on 429s, respects the `Retry-After` header, and falls through to an empty result rather than failing the briefing when a non-critical source returns an error. The Gemini relevance filter has its own fallback: if the API key is missing or the call fails, the filter falls back to a keyword-based scoring path that still does location and category matching, so per-tab item filtering never completely breaks. The AI summary itself has the same property: if Gemini is unavailable, the fallback summary is built from the raw event metadata with confidence forced to LOW and a data quality note attached.
-
-##### Feature Selection Mode
-
-When the selection is a map feature rather than a hazard event (from the Overpass click-to-identify path described earlier), the IntelBar reduces to a single Details tab that renders the feature overview, the measurement card (area, perimeter, vertex count, centroid coordinates), the address (from OSM tags or from the Nominatim reverse geocode fallback), and the elevation card. The fetch-in-progress state is surfaced as a separate skeleton card while the Wikipedia, Open-Elevation, nearby POIs, nearby streets, admin boundaries, and land use queries resolve in parallel. The Zoom, Assess, and Nearby actions are wired in the same way as on the hazard event view so any identified feature can be turned directly into a location risk assessment.
-
-##### Expired Events
-
-The inspector also handles expired event dismissal: if you open a saved or stale event past its twenty-four hour TTL, the panel surfaces a banner offering to remove it from the local cache or refresh the entire risk feed. This catches the case where a link is shared or a saved view is opened long after the underlying event has been pruned, and avoids silently presenting stale data as if it were current.
-
-#### Exposure Scoring
-
-The exposure model is intentionally simple and transparent. There's a single scoring function per hazard family that consumes an event and an asset and returns `{ tier, factors, geometry }`. The factors are always shown in the inspector, so it's never opaque why a score came out the way it did. Earthquake factors are distance from epicenter, asset's mapped ShakeMap intensity if one is available, and asset construction-class modifier. Wildfire factors are distance to the nearest active detection, detection confidence, and wind direction toward the asset. Cyclone factors are which forecast cone band the asset sits in and the forecast intensity at the asset's closest-approach time. Ground deformation factors are cumulative displacement, annual rate, current coherence, and proximity to critical infrastructure (the last of which is the same proximity check used by the backend's location risk assessor). I'm not claiming this rivals a commercial catastrophe model, it's a transparent approximation that's good enough to flag where you should be paying attention.
-
-A dedicated **Assess Location** path is available from the header that runs a server-side equivalent against a point and radius: it pulls every nearby risk across six categories, weights each one by severity and proximity, returns a 0 to 100 composite score with a tier label, surfaces the contributing factors with their individual contributions, includes the population exposure estimate and the count of critical infrastructure within range, and ranks the top hundred nearby risks. The result opens in a dedicated modal and can be saved as a new My Area in one click.
-
-Per-pair exposure scores are cached client-side and invalidated when either side of the pair changes, so re-opening an event you've already scored against your portfolio is instant.
-
-#### Golden Mesh Change Detection
-
-Ground deformation events carry an additional inspector section that the other families don't: a **Golden Mesh** comparison block. Assets in the Asset Management page can have a baseline three-dimensional mesh captured (from LiDAR, photogrammetry, or any other source) and stored as a per-asset "golden" reference. When a Sentinel-1 InSAR observation comes in over an asset that has a golden mesh, the backend runs a per-point comparison of the simulated current surface against the baseline, computes the maximum delta in millimeters, the mean and standard deviation of deltas, the percentage of affected points, and the spatial hotspots where the deviation is concentrated, and attaches the result to the event under `golden_mesh_detection`. The inspector renders this as its own metadata section with a color-coded severity badge, an affected-percentage progress bar, a hotspot count, and an acknowledgment state (unacknowledged, acknowledged, resolved) that propagates back to the backend.
-
-This is the piece of the platform that's furthest from off-the-shelf, and it's the one that ties the InSAR feed to actual operational decision-making rather than just to a passive map layer.
-
-#### Reports
-
-A "Generate report" button on the Risk Management header builds a per-portfolio exposure snapshot PDF: a cover page with the run timestamp and the set of active hazard families, a per-asset table sorted by highest current exposure tier with the contributing event linked, and a final map page with all of the current events and your assets symbolized in context. The PDF is assembled client-side using `jsPDF` plus a snapshot of the MapLibre canvas, with a server-side fallback (`reportBuilder.js`) that runs the same composition headlessly for users who want a scheduled or back-dated report.
-
-#### Health, Ingestion, and Cleanup Dashboards
-
-Three operations-facing modals are wired into the sidebar:
-
-- **Ingestion Worker Status** shows whether the worker is currently running, the configured cycle interval, the number of cached events both in memory and in PostGIS, the breakdown by category and severity, the last ten ingestion runs with duration and error counts, and a live SSE feed of in-progress ingestion that updates as each source completes. The feed connects on demand and disconnects when the modal closes.
-- **Cleanup Worker Status** shows the cleanup worker's running state, its interval, the configured retention windows (seven day grace period for expired events, seven day retention for ingestion run records), the per-stage batch and iteration limits, and a manual "Trigger Cleanup" button that returns 202 when accepted and 409 if a cycle is already running.
-- **System Health** rolls up the PostGIS connection (with cached event count and the connection pool stats), the external API connectivity per upstream source, and the write queue depth, currently-processing flag, and total dropped count.
-
-These are the kinds of dashboards that normally only the operator sees, but on a platform that's actively polling twenty-eight feeds it felt right to make them visible to anyone using the product, both as a transparency mechanism and as a debugging surface when something goes sideways.
 
 ### Asset Management
 
