@@ -143,3 +143,4 @@ npm-debug.log*
 .env.*
 **/.env
 **/.env.*
+**/.env
