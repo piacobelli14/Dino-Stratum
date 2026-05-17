@@ -1129,8 +1129,9 @@ router.post("/risk/assets", async (req, res) => {
         );
         await logAudit(orgid, username, "CREATE", "risk_asset", assetId, null, result.rows[0], req.ip, req.get("User-Agent"));
         return res.status(201).json({ success: true, message: "Asset created successfully.", asset: result.rows[0] });
-    } catch {
-        return res.status(500).json({ success: false, message: "An error occurred while creating the asset." });
+    } catch (error) {
+        console.error("[/risk/assets] failed", { orgid, query: req.query, error });
+        return res.status(500).json({ success: false, message: "An error occurred while retrieving assets." });
     }
 });
 

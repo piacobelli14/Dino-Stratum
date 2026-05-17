@@ -107,6 +107,7 @@ router.get("/risk/user/area", async (req, res) => {
             message: "User area retrieved successfully."
         });
     } catch (error) {
+        console.error("[/risk/user/area] failed", { orgid, username, error });
         return res.status(500).json({ success: false, message: "Failed to retrieve user area." });
     }
 });
