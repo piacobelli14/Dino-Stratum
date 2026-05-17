@@ -10,6 +10,7 @@ import Login from "./pages/Authnetication/AuthLogin.jsx";
 import Register from "./pages/Authnetication/AuthRegister.jsx";
 import Reset from "./pages/Authnetication/AuthReset.jsx";
 import Account from "./pages/Account/Account.jsx";
+import Team from "./pages/Account/Team.jsx";
 import RiskCommandCenter from "./pages/DinoStratumIntelligence/RiskCommandCenter.jsx";
 import AssetManagement from "./pages/DinoStratumManagement/AssetManagement.jsx";
 
@@ -44,6 +45,12 @@ function App() {
             <Route path="/account" element={
               <ProtectedRoute>
                 <Account />
+              </ProtectedRoute>
+            } />
+
+            <Route path="/team" element={
+              <ProtectedRoute>
+                <Team />
               </ProtectedRoute>
             } />
 

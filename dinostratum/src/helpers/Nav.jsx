@@ -48,7 +48,8 @@ import {
   faUsers,
   faMapLocationDot,
   faUserGear,
-  faHouse
+  faHouse,
+  faUsersGear
 } from "@fortawesome/free-solid-svg-icons";
 import "../styles/helperStyles/NavBar.css";
 import useAuth from "../UseAuth.jsx";
@@ -205,6 +206,21 @@ const Nav = ({ activePage }) => {
                     className="navigationButtonIcon"
                   />
                   My Account
+                </div>
+              </button>
+            )}
+
+            {(token) && (
+              <button
+                className="navigationButtonWrapper"
+                onClick={() => {navigate("/team")}}
+              >
+                <div className="navigationButton">
+                  <FontAwesomeIcon
+                    icon={faUsersGear}
+                    className="navigationButtonIcon"
+                  />
+                  My Team
                 </div>
               </button>
             )}

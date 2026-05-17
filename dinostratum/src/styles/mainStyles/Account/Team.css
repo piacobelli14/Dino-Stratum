@@ -1,0 +1,833 @@
+:root {
+    --st-bg-void: #08090c;
+    --st-bg-base: #0a0c0f;
+    --st-bg-primary: #0d0f13;
+    --st-bg-secondary: #101216;
+    --st-bg-tertiary: #13151a;
+    --st-bg-elevated: #16181d;
+    --st-bg-surface: #12141a;
+    --st-bg-panel: #0f1115;
+
+    --st-text-primary: rgba(235, 240, 248, 0.95);
+    --st-text-secondary: rgba(205, 212, 228, 0.82);
+    --st-text-tertiary: rgba(170, 180, 200, 0.72);
+    --st-text-muted: rgba(145, 155, 175, 0.58);
+
+    --st-border-primary: rgba(50, 55, 70, 0.45);
+    --st-border-subtle: rgba(40, 45, 58, 0.35);
+    --st-border-glow: rgba(60, 68, 85, 0.5);
+
+    --st-accent-primary: #6a7a8a;
+    --st-accent-secondary: #5a6a7a;
+    --st-accent-cyan: #4ECDC4;
+}
+
+@keyframes teamCellFadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.teamCellFadeIn {
+    animation: teamCellFadeIn 2s ease-out;
+}
+
+.teamPageWrapper {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    background: var(--st-bg-void);
+}
+
+.teamCellHeaderContainer {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    width: 100vw;
+    min-height: calc(100vh - 60px) !important;
+    position: relative;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: var(--st-bg-void) !important;
+}
+
+.teamNavBar {
+    position: sticky;
+    top: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    min-height: 40px;
+    max-height: 40px;
+    background: var(--st-bg-secondary);
+    border: none;
+    border-bottom: 0.2vh solid var(--st-border-subtle);
+    border-right: 0.2vh solid var(--st-border-subtle);
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    gap: 2rem;
+    overflow-x: scroll;
+}
+
+@media (max-width: 699px) {
+    .teamNavBar {
+        padding: 0 2rem; 
+    }
+}
+
+.teamNavBar button {
+    background-color: rgba(255, 255, 255, 0.0);
+    padding: 0;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--st-text-tertiary);
+    height: 100%;
+    border-radius: 0;
+    border: none;
+    outline: none;
+}
+
+.teamNavBar button:hover {
+    color: var(--st-accent-cyan);
+    border: none;
+    border-bottom: 2px solid var(--st-accent-cyan);
+    outline: none;
+}
+
+.teamNavBar button:focus {
+    color: var(--st-text-tertiary);
+    border: none;
+    outline: none;
+}
+
+.teamTopBar {
+    position: sticky;
+    top: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    min-height: 80px;
+    max-height: 80px;
+    background: var(--st-bg-secondary);
+    border: none;
+    border-bottom: 0.2vh solid var(--st-border-subtle);
+    border-right: 0.2vh solid var(--st-border-subtle);
+    box-sizing: border-box;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 2vw;
+}
+
+.teamTopBarSearchContainer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    height: 40px;
+}
+
+.teamTopBarSearchContainer button {
+    width: 10%;
+    height: 40px;
+    margin-left: 1rem;
+    padding: 0;
+    background-color: var(--st-bg-tertiary);
+    border: 1px solid var(--st-border-primary);
+    border-radius: 6px;
+    color: var(--st-accent-cyan);
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+    font-size: 1rem;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+}
+
+.teamTopBarSearchContainer button:hover {
+    opacity: 0.6;
+    outline: none;
+    border: 1px solid var(--st-accent-cyan);
+}
+
+.teamTopBarSearchContainer button:focus {
+    outline: none;
+    border: 1px solid var(--st-accent-cyan);
+}
+
+.teamSearchBarWrapper {
+    display: flex;
+    align-items: center;
+    background-color: var(--st-bg-tertiary);
+    border: 1px solid var(--st-border-primary);
+    border-radius: 6px;
+    padding: 0 0.8rem;
+    width: 100%;
+    height: 40px;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+}
+
+.teamSearchIcon,
+.teamSearchIconSupplement {
+    font-size: 0.9rem;
+    color: var(--st-text-muted);
+    margin-right: 0.5rem;
+}
+
+.teamSearchIconSupplement {
+    cursor: pointer;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    margin-left: 0.5rem;
+}
+
+.teamSearchIconSupplement:hover {
+    opacity: 0.6;
+    transform: scale(1.1);
+}
+
+.teamSearchInput {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--st-text-primary);
+}
+
+.teamSearchInput::placeholder {
+    color: var(--st-text-muted);
+    font-weight: 600;
+}
+
+.teamListContainer {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    padding: 20px 40px;
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+
+.teamListItemCollapsed {
+    height: 100px;
+    width: 100%;
+    background-color: var(--st-bg-secondary);
+    border: 1px solid var(--st-border-primary);
+    border-radius: 6px;
+    box-sizing: border-box;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 2rem;
+    margin-bottom: 2rem;
+    cursor: pointer;
+}
+
+.teamListItemCollapsed:hover {
+    opacity: 0.8;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+.teamCellContentContainer {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    box-sizing: border-box;
+    padding: 1rem 0;
+}
+
+.teamContentFlexCell {
+    flex: 0 0 auto;
+    margin: 1vw auto 2vw;
+}
+
+.teamContentFlexCell {
+    display: flex;
+    flex-direction: column;
+    width: 90%;
+    max-width: 1200px;
+    min-height: 200px;
+    background-color: var(--st-bg-secondary);
+    border-radius: 6px;
+    margin: 1vw 0 2vw;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
+    box-sizing: border-box;
+}
+
+@media (min-width: 1000px) {
+    .teamContentFlexCell {
+        min-height: 250px;
+    }
+}
+
+.teamContentFlexCellTop {
+    flex: 0 0 70px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    background-color: var(--st-bg-base);
+    border-bottom: 2px solid var(--st-border-subtle);
+    justify-content: space-between;
+    padding: 0 4%;
+    box-sizing: border-box;
+}
+
+.teamContentFlexCellTop p {
+    padding: 0;
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--st-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 0.6rem;
+}
+
+.teamContentFlexCellTop button {
+    padding: 0.4rem 16px;
+    border-radius: 4px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    box-sizing: border-box;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--st-text-primary);
+    box-shadow: 0 0 10px solid black;
+    border: 1px solid var(--st-border-primary);
+    outline: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.6rem;
+    background-color: var(--st-bg-tertiary);
+    width: 150px;
+}
+
+.teamContentFlexCellTop button:hover {
+    opacity: 0.6;
+    border: 1px solid var(--st-accent-cyan);
+    outline: none;
+}
+
+.teamContentFlexCellTop button:focus {
+    opacity: 0.6;
+    border: 1px solid var(--st-accent-cyan);
+    outline: none;
+}
+
+.teamContentFlexCellMedium {
+    flex: 1 1 auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-start;
+    overflow: auto;
+    padding: 2rem;
+    box-sizing: border-box;
+    background-color: var(--st-bg-void);
+}
+
+.teamContentFlexCellBottom {
+    flex: 0 0 70px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    background-color: var(--st-bg-base);
+    border-top: 2px solid var(--st-border-subtle);
+    justify-content: space-between;
+    padding: 0 4%;
+    box-sizing: border-box;
+}
+
+.teamContentFlexCellBottom p {
+    padding: 0;
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--st-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (min-width: 1000px) {
+    .teamContentFlexCellBottom p {
+        font-size: 0.7rem;
+    }
+}
+
+.teamContentFlexCellBottom button {
+    padding: 0.4rem 16px;
+    border-radius: 4px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    box-sizing: border-box;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--st-text-primary);
+    box-shadow: 0 0 10px solid black;
+    border: 1px solid var(--st-border-primary);
+    outline: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.6rem;
+    background-color: var(--st-bg-tertiary);
+    width: 150px;
+}
+
+.teamContentFlexCellBottom button:hover {
+    opacity: 0.6;
+    border: 1px solid var(--st-accent-cyan);
+    outline: none;
+}
+
+.teamContentFlexCellBottom button:focus {
+    opacity: 0.6;
+    border: 1px solid var(--st-accent-cyan);
+    outline: none;
+}
+
+.teamEmailInviteRow {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    width: 80%;
+    padding: 0 2%;
+    box-sizing: border-box;
+    gap: 0.6rem;
+    margin-bottom: 1rem;;
+}
+
+.teamEmailInviteRowWrapperShort {
+    width: 35%;
+    box-sizing: border-box;
+    overflow: hidden;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--st-text-tertiary);
+    margin-left: 2px;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.teamEmailInviteField {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: var(--st-bg-base);
+    border: 1px solid var(--st-border-primary);
+    border-radius: 6px;
+    padding: 0rem 0.8rem;
+    width: 100%;
+    height: 40px;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    position: relative;
+}
+
+.teamEmailInviteField input {
+    text-align: left;
+}
+
+.teamEmailInviteField span {
+    display: flex;
+    align-items: center;
+}
+
+.teamEmailInviteField p {
+    font-size: 0.7rem;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 0.6rem;
+    color: var(--st-text-secondary);
+}
+
+.teamEmailInviteField:hover {
+    opacity: 0.6;
+    border: 1px solid var(--st-border-glow);
+    outline: none;
+}
+
+.teamEmailInviteField:focus {
+    border: 1px solid var(--st-accent-cyan);
+    outline: none;
+}
+
+.teamControlInput {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--st-text-primary);
+}
+
+.rootInput::placeholder {
+    color: var(--st-text-muted);
+    font-weight: 600;
+}
+
+.teamControlRemoveBtn {
+    background-color: var(--st-bg-base);
+    border: 1px solid var(--st-border-primary);
+    outline: none; 
+    color: var(--st-text-secondary);
+    border-radius: 6px;
+    width: 40px;
+    height: 40px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.teamControlRemoveBtn:hover {
+    opacity: 0.6;
+    outline: none;
+    border: 1px solid var(--st-accent-cyan);
+}
+
+.teamControlRemoveBtn:focus {
+    opacity: 1.0;
+    outline: none; 
+    border: 1px solid var(--st-accent-cyan);
+}
+
+.teamControlAddBtn {
+    background-color: var(--st-bg-base);
+    border: 1px solid var(--st-border-primary);
+    color: var(--st-text-secondary);
+    border-radius: 6px !important;
+    padding: 0.6rem 1.2rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    font-style: italic;
+    cursor: pointer;
+    margin-top: 0.5rem;
+    width: fit-content;
+    display: flex; 
+    justify-content: center;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.teamControlAddBtn:hover {
+    opacity: 0.6;
+    outline: none;
+    border: 1px solid var(--st-accent-cyan);
+}
+
+.teamControlAddBtn:focus {
+    opacity: 1.0;
+    outline: none;
+    border: 1px solid var(--st-accent-cyan);
+}
+
+.teamContentTopMenuWrapper {
+    display: flex; 
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+}
+
+.teamContentMemberRow {
+    width: 100%; 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center;
+    border-top: 0.5px solid var(--st-border-subtle); 
+    border-bottom: 0.5px solid var(--st-border-subtle); 
+    box-sizing: border-box;
+    padding: 2rem 2rem; 
+}
+
+.teamContentMemberRowLeading, 
+.teamContentMemberRowTrailing {
+    display: flex; 
+    justify-content: flex-start;
+    align-items: center;
+    gap: 1rem; 
+    box-sizing: border-box;
+    overflow: hidden;
+    overflow: scroll; 
+}
+
+.teamContentMemberRowLeading {
+    padding-right: 1rem;
+}
+
+.teamContentMemberRowTrailing {
+    padding-left: 1rem;
+}
+
+.teamContentMemberRowLeading img {
+    width: 50px; 
+    height: 50px; 
+    object-fit: cover;
+    border-radius: 8px; 
+    margin-right: 0.4rem;
+}
+
+.teamContentMemberRowLeading span {
+    padding: 0; 
+    margin: 0; 
+    display: flex; 
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    overflow: hidden;
+}
+
+.teamContentMemberRowLeading span strong {
+    font-size: 1.1rem; 
+    font-weight: 800; 
+    color: var(--st-text-primary); 
+    padding: 0; 
+    margin: 0; 
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    text-align: left;
+    width: 100%; 
+}
+
+.teamContentMemberRowLeading span p, 
+.teamContentMemberRowTrailing p {
+    font-size: 0.8rem; 
+    font-weight: 500; 
+    color: var(--st-text-secondary); 
+    padding: 0; 
+    margin: 0; 
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    opacity: 0.9;
+    width: 100%; 
+}
+
+.teamContentMemberRowTrailing p {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-right: 1rem;
+}
+
+.teamContentMemberRowTrailing button {
+    padding: 0.4rem 16px;
+    border-radius: 4px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    box-sizing: border-box;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--st-text-primary);
+    box-shadow: 0 0 10px solid black;
+    border: 1px solid var(--st-border-primary);
+    outline: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.6rem;
+    background-color: var(--st-bg-elevated);
+    white-space: nowrap; 
+}
+
+.teamContentMemberRowTrailing button p {
+    font-size: 0.7rem;
+    font-weight: 700; 
+    font-style: none; 
+    padding: 0; 
+    margin: 0;
+    color: var(--st-text-primary);
+    opacity: 0.9;
+}
+
+.teamContentMemberRowTrailing button:hover {
+    opacity: 0.6;
+    border: 1px solid var(--st-accent-cyan);
+    outline: none;
+}
+
+.teamContentMemberRowTrailing button:focus {
+    opacity: 0.6;
+    border: 1px solid var(--st-accent-cyan);
+    outline: none;
+}
+
+.teamDropdownWrapper {
+    position: relative; 
+}
+
+.teamDropdownMenu {
+    position: fixed;
+    background: var(--st-bg-secondary);
+    border: 2px solid var(--st-border-primary);
+    border-radius: 0.3rem;
+    display: flex;
+    flex-direction: column;
+    z-index: 999;
+    min-width: 200px;
+    padding: 0.4rem 0;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+}
+
+.teamDropdownMenu button {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0.4rem 1rem;
+    color: var(--st-text-tertiary);
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-style: italic;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.teamDropdownMenu button button i {
+    padding: 0 0.4rem; 
+    text-overflow: ellipsis; 
+    overflow: hidden; 
+    white-space: nowrap;
+}
+
+.teamDropdownMenu button svg {
+    font-size: 0.7rem;
+}
+
+.teamDropdownMenu button:hover {
+    background: var(--st-bg-elevated);
+    border: none;
+    outline: none;
+}
+
+.teamDropdownMenu button:focus {
+    background: var(--st-bg-elevated);
+    border: none;
+    outline: none;
+}
+
+.teamNoResults {
+    width: 100%; 
+    height: calc(250px); 
+    display: flex; 
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.teamNoResultsIcon {
+    font-size: 1.6rem; 
+    color: var(--st-text-muted); 
+    margin-bottom: 1rem; 
+}
+
+.teamNoResultsText {
+    font-size: 0.8rem; 
+    font-weight: 600; 
+    color: var(--st-text-secondary); 
+    font-style: italic; 
+    margin-bottom: 1rem;;
+    width: 80%; 
+    text-align: center;
+}
+
+.teamNoResultsButtons {
+    display: flex; 
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+}
+
+@media (max-width: 700px) {
+    .teamNoResultsButtons {
+        flex-direction: column;
+    }
+}
+
+.teamNoResultsReset, 
+.teamNoResultsRefresh {
+    background-color: var(--st-bg-tertiary); 
+    padding: 0.4rem 0.8rem; 
+    border: 1px solid var(--st-border-primary); 
+    border-radius: 6px; 
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.6); 
+    font-size: 0.8rem; 
+    font-weight: 700;
+    color: var(--st-accent-cyan);
+    width: 150px;
+    outline: none; 
+}
+
+.teamNoResultsReset:hover, 
+.teamNoResultsRefresh:hover {
+    opacity: 0.6;
+    border: 1px solid var(--st-accent-cyan); 
+    outline: none;
+}
+
+.teamNoResultsReset:focus, 
+.teamNoResultsRefreshfocus {
+    border: 1px solid var(--st-accent-cyan); 
+    outline: none;
+}
+
+.teamNoResultCell {
+    background-color: var(--st-bg-secondary); 
+    border: 1px solid var(--st-border-primary); 
+    padding: 40px 40px; 
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.6);
+    border-radius: 6px; 
+    display: flex; 
+    flex-direction: column;
+    align-items: center;
+}
+
+@media (max-width: 700px) {
+    .teamNoResultCell {
+        padding: 20px 5px; 
+    }
+}
