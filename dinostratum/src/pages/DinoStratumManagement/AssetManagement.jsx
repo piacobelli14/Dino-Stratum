@@ -52,7 +52,6 @@ const ASSET_TYPES = {
 const ASSET_TYPE_OPTIONS = Object.keys(ASSET_TYPES);
 const PRIORITY_OPTIONS = ["Critical", "High", "Medium", "Low"];
 const STATUS_OPTIONS = ["Active", "Inactive", "Maintenance", "Decommissioned"];
-const VERTICAL_DATUM_OPTIONS = ["WGS84", "EGM96", "EGM2008", "NAVD88", "MSL", "AHD", "Other"];
 
 const SEVERITY_COLORS = {
   Critical: "#FF1744",
@@ -114,15 +113,6 @@ const INITIAL_FILTERS = {
   min_risk_score: "",
   max_risk_score: "",
   tags: ""
-};
-
-const INITIAL_GOLDEN_MESH_FORM = {
-  vertical_datum: "WGS84",
-  sensor_source: "",
-  horizontal_accuracy_m: "",
-  vertical_accuracy_m: "",
-  point_density_per_sqm: "",
-  notes: ""
 };
 
 const ALLOWED_MESH_EXTENSIONS = [".las", ".laz", ".copc.laz", ".ply", ".xyz", ".csv", ".tif", ".tiff"];
@@ -2807,24 +2797,16 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
   const [goldenMeshDetections, setGoldenMeshDetections] = useState([]);
   const [isLoadingGoldenMesh, setIsLoadingGoldenMesh] = useState(false);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
-  const [isSavingGoldenMesh, setIsSavingGoldenMesh] = useState(false);
   const [isDeletingGoldenMesh, setIsDeletingGoldenMesh] = useState(false);
   const [isRunningDetection, setIsRunningDetection] = useState(false);
   const [isAcknowledgingDetection, setIsAcknowledgingDetection] = useState(false);
   const [isResolvingDetection, setIsResolvingDetection] = useState(false);
-  const [goldenMeshFormData, setGoldenMeshFormData] = useState({ ...INITIAL_GOLDEN_MESH_FORM });
   const [selectedDetection, setSelectedDetection] = useState(null);
   const [goldenMeshAssetId, setGoldenMeshAssetId] = useState(null);
   const [goldenMeshToDelete, setGoldenMeshToDelete] = useState(null);
   const [selectedMeshForDetection, setSelectedMeshForDetection] = useState(null);
   const [detectionAcknowledgeNotes, setDetectionAcknowledgeNotes] = useState("");
   const [detectionResolveNotes, setDetectionResolveNotes] = useState("");
-
-  const [meshUploadFile, setMeshUploadFile] = useState(null);
-  const [meshUploadProgress, setMeshUploadProgress] = useState(0);
-  const [meshUploadStatus, setMeshUploadStatus] = useState(null);
-  const [meshUploadError, setMeshUploadError] = useState(null);
-  const [meshFileId, setMeshFileId] = useState(null);
 
   const [comparisonUploadFile, setComparisonUploadFile] = useState(null);
   const [comparisonUploadProgress, setComparisonUploadProgress] = useState(0);
@@ -3086,99 +3068,6 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     if (includeRisk && data.risk_score) payload.risk_score = parseFloat(data.risk_score);
     return payload;
   }, [orgid, username]);
-
-  const uploadMeshFile = useCallback(async (file, assetId) => {
-    setMeshUploadStatus("uploading");
-    setMeshUploadProgress(0);
-    setMeshUploadError(null);
-    try {
-      const urlData = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh/upload-url`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asset_id: assetId,
-          orgid,
-          username,
-          filename: file.name,
-          content_type: file.type || "application/octet-stream",
-          file_size: file.size
-        })
-      });
-      if (!urlData.success) {
-        setMeshUploadStatus("error");
-        setMeshUploadError(urlData.message);
-        return null;
-      }
-      const uploadInfo = urlData.upload;
-
-      if (uploadInfo.storage_backend === "s3") {
-        await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PUT", uploadInfo.upload_url, true);
-          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) setMeshUploadProgress(Math.round((e.loaded / e.total) * 100));
-          };
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) resolve();
-            else reject(new Error("Upload failed with status " + xhr.status + "."));
-          };
-          xhr.onerror = () => reject(new Error("Upload network error occurred."));
-          xhr.send(file);
-        });
-      } else {
-        await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("POST", `${import.meta.env.VITE_API_BASE_URL}${uploadInfo.upload_url}`, true);
-          xhr.setRequestHeader("X-File-Extension", "." + file.name.split(".").pop().toLowerCase());
-          xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) setMeshUploadProgress(Math.round((e.loaded / e.total) * 100));
-          };
-          xhr.onload = () => {
-            try {
-              const resp = JSON.parse(xhr.responseText);
-              if (resp.success) resolve(resp);
-              else reject(new Error(resp.message));
-            } catch {
-              reject(new Error("Upload response parse error."));
-            }
-          };
-          xhr.onerror = () => reject(new Error("Upload network error occurred."));
-          xhr.send(file);
-        });
-      }
-
-      setMeshUploadProgress(100);
-      setMeshUploadStatus("processing");
-      setMeshFileId(uploadInfo.file_id);
-      return uploadInfo;
-    } catch (error) {
-      setMeshUploadStatus("error");
-      setMeshUploadError(error.message || "Upload failed.");
-      return null;
-    }
-  }, [orgid, username, apiFetch]);
-
-  const handleMeshFileSelected = useCallback((file, error) => {
-    if (error) {
-      showNotification(error, "error");
-      setMeshUploadFile(null);
-      return;
-    }
-    setMeshUploadFile(file);
-    setMeshUploadStatus(null);
-    setMeshUploadProgress(0);
-    setMeshUploadError(null);
-    setMeshFileId(null);
-  }, [showNotification]);
-
-  const handleMeshFileClear = useCallback(() => {
-    setMeshUploadFile(null);
-    setMeshUploadStatus(null);
-    setMeshUploadProgress(0);
-    setMeshUploadError(null);
-    setMeshFileId(null);
-  }, []);
 
   const handleComparisonFileSelected = useCallback((file, error) => {
     if (error) {
@@ -3478,62 +3367,6 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     }
   }, [orgid, username, showNotification, apiFetch]);
 
-  const createGoldenMesh = useCallback(async (assetId, meshData) => {
-    setIsSavingGoldenMesh(true);
-    try {
-      let uploadInfo = null;
-      if (meshUploadFile) {
-        uploadInfo = await uploadMeshFile(meshUploadFile, assetId);
-        if (!uploadInfo) {
-          setIsSavingGoldenMesh(false);
-          return;
-        }
-      }
-
-      const payload = {
-        orgid,
-        username: username,
-        created_by: username,
-        asset_id: assetId,
-        vertical_datum: meshData.vertical_datum || "WGS84",
-        sensor_source: meshData.sensor_source || null,
-        horizontal_accuracy_m: meshData.horizontal_accuracy_m ? parseFloat(meshData.horizontal_accuracy_m) : null,
-        vertical_accuracy_m: meshData.vertical_accuracy_m ? parseFloat(meshData.vertical_accuracy_m) : null,
-        point_density_per_sqm: meshData.point_density_per_sqm ? parseFloat(meshData.point_density_per_sqm) : null,
-        notes: meshData.notes || null,
-        scan_date: new Date().toISOString()
-      };
-
-      if (uploadInfo) {
-        payload.mesh_file_id = uploadInfo.file_id;
-        payload.mesh_file_url = uploadInfo.storage_path || null;
-        const lowerName = meshUploadFile.name.toLowerCase();
-        payload.mesh_format = lowerName.endsWith(".laz") ? "laz" : lowerName.endsWith(".las") ? "las" : "binary";
-        payload.original_filename = meshUploadFile.name;
-      }
-
-      const data = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/risk/assets/golden-mesh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (data.success) {
-        showNotification(data.message || "Golden mesh baseline registered successfully.");
-        setActiveModal("goldenMeshList");
-        setGoldenMeshFormData({ ...INITIAL_GOLDEN_MESH_FORM });
-        handleMeshFileClear();
-        fetchGoldenMeshes(assetId);
-      } else {
-        showNotification(data.message || "Failed to register golden mesh baseline.", "error");
-      }
-    } catch {
-      showNotification("A network error occurred while registering golden mesh baseline.", "error");
-    } finally {
-      setIsSavingGoldenMesh(false);
-      setMeshUploadStatus(null);
-    }
-  }, [orgid, username, meshUploadFile, uploadMeshFile, handleMeshFileClear, fetchGoldenMeshes, showNotification, apiFetch]);
-
   const deleteGoldenMesh = useCallback(async (meshId) => {
     setIsDeletingGoldenMesh(true);
     try {
@@ -3688,7 +3521,6 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
   );
   const handleAssetFormChange = handleFormChange(setAssetFormData);
   const handleFilterChange = handleFormChange(setAssetFilters);
-  const handleGoldenMeshFormChange = handleFormChange(setGoldenMeshFormData);
 
   const handleAssetFormSubmit = useCallback((e) => {
     e.preventDefault();
@@ -3702,15 +3534,6 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
       createAsset(assetFormData);
     }
   }, [assetFormData, editingAsset, createAsset, updateAsset, showNotification]);
-
-  const handleGoldenMeshFormSubmit = useCallback((e) => {
-    e.preventDefault();
-    if (!goldenMeshAssetId) {
-      showNotification("No asset selected for golden mesh registration.", "error");
-      return;
-    }
-    createGoldenMesh(goldenMeshAssetId, goldenMeshFormData);
-  }, [goldenMeshAssetId, goldenMeshFormData, createGoldenMesh, showNotification]);
 
   const applyFilters = useCallback(() => {
     setPagination(prev => ({ ...prev, page: 1 }));
@@ -3731,11 +3554,10 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
     setGoldenMeshToDelete(null);
     setSelectedMeshForDetection(null);
     setSelectedDetection(null);
-    handleMeshFileClear();
     handleComparisonFileClear();
     setDiscoveryResult(null);
     setDetectionComparisonNotes("");
-  }, [handleMeshFileClear, handleComparisonFileClear]);
+  }, [handleComparisonFileClear]);
 
   const assetFiltersRef = useRef(assetFilters);
   useEffect(() => {
@@ -4758,17 +4580,6 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
         >
           <div className="amGoldenMeshToolbar">
             <button
-              className="amButton amButtonPrimary"
-              onClick={() => {
-                setGoldenMeshFormData({ ...INITIAL_GOLDEN_MESH_FORM });
-                handleMeshFileClear();
-                setDiscoveryResult(null);
-                setActiveModal("goldenMeshCreate");
-              }}
-            >
-              <FontAwesomeIcon icon={faUpload} /> Register New Baseline
-            </button>
-            <button
               className="amButton amButtonSecondary"
               onClick={() => {
                 if (goldenMeshAssetId) fetchGoldenMeshDetections(goldenMeshAssetId);
@@ -4854,7 +4665,7 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
             <EmptyState
               icon={faCubes}
               text="No golden mesh baselines registered for this asset."
-              subtext="Upload a .las/.laz file or click Synthesize Baseline to auto-generate from public datasets."
+              subtext="Click Discover Data to find available LiDAR coverage, or Synthesize Baseline to auto-generate from public datasets."
             />
           ) : (
             <div className="amGoldenMeshGrid">
@@ -4934,100 +4745,6 @@ export default function AssetManagement({ orgid: propOrgid, username: propUserna
               ))}
             </div>
           )}
-        </Modal>
-
-        <Modal
-          open={activeModal === "goldenMeshCreate"}
-          onClose={() => setActiveModal("goldenMeshList")}
-          title="Register Golden Mesh Baseline"
-          size="Medium"
-        >
-          <form onSubmit={handleGoldenMeshFormSubmit}>
-            <div className="amFormGroup">
-              <label>Point Cloud File (.las, .laz, .copc.laz)</label>
-              <MeshFileUploader
-                onFileSelected={handleMeshFileSelected}
-                onFileClear={handleMeshFileClear}
-                selectedFile={meshUploadFile}
-                uploadProgress={meshUploadProgress}
-                uploadStatus={meshUploadStatus}
-              />
-            </div>
-            <div className="amFormRow">
-              <div className="amFormGroup">
-                <label>Vertical Datum *</label>
-                <select
-                  value={goldenMeshFormData.vertical_datum}
-                  onChange={e => handleGoldenMeshFormChange("vertical_datum", e.target.value)}
-                  className="amSelect"
-                >
-                  {VERTICAL_DATUM_OPTIONS.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="amFormGroup">
-                <label>Sensor Source</label>
-                <input
-                  type="text"
-                  value={goldenMeshFormData.sensor_source}
-                  onChange={e => handleGoldenMeshFormChange("sensor_source", e.target.value)}
-                  placeholder="LiDAR, photogrammetry, etc."
-                  className="amInput"
-                />
-              </div>
-            </div>
-            <div className="amFormRow">
-              {[
-                ["Horizontal Accuracy (m)", "horizontal_accuracy_m"],
-                ["Vertical Accuracy (m)", "vertical_accuracy_m"],
-                ["Point Density (pts/m²)", "point_density_per_sqm"]
-              ].map(([label, field], i) => (
-                <div key={i} className="amFormGroup">
-                  <label>{label}</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={goldenMeshFormData[field]}
-                    onChange={e => handleGoldenMeshFormChange(field, e.target.value)}
-                    placeholder={label.includes("Point") ? "Points per square meter" : "Meters"}
-                    className="amInput"
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="amFormGroup">
-              <label>Notes</label>
-              <textarea
-                value={goldenMeshFormData.notes}
-                onChange={e => handleGoldenMeshFormChange("notes", e.target.value)}
-                placeholder="Additional notes about this baseline scan."
-                rows={3}
-                className="amTextarea"
-              />
-            </div>
-            <div className="amModalActions">
-              <button
-                type="button"
-                className="amButton amButtonSecondary"
-                onClick={() => setActiveModal("goldenMeshList")}
-              >
-                Cancel
-              </button>
-              <button type="submit" className="amButton amButtonPrimary" disabled={isSavingGoldenMesh}>
-                {isSavingGoldenMesh ? (
-                  <>
-                    <FontAwesomeIcon icon={faSpinner} spin />
-                    {meshUploadFile ? "Uploading & Registering..." : "Registering..."}
-                  </>
-                ) : (
-                  <>
-                    <FontAwesomeIcon icon={faUpload} /> Register Baseline
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
         </Modal>
 
         <Modal
