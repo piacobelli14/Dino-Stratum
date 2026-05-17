@@ -144,3 +144,4 @@ npm-debug.log*
 **/.env
 **/.env.*
 **/.env
+dinostratum_webapi/api/onetime/
