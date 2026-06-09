@@ -4,10 +4,10 @@ const crypto = require("crypto");
 const { pool } = require("../../config/db");
 const { goldenMeshStore, changeDetectionStore, runChangeDetection, classifySeverity } = require("./assets");
 
-const CACHE_MS = 3 * 60 * 1000;
+const CACHE_MS = 15 * 60 * 1000;
 const RISK_CACHE_MAX = 200;
 
-const INGEST_MS = 5 * 60 * 1000;
+const INGEST_TICK_MS = 60 * 1000;
 const DYNAMIC_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 const QUERY_TIMEOUT_MS = 30000;
@@ -17,13 +17,13 @@ const UPSERT_CONCURRENCY = 2;
 const UPSERT_QUEUE_MAX = 100000;
 const UPSERT_MAX_RETRIES = 3;
 const UPSERT_RETRY_BASE_MS = 500;
-const GEOM_UPDATE_BATCH_SIZE = 500;
 
-const DB_WRITE_INTERVAL_MS = 60000;
+const DB_WRITE_INTERVAL_MS = 5 * 60 * 1000;
 const DB_WRITE_ENABLED = true;
 const RISK_STORE_MAX = 50000;
+const HASH_STORE_MAX = 100000;
 
-const CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const CLEANUP_DELETE_BATCH_SIZE = 5000;
 const CLEANUP_DELETE_MAX_ITERATIONS = 50;
 const CLEANUP_DEDUP_MAX_ITERATIONS = 100;
@@ -31,6 +31,8 @@ const CLEANUP_GEOM_BATCH_SIZE = 500;
 const CLEANUP_GEOM_MAX_ITERATIONS = 200;
 const CLEANUP_EXPIRED_GRACE_DAYS = 7;
 const CLEANUP_INGESTION_RUN_RETENTION_DAYS = 7;
+const CLEANUP_DEDUP_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const CLEANUP_ANALYZE_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 const HISTORICAL_MAX_DAYS = 365;
 const HISTORICAL_DEFAULT_LIMIT = 1000;
@@ -74,6 +76,33 @@ const RECOMMENDATIONS = {
 
 const SELECT_COLUMNS = `id, source, source_id, risk_category, severity, severity_score, title, description, geometry_type, geometry_coordinates, latitude, longitude, impact_radius_km, event_time, updated_at, expires_at, url, recommendations, metadata, properties, golden_mesh_detection, population_impact, coordinates, visibility, orgid`;
 
+const SOURCE_SCHEDULE = {
+    usgs_earthquakes: { intervalMs: 5 * 60 * 1000, periodicWindowDays: 1, fullHistoryAtStartup: true },
+    emsc_earthquakes: { intervalMs: 5 * 60 * 1000, periodicWindowDays: 1, fullHistoryAtStartup: true },
+    ingv_earthquakes: { intervalMs: 5 * 60 * 1000, periodicWindowDays: 1, fullHistoryAtStartup: true },
+    geonet_quakes: { intervalMs: 5 * 60 * 1000 },
+    noaa_alerts: { intervalMs: 5 * 60 * 1000 },
+    noaa_spc: { intervalMs: 10 * 60 * 1000 },
+    gdacs_events: { intervalMs: 30 * 60 * 1000, periodicWindowDays: 7, fullHistoryAtStartup: true, fullHistoryWindowDays: 90 },
+    usgs_volcanoes: { intervalMs: 60 * 60 * 1000 },
+    eonet_events: { intervalMs: 30 * 60 * 1000, periodicEonetDays: 7, fullHistoryAtStartup: true, fullEonetDays: 60 },
+    openmeteo_air_quality: { intervalMs: 60 * 60 * 1000 },
+    usgs_water: { intervalMs: 15 * 60 * 1000 },
+    nifc_wildfires: { intervalMs: 30 * 60 * 1000 },
+    fema_disasters: { intervalMs: 60 * 60 * 1000, periodicWindowDays: 7, fullHistoryAtStartup: true, fullHistoryWindowDays: 365 },
+    noaa_space_weather: { intervalMs: 5 * 60 * 1000 },
+    noaa_kp_index: { intervalMs: 15 * 60 * 1000 },
+    noaa_swpc_xray: { intervalMs: 10 * 60 * 1000 },
+    noaa_swpc_solar_wind: { intervalMs: 10 * 60 * 1000 },
+    noaa_swpc_mag_field: { intervalMs: 10 * 60 * 1000 },
+    noaa_swpc_kp_forecast: { intervalMs: 60 * 60 * 1000 },
+    openmeteo_flood: { intervalMs: 60 * 60 * 1000 },
+    openmeteo_marine: { intervalMs: 60 * 60 * 1000 },
+    tsunami_alerts: { intervalMs: 5 * 60 * 1000 },
+    sentinel1_insar: { intervalMs: 6 * 60 * 60 * 1000 },
+    sentinel1_deformation: { intervalMs: 6 * 60 * 60 * 1000 }
+};
+
 let ingestionRunning = false;
 let ingestionTimer = null;
 let dynamicRefreshTimer = null;
@@ -82,6 +111,13 @@ let dbWriteTimer = null;
 let cleanupRunning = false;
 let cleanupTimer = null;
 let dynamicDataReady = false;
+let lastDedupAt = 0;
+let lastAnalyzeAt = 0;
+let geomBackfillNeeded = null;
+let startupRunComplete = false;
+
+const sourceLastRunAt = {};
+const sourceLastSuccessAt = {};
 
 let peakWaitingRequests = 0;
 let peakActiveConnections = 0;
@@ -89,6 +125,7 @@ let lastPressureCheck = null;
 
 const riskCache = new Map();
 const riskStore = new Map();
+const hashStore = new Map();
 let riskStoreDirty = false;
 const riskStorePendingDbIds = new Set();
 const sseClients = new Set();
@@ -96,6 +133,9 @@ const sseClients = new Set();
 const writeQueue = [];
 let writeQueueProcessing = false;
 let writeQueueDropped = 0;
+
+let writesSkippedHash = 0;
+let writesAccepted = 0;
 
 const generateId = (prefix) => {
     return `${prefix}_${crypto.randomBytes(12).toString("hex")}`;
@@ -124,6 +164,29 @@ const safeJsonStringify = (value) => {
 
 const parseJson = (value) => {
     return typeof value === "string" ? JSON.parse(value) : value;
+};
+
+const computeRiskHash = (risk) => {
+    const parts = [
+        risk.source || "",
+        risk.source_id || "",
+        risk.severity || "",
+        risk.severity_score || 0,
+        risk.event_time || "",
+        risk.updated_at || "",
+        risk.expires_at || "",
+        risk.latitude != null ? risk.latitude.toFixed(5) : "",
+        risk.longitude != null ? risk.longitude.toFixed(5) : "",
+        risk.impact_radius_km || 0,
+        risk.title || "",
+        (risk.description || "").substring(0, 200)
+    ];
+    return crypto.createHash("sha1").update(parts.join("|")).digest("hex");
+};
+
+const dedupKey = (risk) => {
+    if (risk.source_id) return `${risk.source || ""}::${risk.source_id}`;
+    return `${risk.risk_category || ""}::${(risk.latitude || 0).toFixed(4)}::${(risk.longitude || 0).toFixed(4)}::${(risk.title || "").substring(0, 80)}`;
 };
 
 const withTimeout = (promise, ms, label) => {
@@ -385,12 +448,63 @@ const buildVisibilityClause = (orgid, paramIndex) => {
     };
 };
 
-const storeRisks = (risks) => {
-    if (!risks || !risks.length) return;
+const trimHashStore = () => {
+    if (hashStore.size <= HASH_STORE_MAX) return;
+    const overflow = hashStore.size - HASH_STORE_MAX;
+    let removed = 0;
+    for (const k of hashStore.keys()) {
+        hashStore.delete(k);
+        removed++;
+        if (removed >= overflow) break;
+    }
+};
+
+const dedupAndDiffRisks = (risks) => {
+    if (!risks || !risks.length) return { changed: [], skipped: 0 };
+    const merged = new Map();
     for (const r of risks) {
+        if (!r || !r.id) continue;
+        const k = dedupKey(r);
+        const existing = merged.get(k);
+        if (!existing) {
+            merged.set(k, r);
+        } else {
+            const existingScore = SEVERITY_WEIGHTS[existing.severity] || 0;
+            const newScore = SEVERITY_WEIGHTS[r.severity] || 0;
+            if (newScore > existingScore) {
+                merged.set(k, r);
+            } else if (newScore === existingScore) {
+                const existingTime = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+                const newTime = r.updated_at ? new Date(r.updated_at).getTime() : 0;
+                if (newTime > existingTime) merged.set(k, r);
+            }
+        }
+    }
+    const changed = [];
+    let skipped = 0;
+    for (const [k, r] of merged) {
+        const hash = computeRiskHash(r);
+        const prev = hashStore.get(k);
+        if (prev && prev.hash === hash) {
+            skipped++;
+            continue;
+        }
+        hashStore.set(k, { hash, id: r.id });
+        changed.push(r);
+    }
+    trimHashStore();
+    return { changed, skipped };
+};
+
+const storeRisks = (risks, opts) => {
+    if (!risks || !risks.length) return { added: 0, skipped: 0 };
+    const enqueueForDb = opts && opts.enqueueForDb;
+    const { changed, skipped } = dedupAndDiffRisks(risks);
+    writesSkippedHash += skipped;
+    for (const r of changed) {
         if (r.id) {
             riskStore.set(r.id, r);
-            riskStorePendingDbIds.add(r.id);
+            if (enqueueForDb) riskStorePendingDbIds.add(r.id);
         }
     }
     if (riskStore.size > RISK_STORE_MAX) {
@@ -401,7 +515,8 @@ const storeRisks = (risks) => {
             riskStore.set(entries[i][0], entries[i][1]);
         }
     }
-    riskStoreDirty = true;
+    if (enqueueForDb && changed.length) riskStoreDirty = true;
+    return { added: changed.length, skipped };
 };
 
 const queryRiskStore = (filterFn, sortFn, limit) => {
@@ -895,8 +1010,9 @@ const DATA_SOURCES = {
             let sev = rl.includes("HIGH") || rl >= 5 ? "Critical" : rl.includes("MDT") || rl >= 4 ? "High" : "Medium";
             if (rl.includes("TSTM") || rl < 2) sev = "Low";
             const { lat, lng } = extractLatLng(g);
+            const issueDate = p.ISSUE || p.VALID || new Date().toISOString().split("T")[0];
             return {
-                _category: "Weather", source_id: `spc_day${f._day}_${p.DN || p.LABEL}_${Date.now()}`,
+                _category: "Weather", source_id: `spc_day${f._day}_${p.DN || p.LABEL}_${issueDate}`,
                 severity: sev, title: `Day ${f._day} Severe Weather Outlook: ${rl}`,
                 description: `Storm Prediction Center day ${f._day} severe weather outlook indicating ${rl} risk for severe thunderstorms.`,
                 geometry_type: g?.type || "Polygon", geometry_coordinates: g?.coordinates,
@@ -1266,7 +1382,11 @@ const DATA_SOURCES = {
     fema_disasters: {
         id: "fema_disasters", name: "FEMA", logTag: "FEMA", sourceName: "FEMA", timeoutMs: 60000,
         paginationStrategy: "offset", paginationBatchSize: 1000,
-        buildUrl: (p, off, bs) => `https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries?$filter=declarationDate gt '${new Date(Date.now() - 365 * 864e5).toISOString().split("T")[0]}'&$orderby=declarationDate desc&$top=${bs || 1000}&$skip=${off || 0}`,
+        buildUrl: (p, off, bs) => {
+            const windowDays = p.window_days || 365;
+            const since = new Date(Date.now() - windowDays * 864e5).toISOString().split("T")[0];
+            return `https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries?$filter=declarationDate gt '${since}'&$orderby=declarationDate desc&$top=${bs || 1000}&$skip=${off || 0}`;
+        },
         extractRawItems: (d) => d.DisasterDeclarationsSummaries || [],
         transformItem: (dec) => {
             const catMap = { Fire: "Wildfire", Hurricane: "Hurricane", Flood: "Flood", Tornado: "Tornado", Earthquake: "Seismic", "Severe Storm": "Weather", Snowstorm: "Weather", Drought: "Drought", Volcano: "Volcanic", Tsunami: "Tsunami" };
@@ -1310,7 +1430,7 @@ const DATA_SOURCES = {
             else if (/G2|S2|R2/.test(msg)) sev = "Medium";
             const at = msg.includes("Geomagnetic") ? "Geomagnetic Storm" : msg.includes("Solar Radiation") ? "Solar Radiation Storm" : msg.includes("Radio Blackout") ? "Radio Blackout" : "Space Weather Alert";
             return {
-                _category: "Space", source_id: a.serial_number || `swpc_${Date.now()}`, severity: sev,
+                _category: "Space", source_id: a.serial_number || `swpc_${a.issue_datetime || ""}`, severity: sev,
                 title: at, description: msg.substring(0, 500),
                 geometry_type: "Point", coordinates: null, latitude: null, longitude: null,
                 event_time: a.issue_datetime,
@@ -2276,14 +2396,9 @@ const enqueueUpsert = (risks) => {
     for (let i = 0; i < acceptedItems.length; i += UPSERT_BATCH_SIZE) {
         writeQueue.push(acceptedItems.slice(i, i + UPSERT_BATCH_SIZE));
     }
+    writesAccepted += acceptedItems.length;
     processWriteQueue();
     return acceptedItems.length;
-};
-
-const upsertToPostGIS = async (risks) => {
-    if (!risks?.length) return 0;
-    storeRisks(risks);
-    return risks.length;
 };
 
 const flushToDb = async () => {
@@ -2328,32 +2443,42 @@ const stopDbFlush = () => {
     }
 };
 
-const updateGeomPoints = async () => {
+const checkGeomBackfillNeeded = async () => {
+    if (geomBackfillNeeded === false) return false;
     try {
-        const check = await queryWithTimeout("SELECT COUNT(*) as cnt FROM risk_events_cache WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL", [], 10000);
-        const pending = parseInt(check.rows[0].cnt, 10);
-        if (pending === 0) return;
+        const r = await queryWithTimeout(
+            "SELECT 1 FROM risk_events_cache WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL LIMIT 1",
+            [],
+            5000
+        );
+        geomBackfillNeeded = r.rows.length > 0;
+        return geomBackfillNeeded;
     } catch (error) {
-        return;
+        return false;
     }
+};
+
+const updateGeomPoints = async () => {
+    const needed = await checkGeomBackfillNeeded();
+    if (!needed) return;
     const MAX_GEOM_BATCHES = 20;
-    let updated = 0;
     let batchCount = 0;
     let hasMore = true;
     while (hasMore && batchCount < MAX_GEOM_BATCHES) {
         const stats = poolStats();
-        if (stats.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
-            break;
-        }
+        if (stats.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) break;
         try {
             const result = await queryWithTimeout(
                 "UPDATE risk_events_cache SET geom = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography WHERE id IN (SELECT id FROM risk_events_cache WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL LIMIT 500) RETURNING id",
                 [],
                 20000
             );
-            updated += result.rowCount;
             hasMore = result.rowCount === 500;
             batchCount++;
+            if (result.rowCount === 0) {
+                geomBackfillNeeded = false;
+                break;
+            }
         } catch (error) {
             break;
         }
@@ -2361,12 +2486,19 @@ const updateGeomPoints = async () => {
             await new Promise(r => setTimeout(r, 300));
         }
     }
+    if (!hasMore) geomBackfillNeeded = false;
 };
 
 const updateGeomComplex = async () => {
     const stats = poolStats();
     if (stats.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) return;
     try {
+        const check = await queryWithTimeout(
+            "SELECT 1 FROM risk_events_cache WHERE geom IS NULL AND geometry_coordinates IS NOT NULL AND geometry_type IS NOT NULL AND longitude IS NULL LIMIT 1",
+            [],
+            5000
+        );
+        if (check.rows.length === 0) return;
         await queryWithTimeout(
             "UPDATE risk_events_cache SET geom = ST_SetSRID(ST_GeomFromGeoJSON(json_build_object('type', geometry_type, 'coordinates', geometry_coordinates)::text), 4326)::geography WHERE id IN (SELECT id FROM risk_events_cache WHERE geom IS NULL AND geometry_coordinates IS NOT NULL AND geometry_type IS NOT NULL AND longitude IS NULL LIMIT 50)",
             [],
@@ -2378,103 +2510,96 @@ const updateGeomComplex = async () => {
 const runCleanup = async () => {
     if (cleanupRunning) return;
     cleanupRunning = true;
-    const startedAt = new Date().toISOString();
-    let deletedNoLocation = 0;
-    let deletedExpired = 0;
-    let deletedDuplicates = 0;
-    let geomBackfilled = 0;
-
     try {
         const stats = poolStats();
         if (stats.waiting_requests > POOL_PRESSURE_WAITING_BACKOFF) {
             cleanupRunning = false;
             return;
         }
-
         if (writeQueueProcessing) {
             cleanupRunning = false;
             return;
         }
 
-        for (let i = 0; i < CLEANUP_DELETE_MAX_ITERATIONS; i++) {
-            const ps = poolStats();
-            if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
-                break;
+        const noLocCheck = await safeQueryWithTimeout(
+            "SELECT 1 FROM risk_events_cache WHERE latitude IS NULL AND longitude IS NULL AND geometry_coordinates IS NULL LIMIT 1",
+            [], 5000, "Cleanup no-location probe."
+        );
+        if (noLocCheck && noLocCheck.rows.length > 0) {
+            for (let i = 0; i < CLEANUP_DELETE_MAX_ITERATIONS; i++) {
+                const ps = poolStats();
+                if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) break;
+                const rd = await safeQueryWithTimeout(
+                    "DELETE FROM risk_events_cache WHERE id IN (SELECT id FROM risk_events_cache WHERE latitude IS NULL AND longitude IS NULL AND geometry_coordinates IS NULL LIMIT " + CLEANUP_DELETE_BATCH_SIZE + ")",
+                    [], 30000, "Cleanup delete no-location batch " + (i + 1) + "."
+                );
+                if (!rd || rd.rowCount === 0) break;
+                if (rd.rowCount < CLEANUP_DELETE_BATCH_SIZE) break;
+                await new Promise(r => setTimeout(r, 200));
             }
-            const rd = await safeQueryWithTimeout(
-                "DELETE FROM risk_events_cache WHERE id IN (SELECT id FROM risk_events_cache WHERE latitude IS NULL AND longitude IS NULL AND geometry_coordinates IS NULL LIMIT " + CLEANUP_DELETE_BATCH_SIZE + ")",
-                [],
-                30000,
-                "Cleanup delete no-location batch " + (i + 1) + "."
-            );
-            if (!rd || rd.rowCount === 0) break;
-            deletedNoLocation += rd.rowCount;
-            if (rd.rowCount < CLEANUP_DELETE_BATCH_SIZE) break;
-            await new Promise(r => setTimeout(r, 200));
         }
 
-        for (let i = 0; i < 20; i++) {
-            const ps = poolStats();
-            if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
-                break;
+        const expiredCheck = await safeQueryWithTimeout(
+            "SELECT 1 FROM risk_events_cache WHERE expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '" + CLEANUP_EXPIRED_GRACE_DAYS + " days' LIMIT 1",
+            [], 5000, "Cleanup expired probe."
+        );
+        if (expiredCheck && expiredCheck.rows.length > 0) {
+            for (let i = 0; i < 20; i++) {
+                const ps = poolStats();
+                if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) break;
+                const rd = await safeQueryWithTimeout(
+                    "DELETE FROM risk_events_cache WHERE id IN (SELECT id FROM risk_events_cache WHERE expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '" + CLEANUP_EXPIRED_GRACE_DAYS + " days' LIMIT " + CLEANUP_DELETE_BATCH_SIZE + ")",
+                    [], 30000, "Cleanup delete expired batch " + (i + 1) + "."
+                );
+                if (!rd || rd.rowCount === 0) break;
+                if (rd.rowCount < CLEANUP_DELETE_BATCH_SIZE) break;
+                await new Promise(r => setTimeout(r, 200));
             }
-            const rd = await safeQueryWithTimeout(
-                "DELETE FROM risk_events_cache WHERE id IN (SELECT id FROM risk_events_cache WHERE expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '" + CLEANUP_EXPIRED_GRACE_DAYS + " days' LIMIT " + CLEANUP_DELETE_BATCH_SIZE + ")",
-                [],
-                30000,
-                "Cleanup delete expired batch " + (i + 1) + "."
-            );
-            if (!rd || rd.rowCount === 0) break;
-            deletedExpired += rd.rowCount;
-            if (rd.rowCount < CLEANUP_DELETE_BATCH_SIZE) break;
-            await new Promise(r => setTimeout(r, 200));
         }
 
-        for (let i = 0; i < CLEANUP_DEDUP_MAX_ITERATIONS; i++) {
-            const ps = poolStats();
-            if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
-                break;
+        const now = Date.now();
+        if (now - lastDedupAt >= CLEANUP_DEDUP_MIN_INTERVAL_MS) {
+            for (let i = 0; i < CLEANUP_DEDUP_MAX_ITERATIONS; i++) {
+                const ps = poolStats();
+                if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) break;
+                const rd = await safeQueryWithTimeout(
+                    "DELETE FROM risk_events_cache WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY source, source_id ORDER BY ingested_at DESC) AS rn FROM risk_events_cache WHERE source_id IS NOT NULL LIMIT 10000) sub WHERE rn > 1 LIMIT " + CLEANUP_DELETE_BATCH_SIZE + ")",
+                    [], 30000, "Cleanup dedup batch " + (i + 1) + "."
+                );
+                if (!rd || rd.rowCount === 0) break;
+                if (rd.rowCount < CLEANUP_DELETE_BATCH_SIZE) break;
+                await new Promise(r => setTimeout(r, 200));
             }
-            const rd = await safeQueryWithTimeout(
-                "DELETE FROM risk_events_cache WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY source, source_id ORDER BY ingested_at DESC) AS rn FROM risk_events_cache WHERE source_id IS NOT NULL LIMIT 10000) sub WHERE rn > 1 LIMIT " + CLEANUP_DELETE_BATCH_SIZE + ")",
-                [],
-                30000,
-                "Cleanup dedup batch " + (i + 1) + "."
-            );
-            if (!rd || rd.rowCount === 0) break;
-            deletedDuplicates += rd.rowCount;
-            if (rd.rowCount < CLEANUP_DELETE_BATCH_SIZE) break;
-            await new Promise(r => setTimeout(r, 200));
+            lastDedupAt = now;
         }
 
-        for (let i = 0; i < CLEANUP_GEOM_MAX_ITERATIONS; i++) {
-            const ps = poolStats();
-            if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) {
-                break;
+        const geomCheck = await safeQueryWithTimeout(
+            "SELECT 1 FROM risk_events_cache WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL LIMIT 1",
+            [], 5000, "Cleanup geom probe."
+        );
+        if (geomCheck && geomCheck.rows.length > 0) {
+            for (let i = 0; i < CLEANUP_GEOM_MAX_ITERATIONS; i++) {
+                const ps = poolStats();
+                if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) break;
+                const rg = await safeQueryWithTimeout(
+                    "UPDATE risk_events_cache SET geom = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography WHERE id IN (SELECT id FROM risk_events_cache WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL LIMIT " + CLEANUP_GEOM_BATCH_SIZE + ")",
+                    [], 20000, "Cleanup geom backfill batch " + (i + 1) + "."
+                );
+                if (!rg || rg.rowCount === 0) break;
+                if (rg.rowCount < CLEANUP_GEOM_BATCH_SIZE) break;
+                await new Promise(r => setTimeout(r, 300));
             }
-            const rg = await safeQueryWithTimeout(
-                "UPDATE risk_events_cache SET geom = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography WHERE id IN (SELECT id FROM risk_events_cache WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL LIMIT " + CLEANUP_GEOM_BATCH_SIZE + ")",
-                [],
-                20000,
-                "Cleanup geom backfill batch " + (i + 1) + "."
-            );
-            if (!rg || rg.rowCount === 0) break;
-            geomBackfilled += rg.rowCount;
-            if (rg.rowCount < CLEANUP_GEOM_BATCH_SIZE) break;
-            await new Promise(r => setTimeout(r, 300));
         }
 
-        await safeQueryWithTimeout("ANALYZE risk_events_cache", [], 60000, "Cleanup ANALYZE risk_events_cache.");
+        if (now - lastAnalyzeAt >= CLEANUP_ANALYZE_MIN_INTERVAL_MS) {
+            await safeQueryWithTimeout("ANALYZE risk_events_cache", [], 60000, "Cleanup ANALYZE risk_events_cache.");
+            lastAnalyzeAt = now;
+        }
 
         await safeQueryWithTimeout(
             "DELETE FROM ingestion_runs WHERE started_at < NOW() - INTERVAL '" + CLEANUP_INGESTION_RUN_RETENTION_DAYS + " days'",
-            [],
-            10000,
-            "Cleanup delete old ingestion runs."
+            [], 10000, "Cleanup delete old ingestion runs."
         );
-
-        const totalRemoved = deletedNoLocation + deletedExpired + deletedDuplicates;
-
     } catch (error) {} finally {
         cleanupRunning = false;
     }
@@ -2562,15 +2687,57 @@ const broadcastIngestionEvent = (event, data) => {
     }
 };
 
+const sourceIsDue = (sourceKey) => {
+    const sched = SOURCE_SCHEDULE[sourceKey];
+    if (!sched) return true;
+    const last = sourceLastRunAt[sourceKey] || 0;
+    return Date.now() - last >= sched.intervalMs;
+};
+
+const buildSourceParams = (sourceKey) => {
+    const sched = SOURCE_SCHEDULE[sourceKey];
+    if (!sched) return {};
+    const isStartup = !startupRunComplete && sched.fullHistoryAtStartup;
+    const params = {};
+    if (sourceKey === "usgs_earthquakes" || sourceKey === "emsc_earthquakes" || sourceKey === "ingv_earthquakes") {
+        const days = isStartup ? 30 : (sched.periodicWindowDays || 1);
+        params.start_time = new Date(Date.now() - days * 864e5).toISOString().split("T")[0];
+        if (!isStartup) params.limit = 2000;
+    } else if (sourceKey === "gdacs_events") {
+        const days = isStartup ? (sched.fullHistoryWindowDays || 90) : (sched.periodicWindowDays || 7);
+        params.from_date = new Date(Date.now() - days * 864e5).toISOString().split("T")[0];
+        params.to_date = new Date().toISOString().split("T")[0];
+    } else if (sourceKey === "eonet_events") {
+        params.days = isStartup ? (sched.fullEonetDays || 60) : (sched.periodicEonetDays || 7);
+        params.status = "all";
+        params.limit = 500;
+    } else if (sourceKey === "fema_disasters") {
+        params.window_days = isStartup ? (sched.fullHistoryWindowDays || 365) : (sched.periodicWindowDays || 7);
+    } else if (sourceKey === "noaa_alerts") {
+        params.event = "Flood";
+    }
+    return params;
+};
+
 const runIngestion = async () => {
     if (ingestionRunning) return;
+    if (!dynamicDataReady) return;
     ingestionRunning = true;
     const runId = generateId("run");
     const startedAt = new Date().toISOString();
     let total = 0;
     let errors = 0;
+    let totalSkippedHash = 0;
     const completed = {};
     const errDetails = [];
+    const sourcesRunThisCycle = [];
+
+    const dueSources = Object.keys(DATA_SOURCES).filter(sourceIsDue);
+    if (!dueSources.length) {
+        ingestionRunning = false;
+        return;
+    }
+
     try {
         await queryWithTimeout(
             `INSERT INTO ingestion_runs (run_id, started_at, status) VALUES ($1, $2, $3)`,
@@ -2578,45 +2745,65 @@ const runIngestion = async () => {
             10000
         );
     } catch (error) {}
-    const ingest = async (grp) => {
+
+    broadcastIngestionEvent("ingestion_started", { run_id: runId, started_at: startedAt, due_sources: dueSources });
+
+    const skippedBefore = writesSkippedHash;
+
+    const ingestSource = async (sourceKey) => {
+        sourceLastRunAt[sourceKey] = Date.now();
+        sourcesRunThisCycle.push(sourceKey);
         try {
-            const ov = {};
-            if (grp === "floods") ov.noaa_alerts = { event: "Flood" };
-            if (grp === "global_disasters") ov.eonet_events = { days: 60, status: "all", limit: 500 };
-            const data = await fetchRisk(grp, {}, ov);
-            if (data.length) {
-                const cnt = await upsertToPostGIS(data);
-                completed[grp] = cnt;
-                total += cnt;
-            } else {
-                completed[grp] = 0;
+            const fn = SOURCE_REGISTRY[sourceKey];
+            if (!fn) {
+                completed[sourceKey] = 0;
+                return;
             }
-            broadcastIngestionProgress(grp, completed[grp], null);
+            const params = buildSourceParams(sourceKey);
+            const data = await fn(params);
+            if (data && data.length) {
+                const { added, skipped } = storeRisks(data, { enqueueForDb: true });
+                totalSkippedHash += skipped;
+                completed[sourceKey] = added;
+                total += added;
+                sourceLastSuccessAt[sourceKey] = Date.now();
+                broadcastIngestionProgress(sourceKey, added, null);
+            } else {
+                completed[sourceKey] = 0;
+                broadcastIngestionProgress(sourceKey, 0, null);
+            }
         } catch (error) {
             errors++;
-            completed[grp] = -1;
-            errDetails.push({ source: grp, error: error.message });
-            broadcastIngestionProgress(grp, -1, error.message);
+            completed[sourceKey] = -1;
+            errDetails.push({ source: sourceKey, error: error.message });
+            broadcastIngestionProgress(sourceKey, -1, error.message);
         }
     };
-    broadcastIngestionEvent("ingestion_started", { run_id: runId, started_at: startedAt });
-    const ingestionGroups = ["earthquakes","wildfires","weather","floods","volcanoes","air_quality","global_disasters","space_weather","ground_deformation"];
-    const concurrentIngestionLimit = 3;
-    for (let i = 0; i < ingestionGroups.length; i += concurrentIngestionLimit) {
-        const batch = ingestionGroups.slice(i, i + concurrentIngestionLimit);
-        await Promise.allSettled(batch.map(ingest));
+
+    const concurrentLimit = 3;
+    for (let i = 0; i < dueSources.length; i += concurrentLimit) {
+        const batch = dueSources.slice(i, i + concurrentLimit);
+        await Promise.allSettled(batch.map(ingestSource));
         const stats = poolStats();
         if (stats.waiting_requests > POOL_PRESSURE_WAITING_BACKOFF) {
             await new Promise(r => setTimeout(r, 3000));
         }
     }
 
-    try {
-        await updateGeomPoints();
-    } catch (error) {}
-    try {
-        await updateGeomComplex();
-    } catch (error) {}
+    if (!startupRunComplete) startupRunComplete = true;
+
+    await flushToDb();
+
+    if (geomBackfillNeeded === null || geomBackfillNeeded === true) {
+        try {
+            await updateGeomPoints();
+        } catch (error) {}
+        try {
+            await updateGeomComplex();
+        } catch (error) {}
+    }
+
+    const sessionSkipped = writesSkippedHash - skippedBefore;
 
     try {
         await queryWithTimeout(
@@ -2625,14 +2812,22 @@ const runIngestion = async () => {
             10000
         );
     } catch (error) {}
+
     ingestionRunning = false;
-    broadcastIngestionEvent("ingestion_completed", { run_id: runId, total_ingested: total, errors, sources_completed: completed });
+    broadcastIngestionEvent("ingestion_completed", {
+        run_id: runId,
+        total_ingested: total,
+        skipped_hash: sessionSkipped,
+        errors,
+        sources_completed: completed,
+        sources_run: sourcesRunThisCycle
+    });
 };
 
 const startIngestion = async () => {
     await waitForDynamicData(120000);
     runIngestion();
-    ingestionTimer = setInterval(runIngestion, INGEST_MS);
+    ingestionTimer = setInterval(runIngestion, INGEST_TICK_MS);
 };
 
 const stopIngestion = () => {
@@ -2706,7 +2901,7 @@ router.get("/risk/intelligence/historical", async (req, res) => {
     let memoryCount = 0;
     let postgisCount = 0;
 
-    const dedupKey = (risk) => {
+    const dedupKeyFn = (risk) => {
         return risk.source_id
             ? `${risk.source || ""}_${risk.source_id}`
             : `${risk.risk_category || ""}_${(risk.latitude || 0).toFixed(4)}_${(risk.longitude || 0).toFixed(4)}_${(risk.title || "").substring(0, 60)}`;
@@ -2735,7 +2930,7 @@ router.get("/risk/intelligence/historical", async (req, res) => {
     try {
         for (const r of riskStore.values()) {
             if (!passesFilters(r)) continue;
-            const k = dedupKey(r);
+            const k = dedupKeyFn(r);
             if (!mergedMap.has(k)) {
                 mergedMap.set(k, annotateRiskVisibility({ ...r }));
                 memoryCount++;
@@ -2774,7 +2969,7 @@ router.get("/risk/intelligence/historical", async (req, res) => {
         const result = await queryWithTimeout(sql, qp, HISTORICAL_DB_TIMEOUT_MS);
         for (const row of result.rows) {
             const hydrated = hydrateRow(row);
-            const k = dedupKey(hydrated);
+            const k = dedupKeyFn(hydrated);
             if (!mergedMap.has(k)) {
                 mergedMap.set(k, hydrated);
                 postgisCount++;
@@ -2858,7 +3053,7 @@ router.get("/risk/intelligence/stream", async (req, res) => {
         await fetchRiskStreaming(cat, params, overrides, (sourceKey, risks) => {
             if (closed.value) return;
             try {
-                storeRisks(risks);
+                storeRisks(risks, { enqueueForDb: false });
             } catch (error) {}
             const visibleRisks = filterRisksForOrg(risks, orgid);
             if (!visibleRisks.length) return;
@@ -2917,7 +3112,7 @@ router.get("/risk/intelligence/stream/:group", async (req, res) => {
     await fetchRiskStreaming(group, params, overrides, (sourceKey, risks) => {
         if (closed.value) return;
         try {
-            storeRisks(risks);
+            storeRisks(risks, { enqueueForDb: false });
         } catch (error) {}
         const visibleRisks = filterRisksForOrg(risks, orgid);
         if (!visibleRisks.length) return;
@@ -2963,12 +3158,12 @@ router.get("/risk/intelligence/stream/postgis/nearby", async (req, res) => {
 
     const addToMerged = (risk, distMeters) => {
         const sourceId = risk.source_id;
-        const dedupKey = sourceId
+        const dedupKeyLocal = sourceId
             ? `${risk.source || ""}_${sourceId}`
             : `${risk.risk_category || ""}_${(risk.latitude || 0).toFixed(4)}_${(risk.longitude || 0).toFixed(4)}_${(risk.title || "").substring(0, 60)}`;
 
-        if (mergedMap.has(dedupKey)) {
-            const existing = mergedMap.get(dedupKey);
+        if (mergedMap.has(dedupKeyLocal)) {
+            const existing = mergedMap.get(dedupKeyLocal);
             if (distMeters != null && (existing.distance_meters == null || distMeters < existing.distance_meters)) {
                 existing.distance_meters = distMeters;
                 existing.distance_km = parseFloat((distMeters / 1000).toFixed(2));
@@ -2978,7 +3173,7 @@ router.get("/risk/intelligence/stream/postgis/nearby", async (req, res) => {
 
         const distKm = distMeters != null ? parseFloat((distMeters / 1000).toFixed(2)) : null;
 
-        mergedMap.set(dedupKey, {
+        mergedMap.set(dedupKeyLocal, {
             id: risk.id, source: risk.source, source_id: risk.source_id,
             risk_category: risk.risk_category, severity: risk.severity,
             severity_score: risk.severity_score || SEVERITY_WEIGHTS[risk.severity] || 0,
@@ -3256,6 +3451,10 @@ router.delete("/risk/user/views/:view_id", async (req, res) => {
 
 router.post("/risk/intelligence/ingest/trigger", async (req, res) => {
     if (ingestionRunning) return res.status(409).json({ success: false, message: "An ingestion cycle is already running." });
+    const force = req.query.force === "true" || req.body?.force === true;
+    if (force) {
+        for (const k of Object.keys(sourceLastRunAt)) sourceLastRunAt[k] = 0;
+    }
     runIngestion();
     return res.status(202).json({ success: true, message: "Ingestion cycle triggered successfully." });
 });
@@ -3268,12 +3467,26 @@ router.get("/risk/intelligence/ingest/status", async (req, res) => {
             recentRuns = runs.rows;
         } catch (error) {}
         const stats = poolStats();
+        const sourceSchedules = {};
+        for (const [k, sched] of Object.entries(SOURCE_SCHEDULE)) {
+            const lastRun = sourceLastRunAt[k] || 0;
+            sourceSchedules[k] = {
+                interval_minutes: Math.round(sched.intervalMs / 60000),
+                last_run_at: lastRun ? new Date(lastRun).toISOString() : null,
+                last_success_at: sourceLastSuccessAt[k] ? new Date(sourceLastSuccessAt[k]).toISOString() : null,
+                next_due_in_seconds: Math.max(0, Math.round((sched.intervalMs - (Date.now() - lastRun)) / 1000))
+            };
+        }
         return res.status(200).json({
             success: true, message: "Ingestion status retrieved successfully.", currently_running: ingestionRunning,
-            interval_seconds: INGEST_MS / 1000, in_memory_events: riskStore.size, database_pool: stats,
+            interval_seconds: INGEST_TICK_MS / 1000, in_memory_events: riskStore.size, database_pool: stats,
             pool_pressure: { peak_waiting_requests: peakWaitingRequests, peak_active_connections: peakActiveConnections, last_check: lastPressureCheck },
-            write_queue: { pending_batches: writeQueue.length, pending_items: writeQueue.reduce((sum, batch) => sum + batch.length, 0), processing: writeQueueProcessing, dropped_total: writeQueueDropped, db_write_interval_seconds: DB_WRITE_INTERVAL_MS / 1000, db_writes_enabled: DB_WRITE_ENABLED, store_dirty: riskStoreDirty, pending_db_ids: riskStorePendingDbIds.size },
-            cleanup: { currently_running: cleanupRunning, interval_seconds: CLEANUP_INTERVAL_MS / 1000 },
+            write_queue: { pending_batches: writeQueue.length, pending_items: writeQueue.reduce((sum, batch) => sum + batch.length, 0), processing: writeQueueProcessing, dropped_total: writeQueueDropped, db_write_interval_seconds: DB_WRITE_INTERVAL_MS / 1000, db_writes_enabled: DB_WRITE_ENABLED, store_dirty: riskStoreDirty, pending_db_ids: riskStorePendingDbIds.size, writes_accepted_total: writesAccepted, writes_skipped_by_hash: writesSkippedHash },
+            hash_store: { size: hashStore.size, max: HASH_STORE_MAX },
+            cleanup: { currently_running: cleanupRunning, interval_seconds: CLEANUP_INTERVAL_MS / 1000, last_dedup_at: lastDedupAt ? new Date(lastDedupAt).toISOString() : null, last_analyze_at: lastAnalyzeAt ? new Date(lastAnalyzeAt).toISOString() : null },
+            geom_backfill: { needed: geomBackfillNeeded },
+            startup_run_complete: startupRunComplete,
+            source_schedules: sourceSchedules,
             dynamic_data: { urban_centers_loaded: dynamicStores.urban.data.length, urban_centers_fetched_at: dynamicStores.urban.fetched_at, infrastructure_elements_loaded: dynamicStores.infra.data.length, infrastructure_fetched_at: dynamicStores.infra.fetched_at, deformation_zones_loaded: dynamicStores.deform.data.length, deformation_zones_fetched_at: dynamicStores.deform.fetched_at, fault_lines_loaded: dynamicStores.faults.data.length, fault_lines_fetched_at: dynamicStores.faults.fetched_at },
             recent_runs: recentRuns
         });
@@ -3427,7 +3640,9 @@ router.get("/risk/intelligence/cleanup/status", async (req, res) => {
     return res.status(200).json({
         success: true, message: "Cleanup worker status retrieved successfully.",
         currently_running: cleanupRunning, interval_seconds: CLEANUP_INTERVAL_MS / 1000,
-        configuration: { delete_batch_size: CLEANUP_DELETE_BATCH_SIZE, delete_max_iterations: CLEANUP_DELETE_MAX_ITERATIONS, dedup_max_iterations: CLEANUP_DEDUP_MAX_ITERATIONS, geom_batch_size: CLEANUP_GEOM_BATCH_SIZE, geom_max_iterations: CLEANUP_GEOM_MAX_ITERATIONS, expired_grace_days: CLEANUP_EXPIRED_GRACE_DAYS, ingestion_run_retention_days: CLEANUP_INGESTION_RUN_RETENTION_DAYS }
+        last_dedup_at: lastDedupAt ? new Date(lastDedupAt).toISOString() : null,
+        last_analyze_at: lastAnalyzeAt ? new Date(lastAnalyzeAt).toISOString() : null,
+        configuration: { delete_batch_size: CLEANUP_DELETE_BATCH_SIZE, delete_max_iterations: CLEANUP_DELETE_MAX_ITERATIONS, dedup_max_iterations: CLEANUP_DEDUP_MAX_ITERATIONS, dedup_min_interval_hours: CLEANUP_DEDUP_MIN_INTERVAL_MS / 3600000, analyze_min_interval_hours: CLEANUP_ANALYZE_MIN_INTERVAL_MS / 3600000, geom_batch_size: CLEANUP_GEOM_BATCH_SIZE, geom_max_iterations: CLEANUP_GEOM_MAX_ITERATIONS, expired_grace_days: CLEANUP_EXPIRED_GRACE_DAYS, ingestion_run_retention_days: CLEANUP_INGESTION_RUN_RETENTION_DAYS }
     });
 });
 
@@ -3442,11 +3657,11 @@ router.get("/risk/intelligence/health", async (req, res) => {
     return res.status(200).json({
         success: true, message: "Health check completed.", timestamp: new Date().toISOString(),
         node_version: process.version, cache_entries: riskCache.size, in_memory_risk_events: riskStore.size,
-        ingestion_running: ingestionRunning, ingestion_interval_seconds: INGEST_MS / 1000,
+        ingestion_running: ingestionRunning, ingestion_interval_seconds: INGEST_TICK_MS / 1000,
         cleanup_running: cleanupRunning, cleanup_interval_seconds: CLEANUP_INTERVAL_MS / 1000,
         active_streaming_clients: sseClients.size, database_pool: stats,
         pool_pressure: { peak_waiting_requests: peakWaitingRequests, peak_active_connections: peakActiveConnections, last_check: lastPressureCheck },
-        write_queue: { pending_batches: writeQueue.length, pending_items: writeQueue.reduce((sum, batch) => sum + batch.length, 0), processing: writeQueueProcessing, dropped_total: writeQueueDropped, pending_db_ids: riskStorePendingDbIds.size },
+        write_queue: { pending_batches: writeQueue.length, pending_items: writeQueue.reduce((sum, batch) => sum + batch.length, 0), processing: writeQueueProcessing, dropped_total: writeQueueDropped, pending_db_ids: riskStorePendingDbIds.size, writes_accepted_total: writesAccepted, writes_skipped_by_hash: writesSkippedHash },
         dynamic_data: { urban_centers: dynamicStores.urban.data.length, infrastructure_elements: dynamicStores.infra.data.length, deformation_zones: dynamicStores.deform.data.length, fault_lines: dynamicStores.faults.data.length, last_refresh: dynamicStores.urban.fetched_at },
         results
     });
