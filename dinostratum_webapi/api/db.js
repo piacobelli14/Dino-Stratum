@@ -7,7 +7,7 @@ if (!process.env.SUPABASE_URL) {
   throw new Error("SUPABASE_URL environment variable is not set.");
 }
 
-const APPLICATION_NAME = "parallax_api";
+const APPLICATION_NAME = "dinostratum_api";
 
 const STARTUP_MAX_RETRIES = 5;
 const STARTUP_RETRY_DELAY_MS = 2000;
