@@ -407,26 +407,6 @@ const Nav = ({ activePage }) => {
         <div className="homeHamburgerPopout">
           <div className="homeHamburgerContent">
 
-            {(token && organizationID) && (
-              <button
-                className="navigationButtonWrapper"
-                onClick={() => {navigate("/main-dashboard")}}
-                style={{ background: "linear-gradient(135deg, #0a0c10 0%, #11141a 50%, #1b212b 100%)" }}
-              >
-                <div className="navigationButton" style={{ color: "#ebf0f8" }}>
-                  <FontAwesomeIcon
-                    icon={faComputer}
-                    className="navigationButtonIcon"
-                  />
-                  Web Hub
-                </div>
-                <div
-                  className="navigationButtonDivider"
-                  style={{ backgroundColor: "#aab4c8" }}
-                />
-              </button>
-            )}
-
             {(token && organizationID) && NAV_GROUPS
               .filter(isGroupVisible)
               .map((group) => (
