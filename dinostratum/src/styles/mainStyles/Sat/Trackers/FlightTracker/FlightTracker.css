@@ -1,0 +1,249 @@
+.satFlightAppleAircraft {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+}
+
+.satFlightAppleAircraftIcon {
+  display: block;
+  filter: drop-shadow(0 0 1px #08090c) drop-shadow(0 0 2px #08090c);
+}
+
+.satFlightAppleAircraft:hover .satFlightAppleAircraftIcon {
+  filter: drop-shadow(0 0 1px #08090c) drop-shadow(0 0 4px rgba(235, 240, 248, 0.6));
+}
+
+.satFlightAppleAircraftSelected {
+  z-index: 10;
+}
+
+.satFlightAppleAircraftLabel {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 1px;
+  padding: 1px 4px;
+  background: rgba(8, 9, 12, 0.8);
+  font-family: Inter, Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.satFlightAppleAirport {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  cursor: default;
+}
+
+.satFlightAppleAirportDot {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  background: #08090c;
+  border: 2px solid #ffd93d;
+  border-radius: 50%;
+}
+
+.satFlightAppleAirportLarge .satFlightAppleAirportDot {
+  width: 16px;
+  height: 16px;
+}
+
+.satFlightAppleAirportLabel {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%);
+  margin-left: 4px;
+  padding: 1px 3px;
+  background: rgba(8, 9, 12, 0.8);
+  color: #ffd93d;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.satFlightAppleAttribution {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 1400;
+  max-width: calc(100% - 260px);
+  padding: 3px 8px;
+  background: rgba(11, 12, 15, 0.85);
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #aab4c8;
+  font-size: 0.6rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satFlightAppleAttribution a {
+  color: #cdd4e4;
+}
+
+@media (max-width: 768px) {
+  .satFlightAppleAttribution {
+      max-width: calc(100% - 32px);
+      bottom: 40px;
+    }
+}
+
+.satFlightTypeahead {
+  position: relative;
+}
+
+.satFlightTypeaheadList {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #101216;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+}
+
+.satModalPortal button.satFlightTypeaheadOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid #323746;
+  border-radius: 0;
+  color: #ebf0f8;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.satModalPortal button.satFlightTypeaheadOption:hover {
+  background: rgba(78, 205, 196, 0.1);
+}
+
+.satFlightTypeaheadOptionLabel {
+  min-width: 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satFlightTypeaheadOptionCount {
+  flex-shrink: 0;
+  color: #919baf;
+  font-size: 0.65rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.satFlightTypeaheadEmpty {
+  padding: 10px;
+  color: #919baf;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.satFlightTypeaheadChosen {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 6px 0 10px;
+  background: rgba(78, 205, 196, 0.1);
+  border: 2px solid #4ecdc4;
+  border-radius: 4px;
+}
+
+.satFlightTypeaheadChosenText {
+  flex: 1;
+  min-width: 0;
+  color: #4ecdc4;
+  font-size: 0.7rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satModalPortal button.satFlightTypeaheadClear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #919baf;
+  cursor: pointer;
+}
+
+.satModalPortal button.satFlightTypeaheadClear:hover {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+
+.satFlightHeatmapCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.satFlightAppleAreaLabel {
+  padding: 2px 6px;
+  background: rgba(8, 9, 12, 0.78);
+  border-radius: 3px;
+  color: #aab4c8;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.satFlightAppleAreaLabelSelected {
+  color: #4ecdc4;
+}
+
+.satWeatherAckActions .satFlightAckLinkButton {
+  text-decoration: none;
+  white-space: nowrap;
+}

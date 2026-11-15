@@ -11,7 +11,7 @@ const Unavailable = ({ screenSize }) => {
         <div className="unavailableUnavailableContent">
           <img
             className="unavailableUnavailableImage"
-            src="./dinostratumlogo.png"
+            src="./DinoStratumLogo.png"
             alt="Dino Stratum Logo"
             onError={(e) => {
               e.target.src = "/fallback-logo.png"; 

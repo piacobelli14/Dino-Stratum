@@ -300,7 +300,7 @@ const Nav = ({ activePage }) => {
           <div className="homeSkipToContent">
             <img
               className="homeLogo"
-              src="./dinostratumlogo.png"
+              src="./DinoStratumLogo.png"
               alt="Logo"
             />
             <label className="homeHeader" style={{ color: "#ebf0f8" }}>

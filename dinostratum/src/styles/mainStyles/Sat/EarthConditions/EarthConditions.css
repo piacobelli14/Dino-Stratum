@@ -1,0 +1,4475 @@
+.satEarthCondPage {
+  --ec-bg-void: #08090c;
+  --ec-bg-base: #0a0c0f;
+  --ec-bg-primary: #0d0f13;
+  --ec-bg-secondary: #101216;
+  --ec-bg-tertiary: #13151a;
+  --ec-bg-elevated: #16181d;
+  --ec-bg-surface: #12141a;
+  --ec-bg-panel: #0f1115;
+
+  --ec-text-primary: #ebf0f8;
+  --ec-text-secondary: #cdd4e4;
+  --ec-text-tertiary: #aab4c8;
+  --ec-text-muted: #919baf;
+
+  --ec-border-primary: #3d4354;
+  --ec-border-subtle: #323746;
+  --ec-border-glow: #3d4354;
+
+  --ec-accent-primary: #6a7a8a;
+  --ec-accent-secondary: #5a6a7a;
+  --ec-accent-cyan: #4ecdc4;
+  --ec-accent-blue: #42a5f5;
+  --ec-accent-purple: #42a5f5;
+
+  --ec-status-good: #4ecdc4;
+  --ec-status-info: #42a5f5;
+  --ec-status-advisory: #ffd93d;
+  --ec-status-warning: #FF9500;
+  --ec-status-critical: #ff6b6b;
+
+  --ec-radius-sm: 4px;
+  --ec-radius-md: 6px;
+  --ec-radius-lg: 8px;
+
+  --ec-spacing-xs: 4px;
+  --ec-spacing-sm: 8px;
+  --ec-spacing-md: 12px;
+  --ec-spacing-lg: 16px;
+  --ec-spacing-xl: 24px;
+
+  --ec-transition-fast: 0.15s ease;
+  --ec-transition-normal: 0.25s ease;
+  --ec-transition-slow: 0.4s ease;
+}
+
+:where(.satEarthCondContainer) *,
+:where(.satEarthCondContainer) *::before,
+:where(.satEarthCondContainer) *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.satEarthCondPage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: linear-gradient(135deg, #13151a 0%, #13151a 50%, #323746 100%);
+  color: var(--ec-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.satEarthCondContainer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 1rem;
+  width: 100vw;
+  min-height: calc(100vh - 60px);
+  max-height: calc(100vh - 60px);
+  height: calc(100vh - 60px);
+  padding: 1rem;
+  overflow: hidden;
+  background: transparent;
+  color: var(--ec-text-primary);
+  box-sizing: border-box;
+}
+
+.satEarthCondContainer.satEarthCondContainerNoNav {
+  min-height: 100vh;
+  max-height: 100vh;
+  height: 100vh;
+}
+
+.satEarthCondHeader {
+  flex-shrink: 0;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  min-height: 60px;
+  max-height: 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(145deg, #101216 0%, #16181d 100%);
+  border: 2px solid #3d4354;
+  border-radius: 8px;
+}
+
+.satEarthCondHeaderContent {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ec-spacing-lg);
+  width: 100%;
+  height: 100%;
+}
+
+.satEarthCondTitleSection {
+  width: 60%;
+  min-width: 60%;
+  max-width: 60%;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  overflow: hidden;
+}
+
+.satEarthCondTitleSection h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondTitleSection h1 svg {
+  font-size: 0.85rem;
+  color: var(--ec-text-tertiary);
+  opacity: 0.7;
+}
+
+.satEarthCondSubtitle {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--ec-text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondHeaderStatus {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-md);
+  width: 40%;
+  min-width: 40%;
+  max-width: 40%;
+  justify-content: flex-end;
+  padding: 0 1rem;
+}
+
+.satEarthCondHeaderDecision {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 8px 14px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-primary);
+  border-left: 3px solid #3d4354;
+  border-radius: var(--ec-radius-sm);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ec-text-secondary);
+  min-height: 36px;
+}
+
+.satEarthCondHeaderDecision.satEarthCondDecisionNOMINAL {
+  border-left-color: var(--ec-status-good);
+  color: var(--ec-status-good);
+}
+
+.satEarthCondHeaderDecision.satEarthCondDecisionSEVERE {
+  border-left-color: var(--ec-status-critical);
+  color: var(--ec-status-critical);
+}
+
+.satEarthCondHeaderDecision.satEarthCondDecisionELEVATED {
+  border-left-color: var(--ec-status-warning);
+  color: var(--ec-status-warning);
+}
+
+.satEarthCondHeaderDecision.satEarthCondDecisionUNKNOWN {
+  border-left-color: var(--ec-text-muted);
+  color: var(--ec-text-tertiary);
+}
+
+.satEarthCondAlertBtn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #919baf;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.satEarthCondAlertBtn:hover {
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satEarthCondAlertBtn.satEarthCondAlertBtnCritical {
+  border-color: var(--ec-status-critical);
+  color: var(--ec-status-critical);
+}
+
+.satEarthCondAlertBtn.satEarthCondAlertBtnWarning {
+  border-color: var(--ec-status-warning);
+  color: var(--ec-status-warning);
+}
+
+.satEarthCondAlertBadge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--ec-status-critical);
+  border: 2px solid var(--ec-bg-secondary);
+  border-radius: var(--ec-radius-sm);
+  color: var(--ec-bg-void);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondMainContent {
+  display: flex;
+  flex: 1;
+  gap: 1rem;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.satEarthCondSidebar {
+  flex-shrink: 0;
+  width: 280px;
+  min-width: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: linear-gradient(145deg, #101216 0%, #16181d 100%);
+  border: 2px solid #3d4354;
+  border-radius: 8px;
+}
+
+.satEarthCondSidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.satEarthCondSidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.satEarthCondSidebar::-webkit-scrollbar-thumb {
+  background: var(--ec-border-primary);
+  border-radius: 2px;
+}
+
+.satEarthCondControlsPanel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow-y: auto;
+}
+
+.satEarthCondControlGroupStack {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border-bottom: 2px solid var(--ec-border-subtle);
+  padding: 14px 14px 8px 14px;
+  box-sizing: border-box;
+}
+
+.satEarthCondControlGroupStack:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.satEarthCondControlGroup,
+.satEarthCondControlGroupCheckboxBig {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  width: 100%;
+}
+
+.satEarthCondControlGroupCheckboxBig {
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--ec-border-subtle);
+}
+
+.satEarthCondControlGroup label,
+.satEarthCondControlGroupCheckboxBig label {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.satEarthCondSelect,
+.satEarthCondSelectLimited,
+.satEarthCondInput {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #ebf0f8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.satEarthCondSelect,
+.satEarthCondSelectLimited {
+  appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236a7a8a' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondSelectLimited {
+  width: 50%;
+  min-width: 50%;
+  max-width: 50%;
+}
+
+.satEarthCondSelect:hover,
+.satEarthCondSelectLimited:hover,
+.satEarthCondInput:hover {
+  border-color: var(--ec-border-glow);
+}
+
+.satEarthCondSelect:focus,
+.satEarthCondSelectLimited:focus,
+.satEarthCondInput:focus {
+  border-color: var(--ec-accent-cyan);
+}
+
+.satEarthCondSelect:disabled,
+.satEarthCondSelectLimited:disabled,
+.satEarthCondInput:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.satEarthCondSelect option {
+  background: var(--ec-bg-secondary);
+  color: var(--ec-text-primary);
+  font-weight: 700;
+}
+
+.satEarthCondCheckboxLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #919baf;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondCheckboxLabel input[type="checkbox"] {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  appearance: none;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all var(--ec-transition-fast);
+}
+
+.satEarthCondCheckboxLabel input[type="checkbox"]:checked {
+  background: var(--ec-accent-cyan);
+  border-color: var(--ec-accent-cyan);
+}
+
+.satEarthCondCheckboxLabel input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--ec-bg-void);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.satEarthCondControlsDivider {
+  height: 2px;
+  margin: 14px 0;
+  background: var(--ec-border-subtle);
+}
+
+.satEarthCondControlActions,
+.satEarthCondControlActionsLong {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ec-spacing-sm);
+  position: sticky;
+  bottom: 0;
+  padding: 14px;
+  background: var(--ec-bg-secondary);
+  border-top: 2px solid var(--ec-border-primary);
+  width: 100%;
+}
+
+.satEarthCondControlActionsLong {
+  padding: 14px 0;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.satEarthCondBtn,
+.satEarthCondBtnLong {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.25rem;
+  background: linear-gradient(145deg, #16181d 0%, #16181d 100%);
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #ebf0f8;
+  font-size: 0.75rem;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+  white-space: nowrap;
+  width: 100%;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  box-sizing: border-box;
+}
+
+.satEarthCondBtnLong {
+  flex: 1;
+}
+
+.satEarthCondBtnPrimary {
+  background: linear-gradient(145deg, #16181d 0%, #16181d 100%);
+  border-color: #3d4354;
+  color: #ebf0f8;
+}
+
+.satEarthCondBtnPrimary:hover:not(:disabled) {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satEarthCondBtnSecondary {
+  background: linear-gradient(145deg, #16181d 0%, #16181d 100%);
+  border-color: #3d4354;
+  color: #ebf0f8;
+}
+
+.satEarthCondBtnSecondary:hover:not(:disabled) {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satEarthCondBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.satEarthCondContentArea {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background: linear-gradient(145deg, #101216 0%, #16181d 100%);
+  border: 2px solid #3d4354;
+  border-radius: 8px;
+}
+
+.satEarthCondTabs {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 1rem;
+  background: #0b0c0f;
+  border-bottom: 2px solid #3d4354;
+  width: 100%;
+  overflow-x: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.satEarthCondTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.satEarthCondTab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.85rem;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #aab4c8;
+  font-size: 0.75rem;
+  font-weight: 800;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.satEarthCondTab svg {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.satEarthCondTab:hover,
+.satEarthCondTab:focus-visible {
+  border-color: #4ecdc4;
+  color: #ebf0f8;
+  outline: none;
+}
+
+.satEarthCondLayoutControls {
+  position: sticky;
+  right: -1rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex-shrink: 0;
+  gap: 0.4rem;
+  margin: -0.6rem -1rem -0.6rem auto;
+  padding: 0.6rem 1rem 0.6rem 0.75rem;
+  background: #0b0c0f;
+  border-left: 2px solid #3d4354;
+}
+
+.satEarthCondPage button.satEarthCondLayoutToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #919baf;
+  font-size: 0.65rem;
+  font-weight: 800;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.satEarthCondPage button.satEarthCondLayoutToggle:hover {
+  border-color: #4ecdc4;
+  color: #cdd4e4;
+}
+
+.satEarthCondPage button.satEarthCondLayoutToggle.satEarthCondLayoutToggleActive {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satEarthCondTab.satEarthCondTabActive {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satEarthCondTab.satEarthCondTabActive svg {
+  opacity: 1;
+}
+
+.satEarthCondTabBadge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  background: rgba(255, 107, 107, 0.15);
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  border-radius: 3px;
+  color: #ff6b6b;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondTabContent {
+  flex: 1;
+  min-height: 0;
+  padding: 1rem;
+  overflow-y: auto;
+  background: transparent;
+}
+
+.satEarthCondTabContent::-webkit-scrollbar {
+  width: 6px;
+}
+
+.satEarthCondTabContent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.satEarthCondTabContent::-webkit-scrollbar-thumb {
+  background: var(--ec-border-primary);
+  border-radius: 3px;
+}
+
+.satEarthCondTabContent::-webkit-scrollbar-thumb:hover {
+  background: var(--ec-border-glow);
+}
+
+.satEarthCondOverviewTab,
+.satEarthCondModuleTab,
+.satEarthCondGlobalTab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.satEarthCondPanel,
+.satEarthCondPanelTriple,
+.satEarthCondPanelDouble,
+.satEarthCondPanelSingle {
+  padding: 14px;
+  background: var(--ec-bg-secondary);
+  border: 2px solid #3d4354;
+  border-radius: var(--ec-radius-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.satEarthCondPanelTriple {
+  flex: 1 1 calc(33.333% - 12px);
+  min-width: 0;
+}
+
+.satEarthCondPanelDouble {
+  flex: 1 1 calc(50% - 12px);
+  min-width: 0;
+}
+
+.satEarthCondPanelSingle {
+  flex: 100%;
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .satEarthCondPanelTriple,
+  .satEarthCondPanelDouble {
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  .satEarthCondPanel,
+  .satEarthCondPanelTriple,
+  .satEarthCondPanelDouble,
+  .satEarthCondPanelSingle {
+    width: 100%;
+  }
+}
+
+.satEarthCondPanel h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--ec-text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondPanel h3 svg {
+  font-size: 0.75rem;
+  color: var(--ec-accent-cyan);
+  opacity: 0.85;
+}
+
+.satEarthCondPanelHeader,
+.satEarthCondPanelHeaderWithBadge {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ec-spacing-md);
+  margin-bottom: var(--ec-spacing-md);
+  padding-bottom: var(--ec-spacing-sm);
+  border-bottom: 2px solid #3d4354;
+}
+
+.satEarthCondPanelHeader h3,
+.satEarthCondPanelHeaderWithBadge h3 {
+  flex: 1;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondPanelHeader h3 svg,
+.satEarthCondPanelHeaderWithBadge h3 svg {
+  margin-right: 0.4rem;
+}
+
+.satEarthCondFilterSelect {
+  min-width: 100px;
+  padding: 6px 26px 6px 10px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background-position: right 8px center;
+}
+
+.satEarthCondMainDecision {
+  position: relative;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--ec-spacing-lg);
+  padding: 18px 20px;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-md);
+}
+
+.satEarthCondDecisionIconStack {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  margin-bottom: 6px;
+  padding: 2px 0;
+  gap: var(--ec-spacing-sm);
+}
+
+.satEarthCondDecisionIconStack h1 {
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ec-text-primary);
+  line-height: 1.05;
+}
+
+.satEarthCondDecisionIcon {
+  flex-shrink: 0;
+  font-size: 1.6rem;
+  opacity: 0.7;
+  color: var(--ec-text-secondary);
+}
+
+.satEarthCondMainDecision .satEarthCondDecisionContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.satEarthCondDecisionDataType {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+.satEarthCondDecisionReason {
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--ec-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondDecisionMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondDecisionMeta strong {
+  font-weight: 800;
+  color: var(--ec-text-primary);
+}
+
+.satEarthCondConfidenceBar {
+  height: 6px;
+  margin-bottom: 0;
+  overflow: hidden;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 3px;
+}
+
+.satEarthCondConfidenceFill {
+  height: 100%;
+  border-radius: 0;
+  transition: width var(--ec-transition-slow);
+  background: var(--ec-accent-cyan);
+}
+
+.satEarthCondAllReasons {
+  padding: 12px 14px;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-sm);
+}
+
+.satEarthCondAllReasons h4 {
+  margin-bottom: var(--ec-spacing-sm);
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondAllReasons ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.satEarthCondAllReasons li {
+  margin-bottom: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ec-text-secondary);
+}
+
+.satEarthCondSummaryBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ec-spacing-md);
+  padding: 12px;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-md);
+}
+
+.satEarthCondSummaryCards {
+  display: flex;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 8px;
+}
+
+.satEarthCondSummaryCards::-webkit-scrollbar {
+  height: 3px;
+}
+
+.satEarthCondSummaryCards::-webkit-scrollbar-thumb {
+  background: var(--ec-border-primary);
+}
+
+.satEarthCondSummaryCard {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 10px 14px;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-left: 3px solid #3d4354;
+  border-radius: 6px;
+  flex-shrink: 0;
+  min-height: 56px;
+  transition: border-color var(--ec-transition-fast);
+}
+
+.satEarthCondSummaryCard:hover {
+  border-color: var(--ec-border-glow);
+}
+
+.satEarthCondSummaryCard svg {
+  font-size: 1rem;
+  color: var(--ec-text-tertiary);
+}
+
+.satEarthCondSummaryCardCritical {
+  border-left-color: var(--ec-status-critical);
+}
+
+.satEarthCondSummaryCardCritical svg {
+  color: var(--ec-status-critical);
+}
+
+.satEarthCondSummaryCardWarning {
+  border-left-color: var(--ec-status-warning);
+}
+
+.satEarthCondSummaryCardWarning svg {
+  color: var(--ec-status-warning);
+}
+
+.satEarthCondSummaryCardAdvisory {
+  border-left-color: var(--ec-status-advisory);
+}
+
+.satEarthCondSummaryCardAdvisory svg {
+  color: var(--ec-status-advisory);
+}
+
+.satEarthCondSummaryCardAck {
+  border-left-color: var(--ec-status-good);
+}
+
+.satEarthCondSummaryCardAck svg {
+  color: var(--ec-status-good);
+}
+
+.satEarthCondSummaryCardContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.satEarthCondSummaryCount {
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.05;
+  color: var(--ec-text-primary);
+}
+
+.satEarthCondSummaryLabel {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #919baf;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondOverviewGrid {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 700px) {
+  .satEarthCondOverviewGrid {
+    flex-direction: column;
+  }
+}
+
+.satEarthCondSystemItem {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 8px 12px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-md);
+  transition: all var(--ec-transition-fast);
+}
+
+.satEarthCondSystemItem:hover {
+  background: var(--ec-bg-surface);
+  border-color: var(--ec-border-glow);
+}
+
+.satEarthCondSystemIndicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--ec-radius-sm);
+  font-size: 0.85rem;
+  color: var(--ec-text-secondary);
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+}
+
+.satEarthCondSystemInfo {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+  gap: 2px;
+}
+
+.satEarthCondSystemName {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondSystemStatus {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondModuleStrip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.satEarthCondPage button.satEarthCondModuleStripItem {
+  padding: 8px 12px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-md);
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.satEarthCondPage button.satEarthCondModuleStripItem:hover {
+  background: var(--ec-bg-surface);
+  border-color: var(--ec-border-glow);
+}
+
+.satEarthCondPage button.satEarthCondModuleStripItemActive {
+  border-color: var(--ec-accent-cyan);
+  background: rgba(78, 205, 196, 0.08);
+}
+
+.satEarthCondConsole {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-md);
+  overflow: hidden;
+}
+
+.satEarthCondConsoleTabs {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 2px solid var(--ec-border-primary);
+  background: var(--ec-bg-tertiary);
+}
+
+.satEarthCondPage button.satEarthCondConsoleTab {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  border-right: 2px solid var(--ec-border-subtle);
+  border-top: none;
+  border-left: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  margin-bottom: -2px;
+  color: var(--ec-text-muted);
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--ec-transition-fast);
+}
+
+.satEarthCondPage button.satEarthCondConsoleTab:hover {
+  color: var(--ec-text-primary);
+  background: var(--ec-bg-elevated);
+}
+
+.satEarthCondPage button.satEarthCondConsoleTabActive {
+  color: var(--ec-accent-cyan);
+  background: var(--ec-bg-secondary);
+  border-bottom-color: var(--ec-accent-cyan);
+}
+
+.satEarthCondConsoleTabCount {
+  padding: 2px 7px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 3px;
+  color: var(--ec-text-secondary);
+  font-size: 0.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondConsoleSearch {
+  margin: 8px 10px 8px auto;
+  width: 220px;
+  max-width: 40%;
+}
+
+.satEarthCondConsoleBody {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) minmax(0, 0.9fr);
+  height: 520px;
+}
+
+.satEarthCondConsoleRail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ec-spacing-md);
+  padding: 10px;
+  border-right: 2px solid var(--ec-border-subtle);
+  background: var(--ec-bg-tertiary);
+  overflow-y: auto;
+}
+
+.satEarthCondConsoleRailGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.satEarthCondConsoleRailLabel {
+  padding: 0 4px 6px 4px;
+  color: var(--ec-text-muted);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondPage button.satEarthCondConsoleRailItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 7px 8px;
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  color: var(--ec-text-tertiary);
+  font-family: inherit;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--ec-transition-fast);
+}
+
+.satEarthCondPage button.satEarthCondConsoleRailItem span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.satEarthCondPage button.satEarthCondConsoleRailItem:hover {
+  background: var(--ec-bg-elevated);
+  color: var(--ec-text-primary);
+}
+
+.satEarthCondPage button.satEarthCondConsoleRailItemActive {
+  background: var(--ec-bg-elevated);
+  border-left-color: var(--ec-accent-cyan);
+  color: var(--ec-accent-cyan);
+}
+
+.satEarthCondConsoleRailCount {
+  flex-shrink: 0;
+  color: var(--ec-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondConsoleList {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 2px solid var(--ec-border-subtle);
+}
+
+.satEarthCondConsoleListHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--ec-border-subtle);
+  color: var(--ec-text-muted);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondPage button.satEarthCondConsoleListAction {
+  padding: 4px 10px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: 3px;
+  color: var(--ec-text-secondary);
+  font-family: inherit;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--ec-transition-fast);
+}
+
+.satEarthCondPage button.satEarthCondConsoleListAction:hover {
+  border-color: var(--ec-accent-cyan);
+  color: var(--ec-accent-cyan);
+}
+
+.satEarthCondConsoleListRows {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.satEarthCondConsoleListRows::-webkit-scrollbar,
+.satEarthCondConsoleRail::-webkit-scrollbar,
+.satEarthCondConsoleDetail::-webkit-scrollbar {
+  width: 4px;
+}
+
+.satEarthCondConsoleListRows::-webkit-scrollbar-thumb,
+.satEarthCondConsoleRail::-webkit-scrollbar-thumb,
+.satEarthCondConsoleDetail::-webkit-scrollbar-thumb {
+  background: var(--ec-border-primary);
+  border-radius: 2px;
+}
+
+.satEarthCondPage button.satEarthCondConsoleRow {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--ec-border-subtle);
+  border-left: 3px solid var(--ec-border-primary);
+  border-radius: 0;
+  color: var(--ec-text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--ec-transition-fast);
+}
+
+.satEarthCondPage button.satEarthCondConsoleRow:hover {
+  background: var(--ec-bg-elevated);
+}
+
+.satEarthCondPage button.satEarthCondConsoleRowSelected {
+  background: var(--ec-bg-elevated);
+  box-shadow: inset 0 0 0 1px var(--ec-border-primary);
+}
+
+.satEarthCondPage button.satEarthCondConsoleRowAcknowledged {
+  opacity: 0.5;
+}
+
+.satEarthCondConsoleRowLevel {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.satEarthCondConsoleRowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.satEarthCondConsoleRowPrimary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ec-text-primary);
+}
+
+.satEarthCondConsoleRowSecondary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondConsoleRowTrailing {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondConsoleDetail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--ec-bg-secondary);
+}
+
+.satEarthCondConsoleDetailBody {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: var(--ec-spacing-md);
+  padding: 14px;
+}
+
+.satEarthCondConsoleDetailHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 4px 10px;
+  border-left: 3px solid var(--ec-border-primary);
+}
+
+.satEarthCondConsoleDetailLevel {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondConsoleDetailTitle {
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.45;
+  color: var(--ec-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.satEarthCondConsoleDetailFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.satEarthCondConsoleDetailField {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 10px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-md);
+  min-width: 0;
+}
+
+.satEarthCondConsoleDetailLabel {
+  font-size: 0.55rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondConsoleDetailValue {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondConsoleDetailNote {
+  padding: 10px 12px;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-md);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--ec-text-secondary);
+}
+
+.satEarthCondConsoleEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ec-spacing-sm);
+  height: 100%;
+  min-height: 160px;
+  padding: 20px;
+  color: var(--ec-text-muted);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.satEarthCondConsoleEmpty svg {
+  font-size: 1.2rem;
+  color: var(--ec-accent-cyan);
+  opacity: 0.6;
+}
+
+@media (max-width: 1400px) {
+  .satEarthCondConsoleBody {
+    grid-template-columns: 180px minmax(0, 1fr) minmax(0, 0.8fr);
+  }
+}
+
+@media (max-width: 1200px) {
+  .satEarthCondModuleStrip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .satEarthCondConsoleBody {
+    grid-template-columns: 170px minmax(0, 1fr);
+    grid-template-rows: 420px auto;
+    height: auto;
+  }
+
+  .satEarthCondConsoleRail {
+    grid-row: 1 / 3;
+  }
+
+  .satEarthCondConsoleList {
+    border-right: none;
+    border-bottom: 2px solid var(--ec-border-subtle);
+  }
+
+  .satEarthCondConsoleDetail {
+    max-height: 360px;
+  }
+}
+
+@media (max-width: 768px) {
+  .satEarthCondModuleStrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .satEarthCondConsoleTabs {
+    flex-wrap: wrap;
+  }
+
+  .satEarthCondPage button.satEarthCondConsoleTab {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 10px 8px;
+  }
+
+  .satEarthCondConsoleSearch {
+    flex: 1 1 100%;
+    width: auto;
+    max-width: none;
+    margin: 8px 10px;
+  }
+
+  .satEarthCondConsoleBody {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 360px auto;
+  }
+
+  .satEarthCondConsoleRail {
+    grid-row: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    max-height: 180px;
+    border-right: none;
+    border-bottom: 2px solid var(--ec-border-subtle);
+  }
+
+  .satEarthCondConsoleRailGroup {
+    flex: 1 1 140px;
+  }
+
+  .satEarthCondConsoleDetailFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .satEarthCondModuleStrip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .satEarthCondPage button.satEarthCondConsoleRow {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .satEarthCondConsoleRowTrailing {
+    display: none;
+  }
+}
+
+.satEarthCondSystemCounts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.satEarthCondCriticalCount {
+  padding: 4px 8px;
+  background: rgba(255, 107, 107, 0.12);
+  border: 2px solid rgba(255, 107, 107, 0.3);
+  border-radius: 3px;
+  color: var(--ec-status-critical);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondViolationCount {
+  padding: 4px 8px;
+  background: rgba(255, 149, 0, 0.12);
+  border: 2px solid rgba(255, 149, 0, 0.3);
+  border-radius: 3px;
+  color: var(--ec-status-warning);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondAlertCount {
+  padding: 4px 8px;
+  background: rgba(255, 217, 61, 0.12);
+  border: 2px solid rgba(255, 217, 61, 0.3);
+  border-radius: 3px;
+  color: var(--ec-status-advisory);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondChartsRow {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.satEarthCondChartsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.satEarthCondAlertsViolationsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.satEarthCondHistoryPanel {
+  grid-column: 1 / -1;
+}
+
+.satEarthCondAlertHistoryList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.satEarthCondAlertHistoryList::-webkit-scrollbar {
+  width: 4px;
+}
+
+.satEarthCondAlertHistoryList::-webkit-scrollbar-thumb {
+  background: var(--ec-border-primary);
+  border-radius: 2px;
+}
+
+.satEarthCondAlertHistoryItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 0;
+  font-size: 0.6rem;
+}
+
+.satEarthCondAlertHistoryTime {
+  min-width: 110px;
+  color: var(--ec-text-muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondAlertHistorySeverity {
+  min-width: 70px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ec-text-secondary);
+}
+
+.satEarthCondAlertHistorySeverity.satEarthCondSeverityCRITICAL {
+  color: var(--ec-status-critical);
+}
+
+.satEarthCondAlertHistorySeverity.satEarthCondSeverityWARNING {
+  color: var(--ec-status-warning);
+}
+
+.satEarthCondAlertHistoryMessage {
+  flex: 1;
+  overflow: hidden;
+  color: var(--ec-text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.satEarthCondChartContainer {
+  padding: 14px;
+  background: var(--ec-bg-secondary);
+  border: 2px solid #3d4354;
+  border-radius: var(--ec-radius-md);
+}
+
+.satEarthCondChartContainer h4 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--ec-text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondChartHeaderWithBadge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ec-spacing-md);
+  margin-bottom: var(--ec-spacing-md);
+  padding-bottom: var(--ec-spacing-sm);
+  border-bottom: 2px solid var(--ec-border-subtle);
+  width: 100%;
+}
+
+.satEarthCondChartHeaderWithBadge h4 {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondChartWrapper {
+  position: relative;
+  padding: 4px 0;
+}
+
+.satEarthCondChart {
+  width: 100%;
+  height: 200px;
+}
+
+.satEarthCondNoChartData {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  width: 100%;
+  text-align: center;
+  padding: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-sm);
+  min-height: 80px;
+}
+
+.satEarthCondStatsSummary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: var(--ec-spacing-sm);
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 2px solid var(--ec-border-subtle);
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--ec-text-tertiary);
+}
+
+.satEarthCondStatsSummary span {
+  padding: 4px 10px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 3px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.satEarthCondChartContainerLive {
+}
+
+.satEarthCondChartContainerForecast {
+  background: var(--ec-bg-secondary);
+}
+
+.satEarthCondChartContainerHistorical {
+  background: var(--ec-bg-secondary);
+}
+
+.satEarthCondChartContainerTrend {
+  background: var(--ec-bg-secondary);
+}
+
+.satEarthCondChartContainerComputed {
+  background: var(--ec-bg-secondary);
+}
+
+.satEarthCondRiskGauge,
+.satEarthCondReliabilityGauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  text-align: center;
+  flex: 1;
+}
+
+.satEarthCondGaugeValue {
+  margin-bottom: 6px;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #ebf0f8;
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondGaugeLabel {
+  margin-bottom: 12px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #919baf;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondGaugeScale {
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.satEarthCondGaugeBar {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  overflow: hidden;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 3px;
+}
+
+.satEarthCondGaugeZone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  opacity: 0.18;
+}
+
+.satEarthCondGaugeMarker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ec-bg-void);
+}
+
+.satEarthCondGaugeTicks {
+  position: relative;
+  height: 14px;
+  margin-top: 5px;
+}
+
+.satEarthCondGaugeTick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 0.55rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.satEarthCondGaugeTick:first-child {
+  transform: none;
+}
+
+.satEarthCondGaugeTick:last-child {
+  transform: translateX(-100%);
+}
+
+.satEarthCondGaugeLegend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 14px;
+  margin-bottom: 14px;
+}
+
+.satEarthCondGaugeLegendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondGaugeLegendItemActive {
+  color: var(--ec-text-primary);
+}
+
+.satEarthCondGaugeLegendSwatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.satEarthCondGaugeStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+
+.satEarthCondGaugeStat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-md);
+  text-align: left;
+  min-width: 0;
+}
+
+.satEarthCondGaugeStatLabel {
+  font-size: 0.55rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondGaugeStatValue {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.satEarthCondGaugeFill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 0;
+  transition: width var(--ec-transition-slow);
+  background: var(--ec-accent-cyan);
+}
+
+.satEarthCondDataTrust {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ec-text-tertiary);
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 0 8px;
+}
+
+.satEarthCondTableCard {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 6px;
+  flex: 1;
+  width: 100%;
+  overflow: hidden;
+}
+
+.satEarthCondTableCard h3 {
+  margin-bottom: 8px;
+  padding: 0 0 6px 0;
+  border-bottom: 2px solid var(--ec-border-subtle);
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.satEarthCondTableHeader {
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.satEarthCondTableHeader h3 {
+  margin: 0;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondTableWrapper {
+  flex: 1;
+  width: 100%;
+  background: var(--ec-bg-elevated);
+  overflow-x: auto;
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 3px;
+}
+
+.satEarthCondTableWrapper::-webkit-scrollbar {
+  height: 4px;
+}
+
+.satEarthCondTableWrapper::-webkit-scrollbar-thumb {
+  background: var(--ec-border-primary);
+  border-radius: 2px;
+}
+
+.satEarthCondDataTable {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.satEarthCondDataTable thead {
+  position: sticky;
+  top: 0;
+  background: var(--ec-bg-elevated);
+  z-index: 1;
+}
+
+.satEarthCondDataTable th {
+  padding: 9px 12px;
+  background: var(--ec-bg-elevated);
+  border-bottom: 2px solid var(--ec-border-primary);
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondDataTable td {
+  padding: 9px 12px;
+  background: var(--ec-bg-elevated);
+  border-bottom: 2px solid var(--ec-border-subtle);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ec-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.satEarthCondDataTable tbody tr {
+  transition: background var(--ec-transition-fast);
+}
+
+.satEarthCondDataTable tbody tr:hover td {
+  background: var(--ec-bg-surface);
+}
+
+.satEarthCondDataTable tr:last-child td {
+  border-bottom: none;
+}
+
+.satEarthCondTableNoData {
+  font-style: italic;
+  color: var(--ec-text-muted);
+  text-align: center;
+}
+
+.satEarthCondHeartbeatGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.satEarthCondHeartbeatItem {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 8px 10px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ec-text-secondary);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondHeartbeatStatus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.satEarthCondOperational {
+  background: rgba(78, 205, 196, 0.12);
+  color: var(--ec-status-good);
+  border: 2px solid rgba(78, 205, 196, 0.3);
+}
+
+.satEarthCondDegraded {
+  background: rgba(255, 149, 0, 0.12);
+  color: var(--ec-status-warning);
+  border: 2px solid rgba(255, 149, 0, 0.3);
+}
+
+.satEarthCondSpectrumGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 10px 0;
+}
+
+.satEarthCondSpectrumBand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 12px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-sm);
+  text-align: center;
+  overflow: hidden;
+}
+
+.satEarthCondSpectrumIndicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ec-accent-cyan);
+}
+
+.satEarthCondSpectrumLabel {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #919baf;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondSpectrumStatus {
+  font-size: 0.6rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondStatusTileGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  flex: 1;
+}
+
+@media (max-width: 900px) {
+  .satEarthCondStatusTileGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .satEarthCondStatusTileGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.satEarthCondStatusTile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-md);
+  min-width: 0;
+}
+
+.satEarthCondStatusTileHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondStatusTileHeader svg {
+  font-size: 0.75rem;
+}
+
+.satEarthCondStatusTileValue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondStatusTileDot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.satEarthCondStatusTileDetail {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ec-text-tertiary);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondStatusGo {
+  color: var(--ec-status-good);
+  border-color: rgba(78, 205, 196, 0.3);
+}
+
+.satEarthCondStatusNoGo {
+  color: var(--ec-status-critical);
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+.satEarthCondMapControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ec-spacing-md);
+  padding: 12px 14px;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-md);
+}
+
+.satEarthCondMapControlGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+}
+
+.satEarthCondSearchInputWrapper {
+  position: relative;
+}
+
+.satEarthCondSearchIcon {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  font-size: 0.7rem;
+  color: var(--ec-text-muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.satEarthCondSearchInput {
+  padding-left: 32px !important;
+}
+
+.satEarthCondMapsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 12px;
+}
+
+.satEarthCondMapCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 600px;
+  overflow: hidden;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 6px;
+}
+
+.satEarthCondMapTitle {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 6px 10px;
+  background: rgba(10, 12, 15, 0.92);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-sm);
+  backdrop-filter: blur(8px);
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondMapTitleIcon {
+  font-size: 0.75rem;
+  color: var(--ec-accent-cyan);
+  opacity: 0.85;
+}
+
+.satEarthCondMapIframeContainer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.satEarthCondMapIframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: calc(100% + 100px);
+  border: none;
+  filter: saturate(0.55) brightness(0.72) contrast(1.05);
+  pointer-events: auto;
+}
+
+.satEarthCondDataTypeBadge,
+.satEarthCondDataTypeBadgeSmall {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 3px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ec-text-tertiary);
+}
+
+.satEarthCondDataTypeBadge svg,
+.satEarthCondDataTypeBadgeSmall svg {
+  font-size: 0.65rem;
+  opacity: 0.7;
+}
+
+@media (max-width: 700px) {
+  .satEarthCondDataTypeBadge,
+  .satEarthCondDataTypeBadgeSmall {
+    display: none;
+  }
+}
+
+.satEarthCondDataTypeIndicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 0.75rem;
+}
+
+.satEarthCondDataTypeLegend {
+  margin-bottom: var(--ec-spacing-lg);
+  padding: 12px 16px;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-md);
+}
+
+.satEarthCondDataTypeLegendTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  margin-bottom: var(--ec-spacing-md);
+  padding-bottom: var(--ec-spacing-sm);
+  border-bottom: 2px solid var(--ec-border-subtle);
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondDataTypeLegendTitle svg {
+  color: var(--ec-accent-cyan);
+  opacity: 0.7;
+}
+
+.satEarthCondDataTypeLegendItems {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 14px;
+}
+
+.satEarthCondDataTypeLegendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 8px 12px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 0;
+  transition: border-color var(--ec-transition-fast);
+}
+
+.satEarthCondDataTypeLegendItem:hover {
+  border-color: var(--ec-border-glow);
+}
+
+.satEarthCondDataTypeLegendItem svg {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  color: var(--ec-accent-cyan);
+  opacity: 0.7;
+}
+
+.satEarthCondDataTypeLegendLabel {
+  min-width: 80px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #919baf;
+}
+
+.satEarthCondDataTypeLegendDesc {
+  flex: 1;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondSectionDivider {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-md);
+  margin: 14px 0 6px 0;
+}
+
+.satEarthCondSectionDividerLine {
+  flex: 1;
+  height: 2px;
+  background: var(--ec-border-subtle);
+}
+
+.satEarthCondSectionDividerLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-sm);
+  padding: 8px 14px;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-sm);
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #919baf;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondSectionDividerLabel svg {
+  font-size: 0.85rem;
+  color: var(--ec-accent-cyan);
+  opacity: 0.85;
+}
+
+.satEarthCondShearSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ec-spacing-sm);
+  padding: 10px;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-sm);
+  margin-bottom: 10px;
+}
+
+.satEarthCondShearStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 100px;
+  padding: 8px 12px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-sm);
+  overflow: hidden;
+  gap: 4px;
+}
+
+.satEarthCondShearLabel {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #919baf;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondShearValue {
+  font-size: 0.95rem;
+  font-weight: 800;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #ebf0f8;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondRadiationSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 1100px) {
+  .satEarthCondRadiationSummaryGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.satEarthCondRadiationGroup {
+  padding: 12px;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-sm);
+}
+
+.satEarthCondRadiationGroupHeader {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--ec-border-subtle);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ec-accent-cyan);
+}
+
+.satEarthCondRadiationGroupStats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.satEarthCondRadiationStat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-sm);
+}
+
+.satEarthCondRadiationLabel {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #919baf;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondRadiationValue {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #ebf0f8;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondRadiationRange {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondDataQualityGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.satEarthCondDataQualityItem {
+  padding: 10px 12px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: 0;
+}
+
+.satEarthCondDataQualityHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.satEarthCondDataQualitySensor {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondDataQualityStatus {
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ec-text-tertiary);
+}
+
+.satEarthCondDataQualityStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondDriftAlertsList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.satEarthCondDriftAlert {
+  padding: 10px 12px;
+  background: var(--ec-bg-elevated);
+  border: 2px solid var(--ec-border-subtle);
+  border-left: 3px solid var(--ec-status-warning);
+  border-radius: var(--ec-radius-sm);
+}
+
+.satEarthCondDriftHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--ec-spacing-md);
+  margin-bottom: 6px;
+}
+
+.satEarthCondDriftSensor {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondDriftType {
+  padding: 3px 7px;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-sm);
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-tertiary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondDriftSeverity {
+  margin-left: auto;
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ec-text-secondary);
+}
+
+.satEarthCondDriftDescription {
+  margin-bottom: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ec-text-secondary);
+}
+
+.satEarthCondDriftStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondLoadingState,
+.satEarthCondErrorState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  height: 100%;
+  min-height: 100%;
+  text-align: center;
+  padding: 20px;
+}
+
+.satEarthCondLoadingSpinner {
+  color: var(--ec-accent-cyan);
+  opacity: 0.6;
+  animation: ecPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes ecPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.satEarthCondLoadingState h2,
+.satEarthCondErrorState h2 {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--ec-text-secondary);
+  text-align: center;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 0;
+}
+
+.satEarthCondLoadingState p {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  text-align: center;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0;
+  margin: 0;
+}
+
+.satEarthCondErrorState svg {
+  color: var(--ec-status-critical);
+}
+
+.satEarthCondErrorMessage {
+  margin: 4px 0;
+  padding: 8px 12px;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+  border-left: 3px solid var(--ec-status-critical);
+  border-radius: var(--ec-radius-sm);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--ec-text-secondary);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondFooter {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  min-height: 40px;
+  max-height: 40px;
+  height: 40px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  background: linear-gradient(145deg, #101216 0%, #16181d 100%);
+  border: 2px solid #3d4354;
+  border-radius: 8px;
+}
+
+.satEarthCondFooterContent {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--ec-spacing-xl);
+  width: 100%;
+  padding: 0 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.satEarthCondFooterContent::-webkit-scrollbar {
+  display: none;
+}
+
+.satEarthCondFooterContent span {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondChartDescription,
+.satEarthCondChartDescriptionMaps {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--ec-bg-tertiary);
+  border: 2px solid var(--ec-border-subtle);
+  border-radius: var(--ec-radius-sm);
+}
+
+.satEarthCondChartAxesInfo {
+  display: flex;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  gap: 16px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--ec-border-subtle);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondPage .satEarthCondChartAxesInfo span {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondChartAxesInfo strong {
+  margin-right: 4px;
+  color: var(--ec-accent-cyan);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondChartDescriptionText {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--ec-text-secondary);
+  text-align: left;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 1400px) {
+  .satEarthCondSidebar {
+    width: 220px;
+    min-width: 220px;
+  }
+
+  .satEarthCondTab {
+    padding: 11px 18px;
+    font-size: 0.6rem;
+  }
+}
+
+@media (max-width: 1200px) {
+  .satEarthCondSidebar {
+    width: 200px;
+    min-width: 200px;
+  }
+
+  .satEarthCondDataTypeLegendItems {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .satEarthCondChartsRow,
+  .satEarthCondChartsGrid,
+  .satEarthCondAlertsViolationsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .satEarthCondSidebar {
+    width: 180px;
+    min-width: 180px;
+  }
+
+  .satEarthCondTab {
+    padding: 11px 12px;
+    font-size: 0.6rem;
+  }
+
+  .satEarthCondDecisionIconStack h1 {
+    font-size: 1.4rem;
+  }
+
+  .satEarthCondGaugeValue {
+    font-size: 1.7rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #ebf0f8;
+}
+
+  .satEarthCondDataTypeLegendItems {
+    grid-template-columns: 1fr;
+  }
+
+  .satEarthCondMapsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.satEarthCondPage::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, rgba(8, 9, 12, 0.95) 0%, rgba(16, 18, 22, 0.98) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.satEarthCondGate {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  width: 100%;
+}
+
+.satEarthCondLoadingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+}
+
+.satEarthCondFullHeight {
+  height: 100%;
+  min-height: 240px;
+}
+
+.satEarthCondInlineDropdown {
+  width: 160px;
+  flex-shrink: 0;
+}
+
+.satEarthCondDropdownDisabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.satEarthCondAlertBtn.satEarthCondAlertBtnCritical {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+
+.satEarthCondAlertBtn.satEarthCondAlertBtnWarning {
+  border-color: #FF9500;
+  color: #FF9500;
+}
+
+.satEarthCondContainer h2,
+.satEarthCondContainer h3,
+.satEarthCondContainer h4 {
+  color: #ebf0f8;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondContainer h3 svg,
+.satEarthCondContainer h4 svg {
+  color: #4ecdc4;
+}
+
+.satEarthCondLocationSearchStatus {
+  margin-top: 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.satEarthCondLocationResults {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-sm);
+}
+
+.satEarthCondPage button.satEarthCondLocationResult {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--ec-border-subtle);
+  border-radius: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--ec-transition-fast);
+}
+
+.satEarthCondPage button.satEarthCondLocationResult:hover {
+  background: var(--ec-bg-elevated);
+}
+
+.satEarthCondLocationResultName {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+}
+
+.satEarthCondLocationResultCoords {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondExpandable,
+.satEarthCondTabContent .satEarthCondTableCard,
+.satEarthCondTabContent .satEarthCondChartDescription,
+.satEarthCondTabContent .satEarthCondStatusTileGrid,
+.satEarthCondTabContent .satEarthCondGaugeStats,
+.satEarthCondTabContent .satEarthCondStatsSummary {
+  cursor: zoom-in;
+}
+
+.satEarthCondTabContent .satEarthCondTableCard:hover,
+.satEarthCondTabContent .satEarthCondChartDescription:hover {
+  border-color: var(--ec-accent-cyan);
+}
+
+.satEarthCondModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  animation: satEarthCondModalFadeIn 0.2s ease;
+}
+
+.satEarthCondModal {
+  display: flex;
+  flex-direction: column;
+  width: 90%;
+  max-width: 900px;
+  max-height: 90vh;
+  overflow: hidden;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(78, 205, 196, 0.1);
+  animation: satEarthCondModalSlideIn 0.3s ease;
+}
+
+.satEarthCondModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-shrink: 0;
+  padding: 1rem 1.2rem;
+  background: #08090c;
+  border-bottom: 2px solid var(--ec-border-primary);
+}
+
+.satEarthCondModalTitle {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondPage button.satEarthCondModalClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #919baf;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.satEarthCondPage button.satEarthCondModalClose:hover {
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satEarthCondModalBody {
+  flex: 1;
+  min-height: 0;
+  padding: 1.2rem;
+  overflow-y: auto;
+}
+
+.satEarthCondChartExpanded {
+  height: 65vh !important;
+}
+
+.satEarthCondExpandedContent,
+.satEarthCondExpandedContent * {
+  white-space: normal !important;
+  text-overflow: clip !important;
+  overflow: visible !important;
+  max-height: none !important;
+}
+
+.satEarthCondExpandedContent .satEarthCondTableWrapper {
+  overflow-x: auto !important;
+}
+
+.satEarthCondExpandedContent .satEarthCondDataTable {
+  table-layout: auto;
+}
+
+.satEarthCondExpandedContent .satEarthCondDataTable td,
+.satEarthCondExpandedContent .satEarthCondDataTable th {
+  overflow-wrap: anywhere;
+}
+
+.satEarthCondExpandedContent .satEarthCondChartAxesInfo {
+  flex-wrap: wrap;
+}
+
+.satEarthCondDescriptionPending {
+  font-style: italic;
+  color: var(--ec-text-muted);
+}
+
+.satEarthCondConsoleDetailBody > .satEarthCondBtn {
+  flex: 0 0 auto;
+  margin-top: auto;
+}
+
+.satEarthCondModal.satEarthCondPickerModal {
+  width: min(1200px, 94vw);
+  max-width: min(1200px, 94vw);
+  height: min(860px, 92vh);
+  max-height: 92vh;
+}
+
+.satEarthCondPickerToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ec-spacing-sm);
+  padding: 12px 16px;
+  background: var(--ec-bg-secondary);
+  border-bottom: 2px solid var(--ec-border-primary);
+}
+
+.satEarthCondPickerSearch {
+  position: relative;
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.satEarthCondPickerSearch .satEarthCondInput {
+  width: 100%;
+}
+
+.satEarthCondPickerResults {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-sm);
+}
+
+.satEarthCondPage button.satEarthCondPickerResult {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--ec-border-subtle);
+  border-radius: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.satEarthCondPage button.satEarthCondPickerResult:hover {
+  background: var(--ec-bg-elevated);
+}
+
+.satEarthCondPickerResultName {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+}
+
+.satEarthCondPickerResultCoords {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondPickerStatus {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ec-text-muted);
+}
+
+.satEarthCondPickerMap {
+  position: relative;
+  flex: 1;
+  min-height: 320px;
+  background: var(--ec-bg-void);
+}
+
+.satEarthCondPickerCanvas {
+  position: absolute;
+  inset: 0;
+}
+
+.satEarthCondPickerOverlayStatus {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 8px 14px;
+  background: var(--ec-bg-secondary);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-sm);
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--ec-text-tertiary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondPickerHint {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  padding: 6px 10px;
+  background: rgba(8, 9, 12, 0.82);
+  border: 2px solid var(--ec-border-primary);
+  border-radius: var(--ec-radius-sm);
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--ec-text-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.satEarthCondPickerMarker {
+  width: 18px;
+  height: 18px;
+  background: var(--ec-bg-void);
+  border: 4px solid var(--ec-accent-cyan);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--ec-bg-void), 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.satEarthCondPickerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--ec-spacing-md);
+  padding: 12px 16px;
+  background: var(--ec-bg-tertiary);
+  border-top: 2px solid var(--ec-border-primary);
+}
+
+.satEarthCondPickerSelection {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.satEarthCondPickerSelectionLabel {
+  font-size: 0.55rem;
+  font-weight: 800;
+  color: var(--ec-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satEarthCondPickerSelectionValue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--ec-text-primary);
+}
+
+.satEarthCondPickerSelectionCoords {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--ec-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondPickerActions {
+  display: flex;
+  gap: var(--ec-spacing-sm);
+}
+
+@keyframes satEarthCondModalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes satEarthCondModalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes satFeedsModalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes satFeedsModalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.satPageWrapper,
+.satModalPortal {
+  --st-bg-void: #08090c;
+  --st-bg-base: #0a0c0f;
+  --st-bg-primary: #0d0f13;
+  --st-bg-secondary: #101216;
+  --st-bg-tertiary: #13151a;
+  --st-bg-elevated: #16181d;
+  --st-bg-surface: #12141a;
+  --st-bg-panel: #0f1115;
+
+  --st-text-primary: #ebf0f8;
+  --st-text-secondary: #cdd4e4;
+  --st-text-tertiary: #aab4c8;
+  --st-text-muted: #919baf;
+
+  --st-border-primary: #3d4354;
+  --st-border-subtle: #323746;
+  --st-border-glow: #3d4354;
+
+  --st-accent-primary: #4ecdc4;
+  --st-accent-secondary: #5a6a7a;
+  --st-accent-muted: rgba(78, 205, 196, 0.08);
+  --st-accent-blue: #42a5f5;
+  --st-accent-cyan: #4ecdc4;
+
+  --st-status-nominal: #4ecdc4;
+  --st-status-critical: #ff6b6b;
+  --st-status-warning: #FF9500;
+  --st-status-good: #4ecdc4;
+  --st-status-degraded: #FF9500;
+  --st-status-down: #ff6b6b;
+
+  --st-radius-sm: 4px;
+  --st-radius-md: 6px;
+  --st-radius-lg: 10px;
+
+  --st-spacing-xs: 4px;
+  --st-spacing-sm: 8px;
+  --st-spacing-md: 12px;
+  --st-spacing-lg: 16px;
+  --st-spacing-xl: 24px;
+
+  --st-transition-fast: 0.15s ease;
+  --st-transition-normal: 0.25s ease;
+
+  --st-strip-height: 50px;
+  --st-menu-room: 260px;
+  --st-toolbar-height: 56px;
+  --st-right-rail-width: 320px;
+  --st-canvas-area-top: calc(var(--st-strip-height) + var(--st-toolbar-height));
+}
+
+.satFeedsModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  animation: satFeedsModalFadeIn 0.2s ease;
+}
+
+.satFeedsModal {
+  display: flex;
+  flex-direction: column;
+  width: 94vw;
+  max-width: 1600px;
+  max-height: 90vh;
+  overflow: hidden;
+  background: #101216;
+  border: 2px solid #3d4354;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(78, 205, 196, 0.1);
+  color: #ebf0f8;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  animation: satFeedsModalSlideIn 0.3s ease;
+}
+
+.satFeedsModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-shrink: 0;
+  padding: 1rem 1.2rem;
+  background: #08090c;
+  border-bottom: 2px solid #3d4354;
+}
+
+.satFeedsModalHeader span {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #ebf0f8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satModalPortal button.satFeedsModalClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #919baf;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.satModalPortal button.satFeedsModalClose:hover {
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satFeedsModalContent {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.2rem;
+  overflow-y: auto;
+}
+
+.satFeedsModalContent::-webkit-scrollbar {
+  width: 6px;
+}
+
+.satFeedsModalContent::-webkit-scrollbar-thumb {
+  background: #3d4354;
+}
+
+.satFeedsCard {
+  padding: 1rem;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.satFeedsCardTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: -1rem -1rem 1rem;
+  padding: 0.85rem 1rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 2px solid #3d4354;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #ebf0f8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satFeedsCardTitle svg {
+  color: #4ecdc4;
+}
+
+.satFeedsHeroTitle {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.35;
+  color: #ebf0f8;
+}
+
+.satFeedsHeroBadges,
+.satFeedsChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.satFeedsHeroBadges {
+  margin-top: 0.6rem;
+}
+
+.satFeedsHeroDescription {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 2px solid #323746;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #cdd4e4;
+}
+
+.satFeedsTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.satModalPortal button.satFeedsTab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 34px;
+  padding: 0 0.85rem;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #aab4c8;
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.satModalPortal button.satFeedsTab:hover {
+  border-color: #4ecdc4;
+  color: #cdd4e4;
+}
+
+.satModalPortal button.satFeedsTab.satFeedsTabActive {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satFeedsTableScroll {
+  width: 100%;
+  overflow-x: auto;
+  border: 2px solid #323746;
+}
+
+.satFeedsTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.satFeedsTable th {
+  padding: 0.55rem 0.7rem;
+  background: #101216;
+  border-bottom: 2px solid #3d4354;
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #919baf;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.satFeedsTable td {
+  padding: 0.55rem 0.7rem;
+  background: #101216;
+  border-bottom: 2px solid #323746;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #cdd4e4;
+  vertical-align: middle;
+  word-break: break-word;
+}
+
+.satFeedsTable tr:last-child td {
+  border-bottom: none;
+}
+
+.satFeedsTable b {
+  color: #ebf0f8;
+  font-weight: 800;
+}
+
+.satFeedsTable code,
+.satFeedsFieldValue code,
+.satFeedsCode {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  color: #7fe9e1;
+}
+
+.satFeedsEmpty {
+  padding: 1rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #919baf;
+  text-align: center;
+}
+
+.satFeedsEmpty.satFeedsError {
+  margin: 0.75rem;
+  padding: 12px 14px;
+  background: rgba(255, 107, 107, 0.08);
+  border: 2px solid rgba(255, 107, 107, 0.35);
+  border-left: 4px solid #ff6b6b;
+  border-radius: 0;
+  color: #ff6b6b;
+  line-height: 1.45;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.satModalPortal button.satFeedsRowButton {
+  height: 28px;
+  padding: 0 0.7rem;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #aab4c8;
+  font-family: inherit;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.satModalPortal button.satFeedsRowButton:hover {
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satTleHistoryCharts,
+.satDossierStrip,
+.satStatTileGrid,
+.satBriefingGrid,
+canvas {
+  grid-column: 1 / -1;
+}
+
+.satEarthCondHarvestPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.satEarthCondHarvestTitle {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ebf0f8;
+  margin-bottom: 2px;
+}
+
+.satEarthCondHarvestRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  background: #101216;
+  border: 2px solid #323746;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+
+.satEarthCondHarvestRow span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #919baf;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondHarvestRow span:last-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: #ebf0f8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.satEarthCondHarvestWarnings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.satEarthCondHarvestWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 9px;
+  background: rgba(255, 107, 107, 0.08);
+  border: 2px solid rgba(255, 107, 107, 0.35);
+  border-left: 4px solid #ff6b6b;
+  border-radius: 0;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 1;
+}
+
+.satEarthCondHarvestWarningIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  color: #ff6b6b;
+}
+
+.satEarthCondHarvestWarningBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.satEarthCondHarvestWarningTitle {
+  min-width: 0;
+  color: #ff6b6b;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satEarthCondHarvestWarningText {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #cdd4e4;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.satEarthCondHarvestWarning {
+  cursor: pointer;
+}
+
+.satEarthCondHarvestWarningExpanded .satEarthCondHarvestWarningTitle {
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+.satEarthCondHarvestWarningExpanded .satEarthCondHarvestWarningText {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.satEarthCondHarvestActions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.satEarthCondHarvestActions .satEarthCondBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding-left: 10px;
+  padding-right: 10px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.satEarthCondHarvestActions .satEarthCondBtn svg {
+  flex-shrink: 0;
+}
+
+.satEarthCondHarvestLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.satFeedsBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  background: #101216;
+  border: 2px solid #323746;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #aab4c8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.satLeadFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.satModalPortal button.satLeadFilter {
+  height: 28px;
+  padding: 0 10px;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #aab4c8;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.satModalPortal button.satLeadFilter:hover {
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.satModalPortal button.satLeadFilter.satLeadFilterActive {
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+  background: rgba(78, 205, 196, 0.12);
+}
+
+.satLeadNotice {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid #FF9500;
+  background: rgba(255, 149, 0, 0.08);
+  color: #ffc680;
+  font-size: 0.7rem;
+}
+
+.satLeadCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  max-width: 360px;
+}
+
+.satLeadTitle {
+  color: #ebf0f8;
+  font-weight: 800;
+}
+
+.satLeadLink {
+  color: #42a5f5;
+  font-size: 0.62rem;
+  word-break: break-all;
+  text-decoration: none;
+}
+
+.satLeadLink:hover {
+  text-decoration: underline;
+}
+
+.satLeadKind {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.satLeadEvidence {
+  display: block;
+  max-width: 360px;
+  color: #aab4c8;
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+.satLeadActions {
+  display: flex;
+  gap: 4px;
+}
+
+.satModalPortal button.satLeadAction {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #aab4c8;
+  cursor: pointer;
+}
+
+.satModalPortal button.satLeadAction:hover:not(:disabled) {
+  border-color: #42a5f5;
+  color: #42a5f5;
+}
+
+.satModalPortal button.satLeadAction.satLeadActionAdopt:hover:not(:disabled) {
+  border-color: #4ecdc4;
+  background: #4ecdc4;
+  color: #08090c;
+}
+
+.satModalPortal button.satLeadAction.satLeadActionDismiss:hover:not(:disabled) {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+
+.satModalPortal button.satLeadAction:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.satModalPortal button.satLeadFilter:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.satModalPortal button.satLeadFilter svg {
+  margin-right: 4px;
+}
+
+.satFeedsModal.satOpModal {
+  width: min(760px, 94vw);
+  max-width: 760px;
+  height: min(820px, 90vh);
+}
+
+.satOpModalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 0.8rem 1.2rem;
+  background: #08090c;
+  border-top: 2px solid #3d4354;
+}
+
+.satOpModalFooterInfo {
+  flex: 1;
+  min-width: 0;
+  color: #cdd4e4;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satOpModalFooterActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.satOpModalFooterActions .satLeadFilter {
+  white-space: nowrap;
+}
+
+.satOpInput {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  background: #08090c;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  color: #ebf0f8;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease;
+}
+
+.satOpInput:hover,
+.satOpInput:focus {
+  border-color: #4ecdc4;
+}
+
+.satOpInput::placeholder {
+  color: #919baf;
+}
+
+.satOpToolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
+  gap: 8px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.satOpToolbarField {
+  min-width: 0;
+}
+
+.satOpSearchBar {
+  position: relative;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.satOpSearchBar .satOpInput {
+  padding-left: 34px;
+}
+
+.satOpSearchBarIcon {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  color: #919baf;
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+.satOpLookup {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.satOpLookup .satLeadFilter {
+  white-space: nowrap;
+}
+
+.satOpChipRow {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.satOpChipRow::-webkit-scrollbar {
+  display: none;
+}
+
+.satModalPortal button.satOpChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  max-width: 260px;
+  padding: 4px 8px;
+  background: rgba(78, 205, 196, 0.1);
+  border: 2px solid rgba(78, 205, 196, 0.5);
+  border-radius: 4px;
+  color: #4ecdc4;
+  font-family: inherit;
+  font-size: 0.65rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.satModalPortal button.satOpChip span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satModalPortal button.satOpChip:hover {
+  background: rgba(255, 107, 107, 0.08);
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+
+.satOpGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.satOpGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #0d0f13;
+  border: 2px solid #323746;
+  border-radius: 6px;
+}
+
+.satOpGroupTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ebf0f8;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.satOpGroupTitle svg {
+  color: #4ecdc4;
+}
+
+.satOpGroupGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.satOpField {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.satOpFieldWide {
+  grid-column: 1 / -1;
+}
+
+.satOpLabel {
+  color: #919baf;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satOpRange {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.satOpNote {
+  color: #919baf;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.satOpResultCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.satOpResultPrimary {
+  color: #ebf0f8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satOpResultSecondary,
+.satOpResultPlain {
+  display: block;
+  min-width: 0;
+  color: #aab4c8;
+  font-size: 0.65rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.satOpResultPlain {
+  color: #cdd4e4;
+}
+
+a.satOpResultLink {
+  color: #7fe9e1;
+  text-decoration: none;
+}
+
+a.satOpResultLink:hover {
+  text-decoration: underline;
+}
+
+.satOpResultClamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.satOpModal .satFeedsTable {
+  table-layout: fixed;
+}
+
+.satOpModal .satFeedsTable td {
+  word-break: normal;
+  overflow: hidden;
+}
+
+.satOpModal .satFeedsTable th:nth-child(1) {
+  width: 40%;
+}
+
+.satOpModal .satFeedsTable th:nth-child(2) {
+  width: 18%;
+}
+
+.satOpModal .satFeedsTable th:nth-child(3) {
+  width: 12%;
+}
+
+.satOpModal .satFeedsTable th:nth-child(4) {
+  width: 14%;
+}
+
+.satOpModal .satFeedsTable th:nth-child(5) {
+  width: 16%;
+}
+
+.satFeedsModal.satOpModal.satOpLeadsModal .satFeedsTable th:nth-child(1) {
+  width: auto;
+}
+
+.satFeedsModal.satOpModal.satOpLeadsModal .satFeedsTable th:nth-child(2) {
+  width: 132px;
+}
+
+.satFeedsModal.satOpModal.satOpLeadsModal .satFeedsTable th:nth-child(3) {
+  width: 56px;
+}
+
+.satFeedsModal.satOpModal.satOpLeadsModal .satFeedsTable th:nth-child(4) {
+  width: 88px;
+}
+
+.satFeedsModal.satOpModal.satOpLeadsModal .satFeedsTable th:nth-child(5) {
+  width: 132px;
+}
+
+.satFeedsModal.satOpModal.satOpLeadsModal .satFeedsTable td:last-child {
+  overflow: visible;
+}
+
+.satModalPortal .satFeedsModal.satOpModal.satOpLeadsModal button.satLeadAction {
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  flex: 0 0 28px;
+}
+
+.satFeedsModal.satOpModal.satOpLeadsModal .satLeadKind {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.satFeedsModal.satOpModal.satOpLeadsModal .satLeadActions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.satOpModal .satFeedsCard {
+  padding: 12px 14px;
+  background: #0d0f13;
+  border: 2px solid #323746;
+}
+
+.satOpModal .satFeedsHeroTitle {
+  font-size: 0.85rem;
+}
+
+@media (max-width: 640px) {
+  .satOpToolbar,
+  .satOpGroupGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .satOpLookup {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .satOpLookup > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .satOpModalFooter {
+    padding: 0.7rem 0.9rem;
+  }
+}
