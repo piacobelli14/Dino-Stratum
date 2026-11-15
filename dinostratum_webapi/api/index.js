@@ -1,5 +1,3 @@
-require("dotenv").config();
-
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
@@ -7,20 +5,26 @@ const compression = require("compression");
 const bodyParser = require("body-parser");
 const { pool, startup, connectionManager } = require("./config/db");
 const errorLogger = require("./middleware/errorLogger");
+const stratumAreas = require("./routes/stratum/areas");
+const stratumIntel = require("./routes/stratum/intel");
+const stratumRisk = require("./routes/stratum/risk");
 
-const assetRoutes = require('./routes/intelligence/assets');
-const riskRoutes = require('./routes/intelligence/risk');
-const intelRoutes = require('./routes/intelligence/intel');
-const areasRoutes = require('./routes/intelligence/areas');
+const harvester = require("./harvester");
+
+
+require("dotenv").config();
 
 const ALLOWED_ORIGINS = [
-  "https://dino-auth.vercel.app",
+  "https://ut-health-parallax-web-hub.vercel.app",
   "https://dino-stratum.vercel.app",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
-  "http://localhost:5176"
 ];
+
+const REDIRECT_MAP = {
+  parallaxwebhub: "https://ut-health-parallax-web-hub.vercel.app/login",
+};
 
 const app = express();
 
@@ -28,21 +32,69 @@ app.set("trust proxy", 1);
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use(compression());
-app.use(cors({
-  origin: ALLOWED_ORIGINS,
-  optionsSuccessStatus: 200,
-  methods: ["POST", "GET", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
+app.use(
+  cors({
+    origin: ALLOWED_ORIGINS,
+    optionsSuccessStatus: 200,
+    methods: ["POST", "GET", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 app.use(bodyParser.json({ limit: "10mb" }));
 
-app.use('/', assetRoutes);
-app.use('/', riskRoutes);
-app.use('/', intelRoutes);
-app.use('/', areasRoutes);
+
+app.use("/", stratumAreas);
+app.use("/", stratumIntel);
+app.use("/", stratumRisk); 
+
+app.use("/", harvester.router);
+
 
 app.get("/", (req, res) => {
   res.sendFile(path.resolve(__dirname, "public", "catchall.html"));
+});
+
+app.get("/verify", async (req, res) => {
+  const { token, software } = req.query;
+
+  if (!token) {
+    return res.sendFile(path.resolve(__dirname, "public", "verify.html"));
+  }
+
+  try {
+    const updateResult = await pool.query(
+      `
+          UPDATE users
+          SET verified = TRUE,
+             verification_token = NULL
+          WHERE verification_token = $1
+          RETURNING username
+      `,
+      [token]
+    );
+
+    if (updateResult.rowCount === 0) {
+      return res.sendFile(path.resolve(__dirname, "public", "verify.html"));
+    }
+
+    const redirectUrl = REDIRECT_MAP[software];
+
+    if (!redirectUrl) {
+      return res
+        .status(400)
+        .send(
+          "<html><body><h1>The provided software parameter is not recognized.</h1></body></html>"
+        );
+    }
+
+    res.redirect(redirectUrl);
+  } catch (error) {
+    res
+      .status(500)
+      .send(
+        "<html><body><h1>An error occurred during verification. Please try again later.</h1></body></html>"
+      );
+  }
 });
 
 app.get("/health/connections", async (req, res) => {
@@ -70,10 +122,14 @@ async function boot() {
 
     connectionManager.start();
     console.log("Connection manager worker started.");
+
+    harvester.start();
   });
 
   async function gracefulShutdown(signal) {
     console.log(`${signal} received. Shutting down gracefully.`);
+
+    await harvester.stop();
 
     await connectionManager.stop();
 

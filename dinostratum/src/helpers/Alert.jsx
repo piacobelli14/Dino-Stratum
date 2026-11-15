@@ -7,9 +7,9 @@ let __alertContainer = null;
 
 function ensureMount() {
   if (__alertRoot && __alertContainer) return;
-  const existing = document.getElementById("alert-root");
+  const existing = document.getElementById("noti-alert-root");
   __alertContainer = existing || document.createElement("div");
-  __alertContainer.id = "alert-root";
+  __alertContainer.id = "noti-alert-root";
 
   __alertContainer.style.position = "fixed";
   __alertContainer.style.inset = "0";
@@ -98,22 +98,22 @@ function Alert({
 
   return (
     <div style={wrapperStyle}>
-      <div className="AlertOverlay">
-        <div className="Alert" role="dialog" aria-modal="true">
+      <div className="notiAlertOverlay">
+        <div className="notiAlert" role="dialog" aria-modal="true">
           <img
-            className="AlertImage"
-            src="./DinoStratumLogo.png"
+            className="notiAlertImage"
+            src="./parallaxlogo.png"
             alt="Logo"
           />
-          {title && <label className="AlertHeader">{title}</label>}
-          <label className="AlertSubHeader">{message}</label>
+          {title && <label className="notiAlertHeader">{title}</label>}
+          <label className="notiAlertSubHeader">{message}</label>
 
           {inputs.length > 0 &&
             inputs.map((input) => (
-              <label className="AlertInputWrapper" key={input.name}>
+              <label className="notiAlertInputWrapper" key={input.name}>
                 {input.type === "select" ? (
                   <select
-                    className="AlertInput input-select"
+                    className="notiAlertInput input-select"
                     name={input.name}
                     value={values[input.name]}
                     onChange={handleChange}
@@ -128,7 +128,7 @@ function Alert({
                   </select>
                 ) : (
                   <input
-                    className={`AlertInput input-${
+                    className={`notiAlertInput input-${
                       input.type || "text"
                     }`}
                     type={input.type || "text"}
@@ -146,9 +146,9 @@ function Alert({
               </label>
             ))}
 
-          <div className="AlertButtonsFlex">
+          <div className="notiAlertButtonsFlex">
             <button
-              className="AlertButtons"
+              className="notiAlertButtons"
               style={{ backgroundColor: "#AD6ADD" }}
               onClick={handleConfirm}
             >
@@ -156,7 +156,7 @@ function Alert({
             </button>
             {showCancel && (
               <button
-                className="AlertButtons"
+                className="notiAlertButtons"
                 style={{ backgroundColor: "#D8D8D8", color: "#191919" }}
                 onClick={handleCancel}
               >

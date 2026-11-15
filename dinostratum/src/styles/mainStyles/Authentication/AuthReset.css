@@ -16,12 +16,29 @@
     position: relative; 
 }
 
-.resetHeroBackgroundWrapper {
+.resetHeroBackgroundWrapper,
+.resetHeroBackgroundWrapperTouch {
     position: relative; 
     width: 100%; 
     height: 100%; 
     z-index: 0; 
     overflow: hidden; 
+}
+
+.resetHeroBackgroundWrapperTouch {
+    display: flex; 
+    flex-direction: column; 
+    justify-content: center;
+    align-items: center;
+}
+
+@media (max-width: 699px) {
+    .resetHeroBackgroundWrapper {
+        display: flex; 
+        flex-direction: column; 
+        justify-content: center;
+        align-items: center;
+    }
 }
 
 .resetBackground {
@@ -42,13 +59,13 @@
 .resetBackgroundBlur1 {
     top: -10rem;
     right: -10rem;
-    background: rgba(22, 24, 29, 0.6);
+    background: rgba(127, 233, 225, 0.05);
 }
 
 .resetBackgroundBlur2 {
     bottom: -10rem;
     left: -10rem;
-    background: rgba(19, 21, 26, 0.6);
+    background: rgba(165, 240, 234, 0.035);
     animation-delay: 0.1s;
 }
 
@@ -58,11 +75,11 @@
     transform: translate(-50%, -50%);
     width: 24rem;
     height: 24rem;
-    background: rgba(16, 18, 22, 0.4);
+    background: rgba(127, 233, 225, 0.03);
     animation-delay: 0.1s;
 }
 
-@keyframes resetBackgroundPulse {
+@keyframes registerBackgroundPulse {
     0%, 100% { opacity: 0.1; }
     50% { opacity: 0.8; }
 }
@@ -71,8 +88,8 @@
     position: absolute;
     inset: 0;
     background-image: 
-        linear-gradient(rgba(50, 55, 70, 0.45) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(50, 55, 70, 0.45) 1px, transparent 1px);
+        linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
     background-size: 60px 60px;
     opacity: 0.2;
 }
@@ -81,16 +98,19 @@
 .resetBlockTouch {
     display: flex; 
     flex-direction: column; 
-    justify-content: flex-start;
+    justify-content: center;
     align-items: center;
     top: 0;
     right: 0;  
     z-index: 10;
     border-radius: 0; 
     border: none; 
-    height: 100%; 
-    width: 40vw;
-    background: rgba(255, 255, 255, 0.0);
+    min-height: calc(100% - 60px); 
+    width: 30vw;
+    z-index: 1;
+    overflow: scroll; 
+    padding-bottom: 2vh; 
+    min-height: 100%;
 }
 
 .resetBlockTouch {
@@ -98,10 +118,15 @@
     flex-direction: column; 
     justify-content: flex-start;
     align-items: center;
-    width: 100%;
-    max-height: calc(100% - 60px);  
-    min-height: calc(100% - 60px); 
-    overflow: hidden; 
+    width: 70%; 
+    justify-content: center; 
+    border: 2px solid rgba(255,255,255,0.2); 
+    border-radius: 12px; 
+    background-color: rgba(255,255,255,0.05) !important; 
+    box-shadow: 0 0 10px black; 
+    height: calc((100% - 60px) - 8vh); 
+    min-height: calc((100% - 60px) - 8vh); 
+    max-height: calc((100% - 60px) - 8vh); 
 }
 
 @media (min-width: 700px) {
@@ -116,12 +141,15 @@
 
 @media (max-width: 699px) {
     .resetBlock {
-        width: 100%; 
-        justify-content: center;
-    }
-
-    .loginVideoBackground {
-        width: 0; 
+        width: 70%; 
+        justify-content: center; 
+        border: 2px solid rgba(255,255,255,0.2); 
+        border-radius: 12px; 
+        background-color: rgba(255,255,255,0.05) !important; 
+        box-shadow: 0 0 10px black; 
+        height: calc((100% - 60px) - 8vh); 
+        min-height: calc((100% - 60px) - 8vh); 
+        max-height: calc((100% - 60px) - 8vh); 
     }
 }
 
@@ -168,20 +196,8 @@
     font-size: 0.9rem; 
     font-weight: 800; 
     opacity: 0.9;
-    color: rgba(205, 212, 228, 0.82);
+    color: #ebf0f8;
     margin-bottom: 1rem; 
     width: 80%; 
     text-align: center;
-}
-
-@media (min-width: 700px) {
-    .resetBlock {
-        width: 40vw; 
-    }
-}
-
-@media (max-width: 699px) {
-    .resetBlock {
-        width: 100vw; 
-    }
 }

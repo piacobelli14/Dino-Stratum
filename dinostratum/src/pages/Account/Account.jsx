@@ -1,15 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpRightFromSquare, faUserGear, faUsersGear, faPersonChalkboard, faLock, faChartColumn, faMoneyBills, faGear, faPenToSquare, faClone, faSquareCheck, faHammer, faSquareXmark, faGlobe, faClock } from "@fortawesome/free-solid-svg-icons";
+import {
+  faUserGear, faUsersGear, faLock, faChartColumn,
+  faGear, faPenToSquare, faClone, faSquareCheck, faSquareXmark,
+  faGlobe, faSearch
+} from "@fortawesome/free-solid-svg-icons";
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
-import "../../styles/mainStyles/Account/Account.css";
-import "../../styles/helperStyles/LoadingSpinner.css";
-import "../../styles/helperStyles/Disconnected.css";
 import Nav from "../../helpers/Nav";
+import Dropdown from "../../helpers/Dropdown.jsx";
 import { showDialog } from "../../helpers/Alert.jsx";
 import useAuth from "../../UseAuth";
 import useIsTouchDevice from "../../TouchDevice.jsx";
+import "../../styles/mainStyles/Account/Account.css";
+import "../../styles/helperStyles/LoadingSpinner.css";
+import "../../styles/helperStyles/Disconnected.css";
 
 const Account = () => {
     const navigate = useNavigate();
@@ -24,7 +29,7 @@ const Account = () => {
         { state: "security", label: "security", icon: faLock },
         { state: "data", label: "data sharing", icon: faChartColumn },
         { state: "github", label: "github account", icon: faGithub },
-        { state: "billing", label: "billing", icon: faMoneyBills }
+
     ];
 
     const timezones = [
@@ -65,7 +70,6 @@ const Account = () => {
         orgDesc: "",
         orgImage: "",
         orgCreated: "",
-        isSubscribed: false
     });
 
     const [detectedTimezone, setDetectedTimezone] = useState("");
@@ -74,6 +78,11 @@ const Account = () => {
 
     const { settingsState: initialSettingsState } = location.state || {};
     const [settingsState, setSettingsState] = useState(initialSettingsState || "general");
+    const [searchText, setSearchText] = useState("");
+    const [searchMatches, setSearchMatches] = useState(0);
+    const scrollRef = useRef(null);
+    const searchTerm = searchText.trim().toLowerCase();
+    const showsTab = (state) => searchTerm !== "" || settingsState === state;
 
     const [editModes, setEditModes] = useState({
         firstName: false,
@@ -169,7 +178,6 @@ const Account = () => {
                 orgImage: d.organizationimage,
                 orgCreated: d.organizationcreated,
                 orgSlug: d.organizationslug,
-                isSubscribed: d.issubscribed,
                 autoDiscoverRun: d.autoDiscoverRun,
                 autoDiscoverDev: d.autoDiscoverDev,
                 autoDiscoverPackage: d.autoDiscoverPackage
@@ -687,86 +695,6 @@ const Account = () => {
         }
     };
 
-    const handleCreateCheckoutSession = async () => {
-        try {
-            const token = localStorage.getItem("token");
-            const priceID = "price_XXXXXXXXXXXXXX";
-            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/create-checkout-session`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify({ userID, priceID })
-            });
-            const data = await response.json();
-            if (data.sessionID) {
-                window.location.href = `https://checkout.stripe.com/pay/${data.sessionID}`;
-            } else {
-                if (!backendError) {
-                    await showDialog({ title: "Alert", message: `Unable to create checkout session: ${data.message}` });
-                }
-            }
-        } catch (error) {
-            if (!backendError) {
-                await showDialog({ title: "Alert", message: `Error creating checkout session: ${error.message}` });
-            }
-        }
-    };
-
-    const handleManageBilling = async () => {
-        try {
-            const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/billing-portal`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify({ userID })
-            });
-            const data = await response.json();
-            if (data.url) {
-                window.location.href = data.url;
-            } else {
-                if (!backendError) {
-                    await showDialog({ title: "Alert", message: `Unable to open billing portal: ${data.message}` });
-                }
-            }
-        } catch (error) {
-            if (!backendError) {
-                await showDialog({ title: "Alert", message: `Error opening billing portal: ${error.message}` });
-            }
-        }
-    };
-
-    const handleCancelSubscription = async () => {
-        try {
-            const token = localStorage.getItem("token");
-            const response = await fetch(`${import.meta.env.VITE_API_AUTH_URL}/cancel-subscription`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify({ userID })
-            });
-            if (response.ok) {
-                await fetchUserInfo(userID);
-                window.location.reload();
-            } else {
-                const msg = await response.text();
-                if (!backendError) {
-                    await showDialog({ title: "Alert", message: `Error canceling subscription: ${response.status} - ${msg}` });
-                }
-            }
-        } catch (error) {
-            if (!backendError) {
-                await showDialog({ title: "Alert", message: `Error canceling subscription: ${error.message}` });
-            }
-        }
-    };
-
     const retryFetch = () => {
         setIsLoaded(false);
         setBackendError(false);
@@ -799,6 +727,23 @@ const Account = () => {
         const browserTimezone = detectBrowserTimezone();
         setDetectedTimezone(browserTimezone);
     }, []);
+
+    useEffect(() => {
+        const container = scrollRef.current;
+        if (!container) {
+            return;
+        }
+        const cells = Array.from(container.children).filter(cell => cell.className && String(cell.className).indexOf("profileContentFlexCell") === 0 && String(cell.className).indexOf("profileSearchEmpty") === -1);
+        let visible = 0;
+        cells.forEach(cell => {
+            const matches = searchTerm === "" || cell.textContent.toLowerCase().includes(searchTerm);
+            cell.style.display = matches ? "" : "none";
+            if (matches) {
+                visible += 1;
+            }
+        });
+        setSearchMatches(visible);
+    }, [searchTerm, settingsState, isLoaded, userDetails, activeAccessRequest]);
 
     useEffect(() => {
         const handleResize = () => {
@@ -870,19 +815,48 @@ const Account = () => {
                         <div className="profileCellContentWrapper">
                             <div className="profileContentSideBar">
                                 <div className="profileSideBarButtonWrapper">
-                                    {settingsButtons.map(btn => (
-                                        <button key={btn.state} className={"profileSideBarButton " + (settingsState === btn.state ? "profileSideBarButton--selected" : "")} onClick={() => setSettingsState(btn.state)}>
-                                            <span>
-                                                <FontAwesomeIcon icon={btn.icon} /> <small>{capitalizeWords(btn.label)}</small>
-                                            </span>
-                                            <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
-                                        </button>
-                                    ))}
+                                    <div className="profileSideBarSection">
+                                        <div className="profileSideBarSectionTitle">
+                                            <FontAwesomeIcon icon={faSearch} />
+                                            Search
+                                        </div>
+                                        <input
+                                            type="text"
+                                            className="profileSearchInput"
+                                            value={searchText}
+                                            onChange={e => setSearchText(e.target.value)}
+                                            placeholder="Search Settings"
+                                        />
+                                    </div>
+                                    <div className="profileSideBarSection">
+                                        <div className="profileSideBarSectionTitle">
+                                            <FontAwesomeIcon icon={faGear} />
+                                            Settings
+                                        </div>
+                                        <div className="profileSideBarButtons">
+                                            {settingsButtons.map(btn => (
+                                                <button key={btn.state} className={"profileSideBarButton " + (settingsState === btn.state ? "active" : "")} onClick={() => setSettingsState(btn.state)}>
+                                                    <FontAwesomeIcon icon={btn.icon} />
+                                                    <span>{capitalizeWords(btn.label)}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div className="profileContentMainFlex">
-                                <div className="profileContentMainScroll">
-                                    {settingsState === "general" && (
+                                <div className="profileContentMainScroll" ref={scrollRef}>
+                                    {searchTerm !== "" && searchMatches === 0 && (
+                                        <div className="profileContentFlexCell profileSearchEmpty">
+                                            <div className="profileContentFlexCellTop">
+                                                <div className="profileLeadingCellStack" style={{ width: "100%" }}>
+                                                    <h3>No Matching Settings</h3>
+                                                    <p style={{ width: "100%" }}>No setting matches that search. Clear it to see every setting again.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {showsTab("general") && (
                                         <>
                                             <div className="profileContentFlexCell">
                                                 <div className="profileContentFlexCellTop">
@@ -894,7 +868,7 @@ const Account = () => {
                                                         </p>
                                                     </div>
                                                     <div className="profileTrailingCellStack" style={{ justifyContent: "center", alignItems: "center" }}>
-                                                        <label className="profileUserImageWrapper" htmlFor="userImageUpload" style={{ background: userDetails.image && userDetails.image !== "" ? "none" : "", boxShadow: userDetails.image && userDetails.image !== "" ? "none" : "" }}>
+                                                        <label className="profileUserImageWrapper" htmlFor="userImageUpload" style={{ background: userDetails.image && userDetails.image !== "" ? "none" : "", boxShadow: userDetails.image && userDetails.image !== "" ? "none" : "", border: userDetails.image && userDetails.image !== "" ? "none" : "" }}>
                                                             <img src={userDetails.image} className="profileUserImage" alt="" />
                                                         </label>
                                                         <input style={{ display: "none", padding: 0 }} type="file" id="userImageUpload" accept="image/*" onChange={handleUserImageChange} />
@@ -1028,25 +1002,13 @@ const Account = () => {
                                                             <strong>Current Timezone</strong>
                                                             <span>
                                                                 {editModes.timezone ? (
-                                                                    <select
+                                                                    <Dropdown
+                                                                        className="profileTimezoneDropdown"
                                                                         value={userDetails.timezone}
-                                                                        onChange={e => setUserDetails(prev => ({ ...prev, timezone: e.target.value }))}
-                                                                        style={{
-                                                                            color: "#E7E7E7",
-                                                                            backgroundColor: "rgba(0,0,0,0.2)",
-                                                                            boxShadow: "0 0 4px rgba(0,0,0,0.8)",
-                                                                            fontSize: "0.6rem",
-                                                                            fontWeight: "600",
-                                                                            border: "0.2vh solid #E7E7E7",
-                                                                            borderRadius: "4px",
-                                                                            width: "70%",
-                                                                            padding: "0.5rem 0.6rem"
-                                                                        }}
-                                                                    >
-                                                                        {timezones.map(tz => (
-                                                                            <option key={tz} value={tz}>{tz}</option>
-                                                                        ))}
-                                                                    </select>
+                                                                        onChange={(label) => setUserDetails(prev => ({ ...prev, timezone: label }))}
+                                                                        options={timezones}
+                                                                        placeholder="Timezone"
+                                                                    />
                                                                 ) : (
                                                                     <input placeholder={userDetails.timezone || detectedTimezone} disabled={true} />
                                                                 )}
@@ -1072,7 +1034,7 @@ const Account = () => {
                                         </>
                                     )}
 
-                                    {settingsState === "personal" && (
+                                    {showsTab("personal") && (
                                         <>
                                             <div className="profileContentFlexCell">
                                                 <div className="profileContentFlexCellTop">
@@ -1127,7 +1089,7 @@ const Account = () => {
                                         </>
                                     )}
 
-                                    {settingsState === "team" && (
+                                    {showsTab("team") && (
                                         !userDetails.orgID ? (
                                             <>
                                                 {!activeAccessRequest && (
@@ -1245,7 +1207,7 @@ const Account = () => {
                                                             </p>
                                                         </div>
                                                         <div className="profileTrailingCellStack" style={{ justifyContent: "center", alignItems: "center" }}>
-                                                            <label className="profileUserImageWrapper" htmlFor="teamImageUpload" style={{ background: userDetails.orgImage && userDetails.orgImage !== "" ? "none" : "", boxShadow: userDetails.orgImage && userDetails.orgImage !== "" ? "none" : "" }}>
+                                                            <label className="profileUserImageWrapper" htmlFor="teamImageUpload" style={{ background: userDetails.orgImage && userDetails.orgImage !== "" ? "none" : "", boxShadow: userDetails.orgImage && userDetails.orgImage !== "" ? "none" : "", border: userDetails.orgImage && userDetails.orgImage !== "" ? "none" : "" }}>
                                                                 <img src={userDetails.orgImage} className="profileUserImage" alt="" />
                                                             </label>
                                                             <input disabled={userDetails.isAdmin !== "true"} style={{ display: "none", padding: 0 }} type="file" id="teamImageUpload" accept="image/*" onChange={handleTeamImageChange} />
@@ -1392,7 +1354,7 @@ const Account = () => {
                                         )
                                     )}
 
-                                    {settingsState === "security" && (
+                                    {showsTab("security") && (
                                         <>
                                             {userDetails.twofaEnabled !== true ? (
                                                 <div className="profileContentFlexCell">
@@ -1400,7 +1362,7 @@ const Account = () => {
                                                         <div className="profileLeadingCellStack" style={{ width: "100%" }}>
                                                             <h3>2-Factor Authentication</h3>
                                                             <p style={{ width: "100%" }}>
-                                                                Set up two factor authentication when signing into your Stack Forge account. When enabled, Stack Forge will send a code to your phone that you can use to login.
+                                                                Set up two factor authentication when signing into your Dino Stratum account. When enabled, Dino Stratum will send a code to your phone that you can use to login.
                                                             </p>
                                                             <button className="profileDeleteButton" style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "0.2vh solid #c1c1c1" }} onClick={handleToggleTwoFA}>
                                                                 Enable 2-Factor Authentication
@@ -1436,7 +1398,7 @@ const Account = () => {
                                                         <div className="profileLeadingCellStack" style={{ width: "100%" }}>
                                                             <h3>Login Notifications</h3>
                                                             <p style={{ width: "100%" }}>
-                                                                Set up login notifications when signing into your Stack Forge account. When enabled, Stack Forge will monitor the location of signins to your account and notify you of suspicious login attempts.
+                                                                Set up login notifications when signing into your Dino Stratum account. When enabled, Dino Stratum will monitor the location of signins to your account and notify you of suspicious login attempts.
                                                             </p>
                                                             <button className="profileDeleteButton" style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "0.2vh solid #c1c1c1" }} onClick={handleToggleLoginNotifs}>
                                                                 Enable Login Notifications
@@ -1473,7 +1435,7 @@ const Account = () => {
                                                             <div className="profileLeadingCellStack" style={{ width: "100%" }}>
                                                                 <h3>Export Notifications</h3>
                                                                 <p style={{ width: "100%" }}>
-                                                                    Set up export notifications to be alerted whenever one of your team members exports any of your data from the Stack Forge platform.
+                                                                    Set up export notifications to be alerted whenever one of your team members exports any of your data from the Dino Stratum platform.
                                                                 </p>
                                                                 <button className="profileDeleteButton" style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "0.2vh solid #c1c1c1" }} onClick={handleToggleExportNotifs}>
                                                                     Enable Export Notifications
@@ -1506,7 +1468,7 @@ const Account = () => {
                                         </>
                                     )}
 
-                                    {settingsState === "data" && (
+                                    {showsTab("data") && (
                                         <>
                                             {userDetails.dataSharing !== true ? (
                                                 <div className="profileContentFlexCell">
@@ -1514,7 +1476,7 @@ const Account = () => {
                                                         <div className="profileLeadingCellStack" style={{ width: "100%" }}>
                                                             <h3>Data Sharing</h3>
                                                             <p style={{ width: "100%" }}>
-                                                                Allow the Stack Forge team to use aggregated, anonymized data about your organization's usage and projects to help us improve features, optimize performance, and deliver a better overall experience.
+                                                                Allow the Dino Stratum team to use aggregated, anonymized data about your organization's usage and projects to help us improve features, optimize performance, and deliver a better overall experience.
                                                             </p>
                                                             <button className="profileDeleteButton" style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "0.2vh solid #c1c1c1" }} onClick={handleToggleDataShare}>
                                                                 Enable Data Sharing
@@ -1546,7 +1508,7 @@ const Account = () => {
                                         </>
                                     )}
 
-                                    {settingsState === "github" && (
+                                    {showsTab("github") && (
                                         userDetails.gitUsername === "" || !userDetails.gitUsername ? (
                                             <div className="profileContentFlexCell">
                                                 <div className="profileContentFlexCellTop">
@@ -1575,7 +1537,7 @@ const Account = () => {
                                                             </p>
                                                         </div>
                                                         <div className="profileTrailingCellStack" style={{ justifyContent: "center", alignItems: "center" }}>
-                                                            <label className="profileUserImageWrapper" htmlFor="gitImageDisplay" style={{ background: userDetails.gitImage && userDetails.gitImage !== "" ? "none" : "", boxShadow: userDetails.gitImage && userDetails.gitImage !== "" ? "none" : "" }}>
+                                                            <label className="profileUserImageWrapper" htmlFor="gitImageDisplay" style={{ background: userDetails.gitImage && userDetails.gitImage !== "" ? "none" : "", boxShadow: userDetails.gitImage && userDetails.gitImage !== "" ? "none" : "", border: userDetails.gitImage && userDetails.gitImage !== "" ? "none" : "" }}>
                                                                 <img src={userDetails.gitImage} className="profileUserImage" alt="" />
                                                             </label>
                                                             <input style={{ display: "none", padding: 0 }} disabled={true} type="file" id="gitImageDisplay" accept="image/*" />
@@ -1623,7 +1585,7 @@ const Account = () => {
                                                         <div className="profileLeadingCellStack" style={{ width: "100%" }}>
                                                             <h3>Disconnect GitHub Account</h3>
                                                             <p style={{ width: "100%" }}>
-                                                                Disconnect your personal or team GitHub account from the Stack Forge web platform. This may interrupt or break your current deployments.
+                                                                Disconnect your personal or team GitHub account from the Dino Stratum web platform. This may interrupt or break your current deployments.
                                                             </p>
                                                             <button className="profileDeleteButton" onClick={handleGithubDisconnect}>
                                                                 Disconnect GitHub Account
@@ -1638,35 +1600,6 @@ const Account = () => {
                                         )
                                     )}
 
-                                    {settingsState === "billing" && (
-                                        <div className="profileContentFlexCell">
-                                            <div className="profileContentFlexCellTop">
-                                                <div className="profileLeadingCellStack" style={{ width: "100%" }}>
-                                                    <h3>Billing</h3>
-                                                    <p style={{ width: "100%" }}>
-                                                        Manage your subscription and payment methods using Stripe. Click below to subscribe or manage your billing details. You are allowed to change your subscription or billing management at any time.
-                                                    </p>
-                                                    {userDetails.isSubscribed ? (
-                                                        <button className="profileActionButton" onClick={handleCancelSubscription}>
-                                                            Cancel Subscription
-                                                        </button>
-                                                    ) : (
-                                                        <div className="profileActionButtonFlex">
-                                                            <button className="profileActionButton" onClick={handleCreateCheckoutSession}>
-                                                                Subscribe / Update Payment
-                                                            </button>
-                                                            <button className="profileActionButton" onClick={handleManageBilling} style={{ marginBottom: 0 }}>
-                                                                Manage Billing Portal
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="profileContentFlexCellBottom">
-                                                <p>You will be redirected to Stripe to complete or manage your subscription.</p>
-                                            </div>
-                                        </div>
-                                    )}
 
                                 </div>
                             </div>
@@ -1678,7 +1611,7 @@ const Account = () => {
                     <div className="loading-wrapper">
                         <div className="loading-circle" />
                         <label className="loading-title">
-                            Dino Labs
+                            Loading
                         </label>
                     </div>
                 </div>

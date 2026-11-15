@@ -1,25 +1,17 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faPlusCircle,
-  faMailForward,
-  faCaretDown,
-  faArrowDownAZ,
-  faArrowDownZA,
-  faListUl,
-  faPlusSquare,
-  faCircleInfo,
-  faSearch,
-  faGlobe
+  faUsersGear, faUsers, faUserPlus, faSearch, faGlobe
 } from "@fortawesome/free-solid-svg-icons";
-import "../../styles/mainStyles/Account/Team.css";
-import "../../styles/helperStyles/LoadingSpinner.css";
-import "../../styles/helperStyles/Disconnected.css";
-import Nav from "../../helpers/Nav.jsx";
+import Nav from "../../helpers/Nav";
+import Dropdown from "../../helpers/Dropdown.jsx";
 import { showDialog } from "../../helpers/Alert.jsx";
 import useAuth from "../../UseAuth.jsx";
 import useIsTouchDevice from "../../TouchDevice.jsx";
+import "../../styles/mainStyles/Account/Team.css";
+import "../../styles/helperStyles/LoadingSpinner.css";
+import "../../styles/helperStyles/Disconnected.css";
 
 const Team = () => {
   const navigate = useNavigate()
@@ -34,10 +26,6 @@ const Team = () => {
   const [isLoadingTeamMembers, setIsLoadingTeamMembers] = useState(false);
   const [accessRequests, setAccessRequests] = useState([]);
   const [isLoadingAccessRequests, setIsLoadingAccessRequests] = useState(false);
-  const [openPermissionDropdown, setOpenPermissionDropdown] = useState(null);
-  const rowPermSelectRef = useRef(null);
-  const rowPermDropdownRef = useRef(null);
-  const [rowPermDropdownPosition, setRowPermDropdownPosition] = useState({ top: 0, left: 0 });
   const [searchText, setSearchText] = useState("");
   const [backendError, setBackendError] = useState(false);
 
@@ -70,22 +58,6 @@ const Team = () => {
       return () => window.removeEventListener("resize", handleResize);
     }
   }, []);
-
-  useEffect(() => {
-    if (openPermissionDropdown && rowPermSelectRef.current && rowPermDropdownRef.current) {
-      const buttonRect = rowPermSelectRef.current.getBoundingClientRect();
-      const dropdownRect = rowPermDropdownRef.current.getBoundingClientRect();
-      let newTop = buttonRect.bottom + 5;
-      let newLeft = buttonRect.right - dropdownRect.width;
-      if (newTop + dropdownRect.height > window.innerHeight) {
-        newTop = window.innerHeight - dropdownRect.height;
-      }
-      if (newLeft < 0) {
-        newLeft = 0;
-      }
-      setRowPermDropdownPosition({ top: newTop, left: newLeft });
-    }
-  }, [openPermissionDropdown]);
 
   const fetchTeamMembers = async () => {
     setIsLoadingTeamMembers(true);
@@ -189,7 +161,6 @@ const Team = () => {
         prev.map((m) => (m.username === username ? { ...m, is_admin: isAdmin ? "true" : "member" } : m))
       );
     } catch (error) { }
-    setOpenPermissionDropdown(null);
   };
 
   const currentUser = teamMembers.find(member => member.username === userID);
@@ -216,13 +187,7 @@ const Team = () => {
   };
 
   return (
-    <div
-      className="teamPageWrapper"
-      style={{
-        background: "background: #08090c",
-        display: screenSize >= 5300 ? "none" : ""
-      }}
-    >
+    <div className="teamPageWrapper" style={{ display: screenSize >= 5300 ? "none" : "" }}>
       <Nav activePage="main" />
       {isLoaded ? (
         backendError ? (
@@ -239,201 +204,167 @@ const Team = () => {
           </div>
         ) : (
           <div className="teamCellHeaderContainer">
-            <div className="teamNavBar">
-              <button
-                style={{
-                  borderBottom: teamPage === "manage" ? "2px solid #4ECDC4" : "none",
-                  color: teamPage === "manage" ? "#4ECDC4" : ""
-                }}
-                onClick={() => setTeamPage("manage")}
-              >
-                Manage Team
-              </button>
-              <button
-                style={{
-                  borderBottom: teamPage === "requests" ? "2px solid #4ECDC4" : "none",
-                  color: teamPage === "requests" ? "#4ECDC4" : ""
-                }}
-                onClick={() => setTeamPage("requests")}
-              >
-                Access Requests
-              </button>
-            </div>
+            <div className="teamCellContentWrapper">
+              <div className="teamContentSideBar">
+                <div className="teamSideBarButtonWrapper">
+                  <div className="teamSideBarSection">
+                    <div className="teamSideBarSectionTitle">
+                      <FontAwesomeIcon icon={faUsersGear} />
+                      Team
+                    </div>
+                    <div className="teamSideBarButtons">
+                      <button
+                        className={teamPage === "manage" ? "teamSideBarButton active" : "teamSideBarButton"}
+                        onClick={() => setTeamPage("manage")}
+                      >
+                        <FontAwesomeIcon icon={faUsers} />
+                        <span>Manage Team</span>
+                      </button>
+                      <button
+                        className={teamPage === "requests" ? "teamSideBarButton active" : "teamSideBarButton"}
+                        onClick={() => setTeamPage("requests")}
+                      >
+                        <FontAwesomeIcon icon={faUserPlus} />
+                        <span>Access Requests</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="teamSideBarSection">
+                    <div className="teamSideBarSectionTitle">
+                      <FontAwesomeIcon icon={faSearch} />
+                      Search
+                    </div>
+                    <input
+                      type="text"
+                      className="teamSearchInput"
+                      value={searchText}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setSearchText(e.target.value)}
+                      placeholder={teamPage === "manage" ? "Search Team" : "Search Requests"}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="teamContentMainFlex">
+                <div className="teamContentMainScroll">
+                  {teamPage === "manage" && (
+                    isLoadingTeamMembers ? (
+                      <div className="loading-wrapper" style={{ display: "flex", justifyContent: "center", width: "100%", height: "100%" }}>
+                        <div className="loading-circle" />
+                        <label className="loading-title">
+                          Loading
+                        </label>
+                      </div>
+                    ) : filteredTeamMembers.length === 0 ? (
+                      <div className="teamNoResults">
+                        <div className="teamNoResultCell">
+                          <div className="teamNoResultsText">No team members found.</div>
+                          <div className="teamNoResultsButtons">
+                            <button
+                              className="teamNoResultsRefresh"
+                              onClick={fetchTeamMembers}
+                              disabled={isLoadingTeamMembers}
+                            >
+                              Refresh Team
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      filteredTeamMembers.map((member, i) => (
+                        <div key={i} className="teamListItemCollapsed">
+                          <div className="teamContentMemberRowLeading">
+                            <img src={member.image || "TestImage.png"} />
+                            <span>
+                              <strong>
+                                {member.first_name} {member.last_name}
+                              </strong>
+                              <p>{member.email}</p>
+                            </span>
+                          </div>
+                          <div className="teamContentMemberRowTrailing">
+                            <div className={member.username === userID || !isCurrentUserAdmin ? "teamPermissionDropdownDisabled" : ""}>
+                              <Dropdown
+                                className="teamPermissionDropdown"
+                                value={member.is_admin === "true" ? "Admin" : "Team Member"}
+                                onChange={(label) => handlePermissionChange(member.username, label === "Admin")}
+                                options={["Admin", "Team Member"]}
+                                placeholder="Role"
+                              />
+                            </div>
+                            <button
+                              className="teamDangerButton"
+                              disabled={member.username === userID || !isCurrentUserAdmin}
+                              onClick={() => handleRemove(member.username)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )
+                  )}
 
-            <div className="teamTopBar">
-              <div className="teamTopBarSearchContainer">
-                <div className="teamSearchBarWrapper">
-                  <FontAwesomeIcon icon={faSearch} className="teamSearchIcon" />
-                  <input
-                    type="text"
-                    className="teamSearchInput"
-                    value={searchText}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => setSearchText(e.target.value)}
-                    placeholder={teamPage === "manage" ? "Search team..." : "Search requests..."}
-                  />
-                  <FontAwesomeIcon
-                    icon={faCircleInfo}
-                    className="docsSearchIconSupplement"
-                  />
+                  {teamPage === "requests" && (
+                    isLoadingAccessRequests ? (
+                      <div className="loading-wrapper" style={{ display: "flex", justifyContent: "center", width: "100%", height: "100%" }}>
+                        <div className="loading-circle" />
+                        <label className="loading-title">
+                          Loading
+                        </label>
+                      </div>
+                    ) : filteredAccessRequests.length === 0 ? (
+                      <div className="teamNoResults">
+                        <div className="teamNoResultCell">
+                          <div className="teamNoResultsText">No current access requests.</div>
+                          <div className="teamNoResultsButtons">
+                            <button
+                              className="teamNoResultsRefresh"
+                              onClick={fetchAccessRequests}
+                              disabled={isLoadingAccessRequests}
+                            >
+                              Refresh Requests
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      filteredAccessRequests.map((req, i) => (
+                        <div key={i} className="teamListItemCollapsed">
+                          <div className="teamContentMemberRowLeading">
+                            <img src={req.image || "TestImage.png"} />
+                            <span>
+                              <strong>
+                                {req.first_name} {req.last_name}
+                              </strong>
+                              <p>{req.email}</p>
+                            </span>
+                          </div>
+                          <div className="teamContentMemberRowTrailing">
+                            <button onClick={() => handleRequestResponse(req.request_username, "approve")}>Confirm</button>
+                            <button
+                              className="teamDangerButton"
+                              onClick={() => handleRequestResponse(req.request_username, "deny")}
+                            >
+                              Deny
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )
+                  )}
                 </div>
               </div>
             </div>
-
-            {teamPage === "manage" && (
-              <div className="teamListContainer">
-                {isLoadingTeamMembers ? (
-                  <div className="loading-wrapper" style={{ display: "flex", justifyContent: "center", width: "100%", height: "calc(100vh - 220px)" }}>
-                    <div className="loading-circle" />
-                  </div>
-                ) : filteredTeamMembers.length === 0 ? (
-                  <div className="teamNoResults" style={{ height: "calc(100vh - 220px)" }}>
-                    <div className="teamNoResultCell">
-                      <div className="teamNoResultsText">No team members found.</div>
-                      <div className="teamNoResultsButtons">
-                        <button
-                          className="teamNoResultsRefresh"
-                          onClick={fetchAccessRequests}
-                          disabled={isLoadingAccessRequests}
-                        >
-                          Refresh Requests
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  filteredTeamMembers.map((member, i) => (
-                    <div key={i} className="teamListItemCollapsed">
-                      <div className="teamContentMemberRowLeading">
-                        <img src={member.image || "TestImage.png"} />
-                        <span>
-                          <strong>
-                            {member.first_name} {member.last_name}
-                          </strong>
-                          <p>{member.email}</p>
-                        </span>
-                      </div>
-                      <div className="teamContentMemberRowTrailing">
-                        <div className="permissionDropdownWrapper">
-                          <button
-                            ref={openPermissionDropdown === member.username ? rowPermSelectRef : null}
-                            className="permissionDropdownButton"
-                            disabled={member.username === userID || !isCurrentUserAdmin}
-                            style={member.username === userID || !isCurrentUserAdmin ? { opacity: 0.6 } : {}}
-                            onClick={() =>
-                              setOpenPermissionDropdown((prev) => (prev === member.username ? null : member.username))
-                            }
-                          >
-                            {member.is_admin === "true" ? "Admin" : "Team Member"}
-                            <FontAwesomeIcon
-                              icon={faCaretDown}
-                              className="addNewCaretIcon"
-                              style={{
-                                transform: openPermissionDropdown === member.username ? "rotate(180deg)" : "rotate(0deg)",
-                                transition: "transform 0.3s ease"
-                              }}
-                            />
-                          </button>
-                          {openPermissionDropdown === member.username && member.username !== userID && isCurrentUserAdmin && (
-                            <div
-                              ref={rowPermDropdownRef}
-                              className="teamDropdownMenu"
-                              style={{
-                                position: "fixed",
-                                top: rowPermDropdownPosition.top,
-                                left: rowPermDropdownPosition.left,
-                                zIndex: 1000
-                              }}
-                            >
-                              <button onClick={() => handlePermissionChange(member.username, true)}>
-                                Admin
-                                <FontAwesomeIcon icon={faListUl} />
-                              </button>
-                              <button onClick={() => handlePermissionChange(member.username, false)}>
-                                Team Member
-                                <FontAwesomeIcon icon={faListUl} />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          disabled={member.username === userID || !isCurrentUserAdmin}
-                          style={{
-                            backgroundColor: "rgba(229, 75, 75, 0.1)",
-                            border: "1px solid #E54B4B",
-                            color: "rgba(235, 240, 248, 0.95)",
-                            opacity: member.username === userID || !isCurrentUserAdmin ? 0.6 : 1
-                          }}
-                          onClick={() => handleRemove(member.username)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-
-            {teamPage === "requests" && (
-              <div className="teamListContainer">
-                {isLoadingAccessRequests ? (
-                  <div className="loading-wrapper" style={{ display: "flex", justifyContent: "center", width: "100%", height: "calc(100vh - 220px)" }}>
-                    <div className="loading-circle" />
-                  </div>
-                ) : filteredAccessRequests.length === 0 ? (
-                  <div className="teamNoResults" style={{ height: "calc(100vh - 220px)" }}>
-                    <div className="teamNoResultCell">
-                      <div className="teamNoResultsText">No current access requests.</div>
-                      <div className="teamNoResultsButtons">
-                        <button
-                          className="teamNoResultsRefresh"
-                          onClick={fetchAccessRequests}
-                          disabled={isLoadingAccessRequests}
-                        >
-                          Refresh Requests
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  filteredAccessRequests.map((req, i) => (
-                    <div key={i} className="teamListItemCollapsed">
-                      <div className="teamContentMemberRowLeading">
-                        <img src={req.image || "TestImage.png"} />
-                        <span>
-                          <strong>
-                            {req.first_name} {req.last_name}
-                          </strong>
-                          <p>{req.email}</p>
-                        </span>
-                      </div>
-                      <div className="teamContentMemberRowTrailing">
-                        <button onClick={() => handleRequestResponse(req.request_username, "approve")}>Confirm</button>
-                        <button
-                          style={{
-                            backgroundColor: "rgba(229, 75, 75, 0.1)",
-                            border: "1px solid #E54B4B",
-                            color: "rgba(235, 240, 248, 0.95)"
-                          }}
-                          onClick={() => handleRequestResponse(req.request_username, "deny")}
-                        >
-                          Deny
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
           </div>
         )
       ) : (
         <div className="teamCellHeaderContainer" style={{ justifyContent: "center" }}>
           <div className="loading-wrapper">
             <div className="loading-circle" />
-            <label className="loading-title">Stack Forge</label>
+            <label className="loading-title">
+              Loading
+            </label>
           </div>
         </div>
       )}

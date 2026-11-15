@@ -1,5 +1,5 @@
 @media (min-width: 1700px) {
-    .dinolabsSettingsSlider {
+    .codeSettingsSlider {
         cursor: pointer;
         width: 100%; 
         height: 0.6vw; 
@@ -11,7 +11,7 @@
         border-radius: 0.4vw; 
         transition: background-color 0.3s ease, border-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-webkit-slider-thumb {
+    .codeSettingsSlider::-webkit-slider-thumb {
         -webkit-appearance: none;
         width: 1vw;
         height: 1.2vw;
@@ -20,7 +20,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-moz-range-thumb {
+    .codeSettingsSlider::-moz-range-thumb {
         width: 1vw;
         height: 1.2vw;
         background-color: #5C2BE2;
@@ -28,7 +28,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-ms-thumb {
+    .codeSettingsSlider::-ms-thumb {
         width: 1vw;
         height: 1.2vw;
         background-color: #5C2BE2;
@@ -36,13 +36,13 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider:hover {
+    .codeSettingsSlider:hover {
         opacity: 0.6; 
     }
 }
 
 @media (min-width: 1300px) and (max-width: 1699px) {
-    .dinolabsSettingsSlider {
+    .codeSettingsSlider {
         cursor: pointer;
         width: 100%; 
         height: 0.6vw; 
@@ -54,7 +54,7 @@
         border-radius: 0.4vw; 
         transition: background-color 0.3s ease, border-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-webkit-slider-thumb {
+    .codeSettingsSlider::-webkit-slider-thumb {
         -webkit-appearance: none;
         width: 1vw;
         height: 1.2vw;
@@ -63,7 +63,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-moz-range-thumb {
+    .codeSettingsSlider::-moz-range-thumb {
         width: 1vw;
         height: 1.2vw;
         background-color: #5C2BE2;
@@ -71,7 +71,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-ms-thumb {
+    .codeSettingsSlider::-ms-thumb {
         width: 1vw;
         height: 1.2vw;
         background-color: #5C2BE2;
@@ -79,13 +79,13 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider:hover {
+    .codeSettingsSlider:hover {
         opacity: 0.6; 
     }
 }
 
 @media (min-width: 700px) and (max-width: 1299px) {
-    .dinolabsSettingsSlider {
+    .codeSettingsSlider {
         cursor: pointer;
         width: 100%; 
         height: 0.6vw; 
@@ -97,7 +97,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease, border-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-webkit-slider-thumb {
+    .codeSettingsSlider::-webkit-slider-thumb {
         -webkit-appearance: none;
         width: 1vw;
         height: 1.2vw;
@@ -106,7 +106,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-moz-range-thumb {
+    .codeSettingsSlider::-moz-range-thumb {
         width: 1vw;
         height: 1.2vw;
         background-color: #5C2BE2;
@@ -114,7 +114,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-ms-thumb {
+    .codeSettingsSlider::-ms-thumb {
         width: 1vw;
         height: 1.2vw;
         background-color: #5C2BE2;
@@ -122,13 +122,13 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider:hover {
+    .codeSettingsSlider:hover {
         opacity: 0.6;
     }
 }
 
 @media (max-width: 699px) {
-    .dinolabsSettingsSlider {
+    .codeSettingsSlider {
         cursor: pointer;
         width: 100%; 
         height: 0.6vw; 
@@ -140,7 +140,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease, border-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-webkit-slider-thumb {
+    .codeSettingsSlider::-webkit-slider-thumb {
         -webkit-appearance: none;
         width: 1vw;
         height: 1.2vw;
@@ -149,7 +149,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-moz-range-thumb {
+    .codeSettingsSlider::-moz-range-thumb {
         width: 1vw;
         height: 1.2vw;
         background-color: #5C2BE2;
@@ -157,7 +157,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider::-ms-thumb {
+    .codeSettingsSlider::-ms-thumb {
         width: 1vw;
         height: 1.2vw;
         background-color: #5C2BE2;
@@ -165,7 +165,7 @@
         border-radius: 0.4vw;
         transition: background-color 0.3s ease;
     }
-    .dinolabsSettingsSlider:hover {
+    .codeSettingsSlider:hover {
         opacity: 0.6;
     }
 }

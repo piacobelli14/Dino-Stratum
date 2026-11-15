@@ -1,0 +1,369 @@
+.riskEcScope {
+  --ec-bg-void: #08090c;
+  --ec-bg-base: #0a0c0f;
+  --ec-bg-primary: #0d0f13;
+  --ec-bg-secondary: #101216;
+  --ec-bg-tertiary: #13151a;
+  --ec-bg-elevated: #16181d;
+  --ec-bg-surface: #12141a;
+  --ec-bg-panel: #0f1115;
+  --ec-text-primary: #ebf0f8;
+  --ec-text-secondary: #cdd4e4;
+  --ec-text-tertiary: #aab4c8;
+  --ec-text-muted: #919baf;
+  --ec-border-primary: #3d4354;
+  --ec-border-subtle: #323746;
+  --ec-border-glow: #3d4354;
+  --ec-accent-primary: #6a7a8a;
+  --ec-accent-secondary: #5a6a7a;
+  --ec-accent-cyan: #4ecdc4;
+  --ec-accent-blue: #42a5f5;
+  --ec-accent-purple: #42a5f5;
+  --ec-status-good: #4ecdc4;
+  --ec-status-info: #42a5f5;
+  --ec-status-advisory: #ffd93d;
+  --ec-status-warning: #FF9500;
+  --ec-status-critical: #ff6b6b;
+  --ec-radius-sm: 4px;
+  --ec-radius-md: 6px;
+  --ec-radius-lg: 8px;
+  --ec-spacing-xs: 4px;
+  --ec-spacing-sm: 8px;
+  --ec-spacing-md: 12px;
+  --ec-spacing-lg: 16px;
+  --ec-spacing-xl: 24px;
+  --ec-transition-fast: 0.15s ease;
+  --ec-transition-normal: 0.25s ease;
+  --ec-transition-slow: 0.4s ease;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--ec-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+:where(.riskEcScope) *,
+:where(.riskEcScope) *::before,
+:where(.riskEcScope) *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.satWeatherModal.riskWideModal {
+  width: min(760px, 94vw);
+  max-width: 760px;
+  height: min(820px, 90vh);
+  max-height: 90vh;
+}
+
+.riskDetailActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border-top: 2px solid #3d4354;
+  background: #0b0c0f;
+  flex-shrink: 0;
+}
+
+.riskDetailActions .satEarthCondBtn {
+  width: 100%;
+  margin: 0;
+  justify-content: center;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.riskDetailActions .satEarthCondBtn span,
+.riskPanelActions .satEarthCondBtn span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.riskModalLinkBtn {
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.riskPanelActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.riskPanelActions .satEarthCondBtn {
+  width: 100%;
+  margin: 0;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.riskPanelToolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+.riskPanelToolbar > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.riskModalPanel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.riskModalPanel + .riskModalPanel {
+  margin-top: 4px;
+}
+
+.riskMapSelectionCursor,
+.riskMapSelectionCursor canvas {
+  cursor: crosshair !important;
+}
+
+.riskMapBadge {
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.riskMapBadge:hover,
+.riskMapBadgeSelected {
+  filter: brightness(1.35);
+}
+
+.riskMapAreaLabel {
+  padding: 2px 6px;
+  background: rgba(8, 9, 12, 0.78);
+  border-radius: 3px;
+  color: #aab4c8;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.riskMapAreaLabelSelected {
+  color: #4ecdc4;
+}
+
+.riskMetadataSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0.6rem 0;
+}
+
+.riskMetadataSectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #cdd4e4;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.riskMetadataGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.riskMetadataItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.5rem 0.6rem;
+  background: #08090c;
+  border: 2px solid #323746;
+  border-radius: 0;
+}
+
+.riskMetadataItemWide {
+  width: 100%;
+}
+
+.riskMetadataLabel {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: #919baf;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.riskMetadataValue {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #ebf0f8;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.riskMetadataHighlight {
+  font-weight: 800;
+  font-size: 0.8rem;
+}
+
+.riskMetadataSmall {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: #aab4c8;
+  word-break: break-all;
+}
+
+.riskMetadataScrollable {
+  max-height: 80px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.riskMetadataScrollable::-webkit-scrollbar {
+  width: 4px;
+}
+
+.riskMetadataScrollable::-webkit-scrollbar-track {
+  background: #08090c;
+}
+
+.riskMetadataScrollable::-webkit-scrollbar-thumb {
+  background: #3d4354;
+  border-radius: 2px;
+}
+
+.riskContainmentBar {
+  flex: 1;
+  height: 6px;
+  background: #16181d;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.riskContainmentFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+
+.riskMeasurementsList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.riskMeasurementTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  background: rgba(78, 205, 196, 0.15);
+  border: 1px solid rgba(78, 205, 196, 0.3);
+  border-radius: 3px;
+  color: #7fe9e1;
+  font-size: 0.55rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.riskInfraProximityList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.riskInfraProximityItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.4rem 0.6rem;
+  background: #16181d;
+  border-radius: 0;
+}
+
+.riskInfraProximityName {
+  flex: 1;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #ebf0f8;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.riskInfraProximityDistance {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #919baf;
+  flex-shrink: 0;
+}
+
+.riskInfraProximityRelevance {
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.riskSourcesList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.riskSourceLink {
+  display: inline-flex;
+  padding: 0.25rem 0.5rem;
+  background: rgba(78, 205, 196, 0.1);
+  border: 1px solid rgba(78, 205, 196, 0.4);
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #4ecdc4;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.riskSourceLink:hover {
+  background: rgba(78, 205, 196, 0.15);
+  border-color: #4ecdc4;
+}
+
+@media (max-width: 768px) {
+  .riskDetailActions,
+  .riskPanelActions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.satWeatherMapView > .ibWrapper {
+  align-self: stretch;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-top: 2px solid var(--ec-border-primary, #3d4354);
+  border-radius: 0;
+}

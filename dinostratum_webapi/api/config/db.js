@@ -20,49 +20,6 @@ const SSL_CONFIG = {
 
 const DIRECT_URL = process.env.SUPABASE_DIRECT_URL;
 
-const pool = new Pool({
-  connectionString: DIRECT_URL,
-  ssl: SSL_CONFIG,
-  family: 4,
-  max: 4,
-  idleTimeoutMillis: 10000,
-  connectionTimeoutMillis: 5000,
-  allowExitOnIdle: true,
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10000,
-  application_name: APPLICATION_NAME,
-});
-
-pool.on("error", (error) => {
-  if (error.code === "57P01") {
-    console.warn("Pool client terminated externally:", error.message);
-    return;
-  }
-  if (error.code === "XX000") {
-    console.warn("Pool client fatal error:", error.message);
-    return;
-  }
-  if (
-    error.code === "ETIMEDOUT" ||
-    error.code === "ECONNRESET" ||
-    error.code === "EPIPE" ||
-    error.code === "ENETUNREACH" ||
-    error.code === "EHOSTUNREACH"
-  ) {
-    console.warn("Pool client socket error:", error.code, error.message);
-    return;
-  }
-  if (error.message && error.message.includes("Max client connections")) {
-    console.warn("Pool client max connections reached:", error.message);
-    return;
-  }
-  if (error.message && error.message.includes("handleDataRow")) {
-    console.warn("Pool client stale query on terminated connection:", error.message);
-    return;
-  }
-  console.error("Unexpected error on idle client:", error.message);
-});
-
 function _isRecoverableSocketError(err) {
   if (!err) return false;
   if (
@@ -84,35 +41,79 @@ function _isRecoverableSocketError(err) {
     if (err.message.includes("Connection terminated")) return true;
     if (err.message.includes("connection terminated")) return true;
     if (err.message.includes("timeout expired")) return true;
+    if (err.message.includes("timeout exceeded")) return true;
     if (err.message.includes("read ETIMEDOUT")) return true;
+    if (err.message.includes("Client has encountered a connection error")) return true;
   }
   return false;
 }
 
-process.on("uncaughtException", (error) => {
+function _isConnectionError(error) {
+  return _isRecoverableSocketError(error);
+}
+
+function _sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function _attachNoopErrorHandler(client) {
+  if (client && !client._noopErrorAttached) {
+    client.on("error", () => {});
+    client._noopErrorAttached = true;
+  }
+}
+
+const pool = new Pool({
+  connectionString: DIRECT_URL,
+  ssl: SSL_CONFIG,
+  family: 4,
+  max: 10,
+  maxUses: 500,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 8000,
+  allowExitOnIdle: false,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
+  application_name: APPLICATION_NAME,
+});
+
+pool.on("error", (error) => {
   if (_isRecoverableSocketError(error)) {
     console.warn(
-      "Recoverable socket error (uncaught):",
+      "Pool client recoverable error:",
       error.code || "no-code",
       error.message
     );
     return;
   }
-  console.error("Uncaught exception:", error);
-  process.exit(1);
+  console.error("Unexpected error on idle client:", error.message);
+});
+
+process.on("uncaughtException", (error) => {
+  if (_isRecoverableSocketError(error)) {
+    console.warn(
+      "Recoverable socket error (uncaught, kept alive):",
+      error.code || "no-code",
+      error.message
+    );
+    return;
+  }
+  console.error("Uncaught exception (kept alive):", error);
 });
 
 process.on("unhandledRejection", (reason) => {
   if (_isRecoverableSocketError(reason)) {
     console.warn(
-      "Recoverable socket error (unhandled rejection):",
+      "Recoverable socket error (unhandled rejection, kept alive):",
       (reason && reason.code) || "no-code",
       (reason && reason.message) || reason
     );
     return;
   }
-  console.error("Unhandled rejection:", reason);
-  process.exit(1);
+  console.error(
+    "Unhandled rejection (kept alive):",
+    (reason && reason.message) || reason
+  );
 });
 
 class PoolUnavailableError extends Error {
@@ -123,21 +124,12 @@ class PoolUnavailableError extends Error {
   }
 }
 
-function _isConnectionError(error) {
-  if (!error) return false;
-  return _isRecoverableSocketError(error);
-}
-
-function _sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function purgeStaleConnections() {
   const protectedUsers = process.env.PROTECTED_DB_USERS
     ? process.env.PROTECTED_DB_USERS.split(",")
     : ["postgres"];
 
-  console.log(`Startup: using direct connection to bypass Supavisor for purge.`);
+  console.log("Startup: using direct connection to bypass Supavisor for purge.");
 
   for (let attempt = 1; attempt <= STARTUP_MAX_RETRIES; attempt++) {
     const client = new Client({
@@ -178,7 +170,9 @@ async function purgeStaleConnections() {
         return;
       }
 
-      console.log(`Startup: found ${staleCount} stale ${APPLICATION_NAME} connections, terminating...`);
+      console.log(
+        `Startup: found ${staleCount} stale ${APPLICATION_NAME} connections, terminating...`
+      );
 
       const terminateResult = await client.query(
         `WITH terminated AS (
@@ -229,7 +223,7 @@ async function verifyPoolReady() {
     let client;
     try {
       client = await pool.connect();
-      client.on("error", () => {});
+      _attachNoopErrorHandler(client);
       await client.query("SELECT 1 AS ready");
       client.release();
       console.log("Startup: pool connection verified.");
@@ -279,21 +273,24 @@ async function query(text, params) {
       );
     }
 
+    _attachNoopErrorHandler(client);
+
     try {
-      client.on("error", () => {});
       const result = await client.query(text, params);
+      try {
+        client.release();
+      } catch (_) {}
       return result;
     } catch (queryErr) {
       lastError = queryErr;
+      try {
+        client.release(true);
+      } catch (_) {}
       if (_isConnectionError(queryErr) && attempt < MAX_QUERY_RETRIES) {
         await _sleep(RETRY_DELAY_MS * (attempt + 1));
         continue;
       }
       throw queryErr;
-    } finally {
-      try {
-        client.release(true);
-      } catch (_) {}
     }
   }
 
@@ -308,7 +305,7 @@ async function getClient() {
   for (let attempt = 0; attempt <= MAX_QUERY_RETRIES; attempt++) {
     try {
       const client = await pool.connect();
-      client.on("error", () => {});
+      _attachNoopErrorHandler(client);
       return client;
     } catch (connErr) {
       lastError = connErr;
@@ -324,6 +321,21 @@ async function getClient() {
   );
 }
 
+async function withClient(fn) {
+  const client = await getClient();
+  let failed = false;
+  try {
+    return await fn(client);
+  } catch (err) {
+    failed = true;
+    throw err;
+  } finally {
+    try {
+      client.release(failed);
+    } catch (_) {}
+  }
+}
+
 const connectionManager = new ConnectionManager(pool, {
   connectionConfig: {
     connectionString: DIRECT_URL,
@@ -331,11 +343,11 @@ const connectionManager = new ConnectionManager(pool, {
     family: 4,
     connectionTimeoutMillis: 10000,
   },
-  cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS, 10) || 5000,
-  idleThresholdMs: parseInt(process.env.IDLE_THRESHOLD_MS, 10) || 15000,
+  cleanupIntervalMs: parseInt(process.env.CLEANUP_INTERVAL_MS, 10) || 10000,
+  idleThresholdMs: parseInt(process.env.IDLE_THRESHOLD_MS, 10) || 45000,
   healthCheckIntervalMs:
     parseInt(process.env.HEALTH_CHECK_INTERVAL_MS, 10) || 15000,
-  burstThreshold: 10,
+  burstThreshold: 16,
   maxBackoffMs: parseInt(process.env.MAX_BACKOFF_MS, 10) || 60000,
   applicationName: APPLICATION_NAME,
 });
@@ -393,6 +405,7 @@ module.exports = {
   pool,
   query,
   getClient,
+  withClient,
   startup,
   connectionManager,
   PoolUnavailableError,

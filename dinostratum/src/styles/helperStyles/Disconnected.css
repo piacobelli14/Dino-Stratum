@@ -11,15 +11,15 @@
 
 .disconnectedNoResultsIcon {
     font-size: 2.4rem; 
-    color: rgba(235, 240, 248, 0.95); 
+    color: #ebf0f8; 
     margin-bottom: 1rem; 
 }
 
 .disconnectedNoResultsText {
-    font-size: 1rem; 
-    font-weight: 700; 
-    color: rgba(205, 212, 228, 0.82); 
-    margin-bottom: 1rem;
+    font-size: 0.95rem; 
+    font-weight: 800; 
+    color: #ebf0f8; 
+    margin-bottom: 1rem;;
     width: 80%; 
     text-align: center;
 }
@@ -39,14 +39,14 @@
 
 .disconnectedNoResultsReset, 
 .disconnectedNoResultsRefresh {
-    background-color: #16181d; 
+    background-color: #ebf0f8; 
     padding: 0.4rem 0.8rem; 
-    border: 1px solid rgba(50, 55, 70, 0.45); 
+    border: 1px solid #323746; 
     border-radius: 6px; 
-    box-shadow: none; 
-    font-size: 0.8rem; 
-    font-weight: 700;
-    color: rgba(235, 240, 248, 0.95);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); 
+    font-size: 0.78rem; 
+    font-weight: 800;
+    color: #08090c;
     width: 150px;
     outline: none; 
 }
@@ -54,21 +54,21 @@
 .disconnectedNoResultsReset:hover, 
 .disconnectedNoResultsRefresh:hover {
     opacity: 0.6;
-    border: 1px solid rgba(60, 68, 85, 0.5); 
+    border: 1px solid #323746; 
     outline: none;
 }
 
 .disconnectedNoResultsReset:focus, 
 .disconnectedNoResultsRefreshfocus {
-    border: 1px solid rgba(50, 55, 70, 0.45); 
+    border: 1px solid #323746; 
     outline: none;
 }
 
 .disconnectedNoResultCell {
-    background-color: rgba(255, 255, 255, 0.05); 
-    border: 1px solid rgba(50, 55, 70, 0.45); 
+    background-color: rgba(0, 0, 0, 0.4); 
+    border: 1px solid #323746; 
     padding: 40px 40px; 
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
     border-radius: 6px; 
     display: flex; 
     flex-direction: column;

@@ -1,4 +1,4 @@
-.dinolabsSettingsCheckbox {
+.codeSettingsCheckbox {
     cursor: pointer;
     width: 20px;
     height: 20px;
@@ -11,11 +11,11 @@
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
-.dinolabsSettingsCheckbox:checked {
+.codeSettingsCheckbox:checked {
     background-color: #5C2BE2;
 }
 
-.dinolabsSettingsCheckbox:hover {
+.codeSettingsCheckbox:hover {
     opacity: 0.6;
     transform: scale(1.1);
 }

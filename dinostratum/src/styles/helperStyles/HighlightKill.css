@@ -1,8 +1,8 @@
 .leadingIDEDirectoryStack,
-.dinolabsSettingsContainer,
-.AlertOverlay,
-.dinolabsEditingSearchBoxWrapper,
-.dinolabsTableWrapperContainer {
+.codeSettingsContainer,
+.codeAlertOverlay,
+.codeEditingSearchBoxWrapper,
+.codeTableWrapperContainer {
     -webkit-user-select: text !important;
     user-select: text !important;
     ::selection {

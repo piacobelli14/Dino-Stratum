@@ -1,55 +1,55 @@
-.AlertOverlay {
+.notiAlertOverlay {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.8);
+    background-color: rgba(6, 8, 11, 0.78);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 10;
 }
 
-.Alert {
-    background: linear-gradient(145deg, #141820 0%, #1e242e 100%);
+.notiAlert {
+    background: linear-gradient(160deg, #171b24 0%, #12151b 100%);
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     box-sizing: border-box;
     padding: 2rem;
-    border: 1px solid rgba(50, 55, 70, 0.45);
+    border: 1px solid #3d4354;
     border-radius: 6px;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     min-width: 400px;
     max-width: 500px;
 }
 
-.AlertImage {
+.notiAlertImage {
     height: 60px;
     width: auto;
 }
 
-.AlertHeader {
+.notiAlertHeader {
     font-size: 20px;
     font-weight: 700;
-    color: rgba(235, 240, 248, 0.95);
+    color: #ebf0f8;
     margin-top: 1rem;
     text-align: center;
 }
 
-.AlertSubHeader {
+.notiAlertSubHeader {
     font-size: 14px;
     font-weight: 600;
-    color: rgba(205, 212, 228, 0.82);
+    color: #ebf0f8;
     margin-top: 0.5rem;
     opacity: 0.9;
     text-align: center;
     line-height: 1.4;
 }
 
-.AlertButtonsFlex {
+.notiAlertButtonsFlex {
     display: flex;
     justify-content: center;
     align-items: center;
@@ -58,12 +58,12 @@
     gap: 1rem;
 }
 
-.AlertButtons {
+.notiAlertButtons {
     padding: 0.6rem 1.2rem;
     font-size: 12px;
     font-weight: 700;
-    color: rgba(235, 240, 248, 0.95);
-    border: 1px solid rgba(50, 55, 70, 0.45);
+    color: #ebf0f8;
+    border: 1px solid #3d4354;
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -71,32 +71,32 @@
     min-width: 80px;
 }
 
-.AlertButtons[style*="backgroundColor: #AD6ADD"] {
-    background: linear-gradient(135deg, #4C3B7E 0%, #906EAF 100%);
-    border-color: #4C3B7E;
+.notiAlertButtons[style*="backgroundColor: #AD6ADD"] {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    border-color: #3b82f6;
 }
 
-.AlertButtons[style*="backgroundColor: #D8D8D8"] {
-    background: #16181d;
-    border-color: rgba(50, 55, 70, 0.45);
-    color: rgba(235, 240, 248, 0.95);
+.notiAlertButtons[style*="backgroundColor: #D8D8D8"] {
+    background: linear-gradient(145deg, #1f242e 0%, #12151b 100%);
+    border-color: #3d4354;
+    color: #ebf0f8;
 }
 
-.AlertButtons:hover {
+.notiAlertButtons:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 6px -1px rgba(76, 59, 126, 0.2);
-    border: 1px solid rgba(60, 68, 85, 0.5);
+    box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2);
+    border: 1px solid #3d4354;
     outline: none;
 }
 
-.AlertButtons:focus {
+.notiAlertButtons:focus {
     outline: none;
-    border-color: #4C3B7E;
-    box-shadow: 0 0 0 3px rgba(76, 59, 126, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     transform: translateY(-1px);
 }
 
-.AlertInputWrapper {
+.notiAlertInputWrapper {
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -105,13 +105,13 @@
     padding: 1rem 0 0 0;
 }
 
-.AlertInput.input-text {
-    background: #13151a;
-    border: 1px solid rgba(50, 55, 70, 0.45);
+.notiAlertInput.input-text {
+    background: linear-gradient(145deg, #1f242e 0%, #12151b 100%);
+    border: 1px solid #3d4354;
     padding: 0.6rem 1rem;
     font-size: 12px;
     font-weight: 700;
-    color: rgba(235, 240, 248, 0.95);
+    color: #ebf0f8;
     border-radius: 6px;
     width: 80%;
     outline: none;
@@ -119,32 +119,31 @@
     transition: all 0.2s ease;
 }
 
-.AlertInput.input-text::placeholder {
-    color: rgba(145, 155, 175, 0.58);
+.notiAlertInput.input-text::placeholder {
+    color: #6f7789;
     font-weight: 700;
 }
 
-.AlertInput.input-text:hover {
+.notiAlertInput.input-text:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 6px -1px rgba(76, 59, 126, 0.2);
+    box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2);
     outline: none;
-    border-color: rgba(60, 68, 85, 0.5);
 }
 
-.AlertInput.input-text:focus {
+.notiAlertInput.input-text:focus {
     outline: none;
-    border-color: #6a7a8a;
-    box-shadow: 0 0 0 3px rgba(76, 59, 126, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     transform: translateY(-1px);
 }
 
-.AlertInput.input-select {
-    background: #13151a;
-    border: 1px solid rgba(50, 55, 70, 0.45);
+.notiAlertInput.input-select {
+    background: linear-gradient(145deg, #1f242e 0%, #12151b 100%);
+    border: 1px solid #3d4354;
     padding: 0.6rem 1rem;
     font-size: 12px;
     font-weight: 700;
-    color: rgba(235, 240, 248, 0.95);
+    color: #ebf0f8;
     border-radius: 6px;
     width: 80%;
     outline: none;
@@ -153,27 +152,26 @@
     transition: all 0.2s ease;
 }
 
-.AlertInput.input-select:hover {
+.notiAlertInput.input-select:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 6px -1px rgba(76, 59, 126, 0.2);
+    box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2);
     outline: none;
-    cursor: pointer;
-    border-color: rgba(60, 68, 85, 0.5);
-}
-
-.AlertInput.input-select:focus {
-    outline: none;
-    border-color: #6a7a8a;
-    box-shadow: 0 0 0 3px rgba(76, 59, 126, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    transform: translateY(-1px);
     cursor: pointer;
 }
 
-.AlertInput::-ms-expand {
+.notiAlertInput.input-select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+    cursor: pointer;
+}
+
+.notiAlertInput::-ms-expand {
     display: none;
 }
 
-.AlertInput {
+.notiAlertInput {
     -webkit-appearance: none;
     -moz-appearance: none;
     appearance: none;

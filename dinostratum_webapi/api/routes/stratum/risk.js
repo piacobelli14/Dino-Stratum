@@ -1,27 +1,139 @@
 const express = require("express");
 const router = express.Router();
 const crypto = require("crypto");
+const zlib = require("zlib");
+const v8 = require("v8");
 const { pool } = require("../../config/db");
-const { goldenMeshStore, changeDetectionStore, runChangeDetection, classifySeverity } = require("./assets");
+
+const SOURCE_URLS = {
+    DATA_GDELTPROJECT_ORG_GDELTV2_LASTUPDATE_TXT: "http://data.gdeltproject.org/gdeltv2/lastupdate.txt",
+    DATA_GDELTPROJECT_ORG_GDELTV2: "http://data.gdeltproject.org/gdeltv2/",
+    ALERTS_WEATHER_GOV: "https://alerts.weather.gov",
+    API_GDELTPROJECT_ORG_API_V2_GEO_GEO: "https://api.gdeltproject.org/api/v2/geo/geo",
+    MESONET_AGRON_IASTATE_EDU_GEOJSON_LSR_GEOJSON: "https://mesonet.agron.iastate.edu/geojson/lsr.geojson?hours=24",
+    MESONET_AGRON_IASTATE_EDU_GEOJSON_LSR_GEOJSON_2: "https://mesonet.agron.iastate.edu/geojson/lsr.geojson",
+    NEWS_GOOGLE_COM_RSS_SEARCH: "https://news.google.com/rss/search",
+    SPC_NOAA_GOV_PRODUCTS_OUTLOOK: "https://www.spc.noaa.gov/products/outlook/",
+    GDACS_ORG_XML_RSS_XML: "https://www.gdacs.org/xml/rss.xml",
+    VOLCANOES_USGS_GOV_VSC_API_VOLCANOAPI_VOLCANOESGVP: "https://volcanoes.usgs.gov/vsc/api/volcanoApi/volcanoesGVP",
+    SERVICES_SWPC_NOAA_GOV_PRODUCTS_ALERTS_JSON: "https://services.swpc.noaa.gov/products/alerts.json",
+    SERVICES_SWPC_NOAA_GOV_PRODUCTS_NOAA_PLANETARY_K_INDEX_JSON: "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json",
+    SERVICES_SWPC_NOAA_GOV_JSON_GOES_PRIMARY_XRAYS_7_DAY_JSON: "https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.json",
+    SERVICES_SWPC_NOAA_GOV_PRODUCTS_SOLAR_WIND_PLASMA_7_DAY_JSON: "https://services.swpc.noaa.gov/products/solar-wind/plasma-7-day.json",
+    SERVICES_SWPC_NOAA_GOV_PRODUCTS_SOLAR_WIND_MAG_7_DAY_JSON: "https://services.swpc.noaa.gov/products/solar-wind/mag-7-day.json",
+    SERVICES_SWPC_NOAA_GOV_PRODUCTS_NOAA_PLANETARY_K_INDEX_FOREC: "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json",
+    API_WEATHER_GOV_ALERTS_ACTIVE: "https://api.weather.gov/alerts/active?event=Tsunami",
+    TSUNAMI_GOV: "https://www.tsunami.gov/",
+    FIRMS_MODAPS_EOSDIS_NASA_GOV_MAP: "https://firms.modaps.eosdis.nasa.gov/map/",
+    MESONET_AGRON_IASTATE_EDU_LSR: "https://mesonet.agron.iastate.edu/lsr/",
+    AIRNOW_GOV: "https://www.airnow.gov/",
+    SEARCH_ASF_ALASKA_EDU: "https://search.asf.alaska.edu/#/?dataset=SENTINEL-1%20INTERFEROGRAM%20(BETA)&productTypes=GUNW_STD",
+    EGMS_LAND_COPERNICUS_EU_API_OGC_FEATURES_V1_COLLECTIONS_L3_2: "https://egms.land.copernicus.eu/api/ogc/features/v1/collections/L3_2018_2022_ortho/items?limit=500&f=json",
+    SEARCH_ASF_ALASKA_EDU_2: "https://search.asf.alaska.edu/#/?dataset=SENTINEL-1%20INTERFEROGRAM%20(BETA)",
+    EARTHQUAKE_USGS_GOV: "https://earthquake.usgs.gov/",
+    EMSC_CSEM_ORG: "https://www.emsc-csem.org/",
+    TERREMOTI_INGV_IT: "https://terremoti.ingv.it/",
+    GEONET_ORG_NZ: "https://www.geonet.org.nz/",
+    NIFC_GOV: "https://www.nifc.gov/",
+    WEATHER_GOV: "https://www.weather.gov/",
+    SPC_NOAA_GOV: "https://www.spc.noaa.gov/",
+    SWPC_NOAA_GOV: "https://www.swpc.noaa.gov/",
+    WATERSERVICES_USGS_GOV: "https://waterservices.usgs.gov/",
+    OPEN_METEO_COM: "https://open-meteo.com/",
+    VOLCANOES_USGS_GOV: "https://volcanoes.usgs.gov/",
+    GDACS_ORG: "https://www.gdacs.org/",
+    EONET_GSFC_NASA_GOV: "https://eonet.gsfc.nasa.gov/",
+    FEMA_GOV: "https://www.fema.gov/",
+    GDELTPROJECT_ORG: "https://www.gdeltproject.org/",
+    SEARCH_ASF_ALASKA_EDU_3: "https://search.asf.alaska.edu/",
+    LAND_COPERNICUS_EU: "https://land.copernicus.eu/",
+    QUERY_WIKIDATA_ORG: "https://query.wikidata.org/",
+    EGMS_LAND_COPERNICUS_EU: "https://egms.land.copernicus.eu/",
+    QUERY_WIKIDATA_ORG_SPARQL: "https://query.wikidata.org/sparql",
+    EARTHQUAKE_USGS_GOV_FDSNWS_EVENT_1_QUERY: "https://earthquake.usgs.gov/fdsnws/event/1/query",
+    SEISMICPORTAL_EU_FDSNWS_EVENT_1_QUERY: "https://www.seismicportal.eu/fdsnws/event/1/query",
+    EMSC_CSEM_ORG_EARTHQUAKE_EARTHQUAKE_PHP: "https://www.emsc-csem.org/Earthquake/earthquake.php",
+    WEBSERVICES_INGV_IT_FDSNWS_EVENT_1_QUERY: "https://webservices.ingv.it/fdsnws/event/1/query",
+    TERREMOTI_INGV_IT_EVENT: "https://terremoti.ingv.it/event/",
+    API_GEONET_ORG_NZ_QUAKE: "https://api.geonet.org.nz/quake",
+    GEONET_ORG_NZ_EARTHQUAKE: "https://www.geonet.org.nz/earthquake/",
+    API_WEATHER_GOV_ALERTS_ACTIVE_2: "https://api.weather.gov/alerts/active",
+    SPC_NOAA_GOV_PRODUCTS_OUTLOOK_DAY: "https://www.spc.noaa.gov/products/outlook/day",
+    GDACS_ORG_GDACSAPI_API_EVENTS_GETEVENTLIST_SEARCH: "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH",
+    GDACS_ORG_REPORT_ASPX: "https://www.gdacs.org/report.aspx",
+    VOLCANOES_USGS_GOV_VOLCANOES: "https://volcanoes.usgs.gov/volcanoes/",
+    EONET_GSFC_NASA_GOV_API_V3_EVENTS: "https://eonet.gsfc.nasa.gov/api/v3/events",
+    AIR_QUALITY_API_OPEN_METEO_COM_V1_AIR_QUALITY: "https://air-quality-api.open-meteo.com/v1/air-quality",
+    WATERSERVICES_USGS_GOV_NWIS_IV: "https://waterservices.usgs.gov/nwis/iv/",
+    SERVICES3_ARCGIS_COM_T4QMSPBFLG3QTGWY_ARCGIS_REST_SERVICES_W: "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query",
+    IRWIN_DOI_GOV_OBSERVER: "https://irwin.doi.gov/observer/",
+    FEMA_GOV_API_OPEN_V2_DISASTERDECLARATIONSSUMMARIES: "https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries",
+    FEMA_GOV_DISASTER: "https://www.fema.gov/disaster/",
+    FLOOD_API_OPEN_METEO_COM_V1_FLOOD: "https://flood-api.open-meteo.com/v1/flood",
+    MARINE_API_OPEN_METEO_COM_V1_MARINE: "https://marine-api.open-meteo.com/v1/marine",
+    SERVICES3_ARCGIS_COM_T4QMSPBFLG3QTGWY_ARCGIS_REST_SERVICES_W_2: "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations_Current/FeatureServer/0/query",
+    FIRMS_MODAPS_EOSDIS_NASA_GOV_API_AREA_CSV: "https://firms.modaps.eosdis.nasa.gov/api/area/csv/",
+    AIRNOWAPI_ORG_AQ_OBSERVATION_LATLONG_CURRENT: "https://www.airnowapi.org/aq/observation/latLong/current/",
+    API_DAAC_ASF_ALASKA_EDU_SERVICES_SEARCH_PARAM: "https://api.daac.asf.alaska.edu/services/search/param"
+};
+
+const SOURCE_KEYS = {
+    airnowApiKey: "AIRNOW_API_KEY",
+    firmsMapKey: "FIRMS_MAP_KEY"
+};
+
+const SOURCE_ANALYSIS = {
+    name: "Gemini",
+    endpoint: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+    apiKeyEnv: "GEMINI_API_KEY",
+    model: process.env.RISK_ANALYSIS_MODEL || "gemini-3.5-flash-lite",
+    thinkingLevel: process.env.RISK_ANALYSIS_THINKING || "low",
+    temperature: 0.3,
+    maxOutputTokens: 1200,
+    timeoutMs: 20000,
+    warmConcurrency: 3,
+    warmSeverities: ["Critical", "High"],
+    warmPerRequest: 30,
+    failureCooldownMs: 10 * 60 * 1000,
+    cacheLimit: 500,
+    maxTextChars: 6000,
+    instructions: "You are a senior emergency management and hazard risk analyst briefing a member of the public about one active hazard event that affects an area they monitor. Use only the event data provided and never invent facts, places, numbers, or times. Write in plain, calm, direct language. The summary must be 2 to 4 complete sentences that say what is happening, where, and how severe it is. List the specific threats with their magnitudes when given. List concrete protective actions in priority order, taking any recommendations in the data into account. The timing field must be one complete sentence about when the event started, whether it is ongoing, and when it is expected to end if that is known. The confidence field must be one complete sentence explaining how reliable the information is based on the source and the data provided. Every list item must be a complete sentence that ends with a period."
+};
+
+const SOURCE_USER_AGENTS = {
+    fetch: "DinoStratumRiskMonitor/2.0 (+https://dino-stratum.vercel.app)",
+    wikidata: "RiskCommandCenter/2.0 (https://github.com/risk-command-center; contact@example.com)"
+};
 
 const CACHE_MS = 15 * 60 * 1000;
-const RISK_CACHE_MAX = 200;
+const RISK_CACHE_MAX = 40;
+const RISK_CACHE_RECORD_BUDGET = 8000;
 
 const INGEST_TICK_MS = 60 * 1000;
 const DYNAMIC_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 const QUERY_TIMEOUT_MS = 30000;
 const UPSERT_TIMEOUT_MS = 60000;
-const UPSERT_BATCH_SIZE = 500;
-const UPSERT_CONCURRENCY = 2;
-const UPSERT_QUEUE_MAX = 100000;
+const UPSERT_BATCH_SIZE = 250;
+const UPSERT_CONCURRENCY = 1;
+const UPSERT_QUEUE_MAX = 20000;
 const UPSERT_MAX_RETRIES = 3;
 const UPSERT_RETRY_BASE_MS = 500;
 
 const DB_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+const LIVE_CHUNK_SIZE = 500;
+const LIVE_HEARTBEAT_MS = 25000;
 const DB_WRITE_ENABLED = true;
-const RISK_STORE_MAX = 50000;
-const HASH_STORE_MAX = 100000;
+const RISK_STORE_MAX = 12000;
+const RISK_STORE_TRIM_RATIO = 0.8;
+const MEMORY_CHECK_INTERVAL_MS = 15000;
+const EXPIRY_PURGE_INTERVAL_MS = 60000;
+const SSE_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+const SSE_DRAIN_THRESHOLD_BYTES = 1024 * 1024;
+const SSE_DRAIN_TIMEOUT_MS = 1000;
+const MEMORY_PRESSURE_RATIO = 0.82;
+const MEMORY_RELIEF_RATIO = 0.75;
+const HASH_STORE_MAX = 40000;
 
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const CLEANUP_DELETE_BATCH_SIZE = 5000;
@@ -33,13 +145,6 @@ const CLEANUP_EXPIRED_GRACE_DAYS = 7;
 const CLEANUP_INGESTION_RUN_RETENTION_DAYS = 7;
 const CLEANUP_DEDUP_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const CLEANUP_ANALYZE_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-const HISTORICAL_MAX_DAYS = 365;
-const HISTORICAL_DEFAULT_LIMIT = 1000;
-const HISTORICAL_MAX_LIMIT = 10000;
-const HISTORICAL_DB_TIMEOUT_MS = 8000;
-
-const DEFORM_THRESH_MM = 5;
 const INFRA_BUFFER_KM = 5;
 
 const POOL_PRESSURE_WAITING_HIGH = 8;
@@ -51,8 +156,406 @@ const VISIBILITY_ORG_PRIVATE = "org-private";
 
 const SEVERITY_WEIGHTS = { Critical: 100, High: 60, Medium: 30, Low: 10 };
 
-const IMPACT_RADIUS_BASE = { Seismic: 100, Wildfire: 30, Weather: 50, Flood: 20, Hurricane: 300, Tornado: 5, Volcanic: 50, Tsunami: 100, "Air Quality": 25, Industrial: 10, Conflict: 15, "Ground Deformation": 15 };
+const IMPACT_RADIUS_BASE = { Seismic: 100, Wildfire: 30, Weather: 50, Flood: 20, Hurricane: 300, Tornado: 5, Volcanic: 50, Tsunami: 100, "Air Quality": 25, Industrial: 10, Conflict: 15, "Ground Deformation": 15, Crime: 2 };
 const IMPACT_RADIUS_MULTIPLIER = { Critical: 3, High: 2, Medium: 1.2, Low: 0.8 };
+
+const classifySeverity = (annRate, absDisp, coherence) => {
+    if (coherence !== null && coherence < 0.3) return { severity: "Low", confidence: "low", reason: "Coherence is below the reliable measurement threshold." };
+    if (annRate > 50 || absDisp > 30) return { severity: "Critical", confidence: coherence > 0.7 ? "high" : "medium", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year exceeds the critical threshold.` };
+    if (annRate > 20 || absDisp > 15) return { severity: "High", confidence: coherence > 0.6 ? "high" : "medium", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year exceeds the high severity threshold.` };
+    if (annRate > 10 || absDisp > 8) return { severity: "Medium", confidence: coherence > 0.5 ? "high" : "medium", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year indicates moderate ground movement.` };
+    return { severity: "Low", confidence: coherence > 0.5 ? "high" : "low", reason: `Annualized deformation rate of ${annRate.toFixed(1)} mm per year is within normal background levels.` };
+};
+
+const GDELT_LAST_UPDATE_URL = SOURCE_URLS.DATA_GDELTPROJECT_ORG_GDELTV2_LASTUPDATE_TXT;
+const GDELT_EXPORT_BASE_URL = SOURCE_URLS.DATA_GDELTPROJECT_ORG_GDELTV2;
+const GDELT_CRIME_WINDOW_FILES = 96;
+const GDELT_CRIME_MAX_NEW_FILES = 12;
+const GDELT_CRIME_DOWNLOAD_CONCURRENCY = 4;
+const GDELT_CRIME_TTL_MS = 24 * 60 * 60 * 1000;
+const gdeltFileCache = new Map();
+const GDELT_CRIME_CODES = {
+    "173": { label: "Arrest", severity: "Low", phrase: "an arrest" },
+    "180": { label: "Violent Attack", severity: "Medium", phrase: "a violent attack" },
+    "181": { label: "Abduction or Hostage Taking", severity: "High", phrase: "an abduction or hostage taking" },
+    "182": { label: "Physical Assault", severity: "Medium", phrase: "a physical assault" },
+    "1821": { label: "Sexual Assault", severity: "High", phrase: "a sexual assault" },
+    "1822": { label: "Torture", severity: "High", phrase: "torture" },
+    "1823": { label: "Killing", severity: "Critical", phrase: "a killing" },
+    "183": { label: "Bombing", severity: "Critical", phrase: "a bombing" },
+    "1831": { label: "Suicide Bombing", severity: "Critical", phrase: "a suicide bombing" },
+    "1832": { label: "Vehicle Bombing", severity: "Critical", phrase: "a vehicle bombing" },
+    "1833": { label: "Roadside Bombing", severity: "Critical", phrase: "a roadside bombing" },
+    "1834": { label: "Bombing", severity: "Critical", phrase: "a bombing" },
+    "184": { label: "Use of Human Shields", severity: "High", phrase: "the use of human shields" },
+    "185": { label: "Attempted Assassination", severity: "High", phrase: "an attempted assassination" },
+    "186": { label: "Assassination", severity: "Critical", phrase: "an assassination" }
+};
+
+const readFirstZipEntry = (buf) => {
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
+        if (buf.readUInt32LE(i) === 0x06054b50) {
+            eocd = i;
+            break;
+        }
+    }
+    if (eocd < 0) throw new Error("The archive is missing its end of central directory record.");
+    const cdOffset = buf.readUInt32LE(eocd + 16);
+    if (buf.readUInt32LE(cdOffset) !== 0x02014b50) throw new Error("The archive central directory is invalid.");
+    const method = buf.readUInt16LE(cdOffset + 10);
+    const compressedSize = buf.readUInt32LE(cdOffset + 20);
+    const localOffset = buf.readUInt32LE(cdOffset + 42);
+    if (buf.readUInt32LE(localOffset) !== 0x04034b50) throw new Error("The archive local file header is invalid.");
+    const start = localOffset + 30 + buf.readUInt16LE(localOffset + 26) + buf.readUInt16LE(localOffset + 28);
+    const data = buf.subarray(start, start + compressedSize);
+    if (method === 0) return data.toString("utf8");
+    if (method === 8) return zlib.inflateRawSync(data).toString("utf8");
+    throw new Error(`The archive uses unsupported compression method ${method}.`);
+};
+
+const gdeltTimestampToIso = (ts) => {
+    if (!/^\d{14}$/.test(ts || "")) return null;
+    return `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}T${ts.slice(8, 10)}:${ts.slice(10, 12)}:${ts.slice(12, 14)}Z`;
+};
+
+const gdeltPreviousTimestamps = (latest, count) => {
+    const start = Date.parse(gdeltTimestampToIso(latest));
+    const stamps = [];
+    for (let i = 0; i < count; i++) {
+        const d = new Date(start - i * 15 * 60 * 1000);
+        stamps.push(d.toISOString().replace(/[-:T]/g, "").slice(0, 14));
+    }
+    return stamps;
+};
+
+const parseGdeltCrimeEvents = (text, seen) => {
+    const events = [];
+    for (const line of text.split("\n")) {
+        const c = line.split("\t");
+        if (c.length < 61) continue;
+        const rule = GDELT_CRIME_CODES[c[26]] || (c[28] === "18" ? GDELT_CRIME_CODES["180"] : null);
+        if (!rule) continue;
+        if (c[51] !== "3" && c[51] !== "4") continue;
+        const lat = parseFloat(c[56]);
+        const lng = parseFloat(c[57]);
+        if (isNaN(lat) || isNaN(lng)) continue;
+        const sourceUrl = c[60] || null;
+        const dedupKey = `${sourceUrl}|${c[26]}|${c[58] || c[52]}`;
+        if (seen.has(dedupKey)) continue;
+        seen.add(dedupKey);
+        const addedIso = gdeltTimestampToIso(c[59]);
+        if (!addedIso) continue;
+        let domain = null;
+        try {
+            domain = sourceUrl ? new URL(sourceUrl).hostname.replace(/^www\./, "") : null;
+        } catch { }
+        const place = c[52] || "an unspecified location";
+        events.push(normalizeRisk("GDELT_CRIME", "Crime", {
+            source_id: `gdelt_${c[0]}`,
+            severity: rule.severity,
+            title: `${rule.label}: ${place}`,
+            description: `News coverage${domain ? ` from ${domain}` : ""} reports ${rule.phrase} in ${place}.`,
+            geometry_type: "Point", coordinates: [lng, lat], latitude: lat, longitude: lng,
+            event_time: addedIso, updated_at: addedIso,
+            expires_at: new Date(Date.parse(addedIso) + GDELT_CRIME_TTL_MS).toISOString(),
+            url: sourceUrl,
+            metadata: {
+                cameo_code: c[26], event_type: rule.label, actor1: c[6] || null, actor2: c[16] || null,
+                location: place, country_code: c[53] || null, num_sources: parseInt(c[32]) || 0,
+                num_articles: parseInt(c[33]) || 0, average_tone: parseFloat(c[34]) || 0, source_domain: domain
+            }
+        }));
+    }
+    return events;
+};
+
+const NWS_HEADERS = { "User-Agent": "RiskCommandCenter/2.0", "Accept": "application/geo+json" };
+
+const transformNoaaAlert = (f, probePoints) => {
+    const p = f.properties;
+    const g = f.geometry;
+    let sev = p.severity === "Extreme" ? "Critical" : p.severity === "Severe" ? "High" : p.severity === "Moderate" ? "Medium" : "Low";
+    const catMap = { flood: "Flood", hurricane: "Hurricane", tropical: "Hurricane", tornado: "Tornado", fire: "Wildfire", "red flag": "Wildfire", tsunami: "Tsunami", volcano: "Volcanic", earthquake: "Seismic", blizzard: "Weather", "ice storm": "Weather", "winter storm": "Weather", "severe thunderstorm": "Weather", "extreme heat": "Weather", "excessive heat": "Weather", "heat advisory": "Weather" };
+    let cat = "Weather";
+    const el = (p.event || "").toLowerCase();
+    for (const [k, v] of Object.entries(catMap)) {
+        if (el.includes(k)) {
+            cat = v;
+            break;
+        }
+    }
+    let { lat, lng, geomType, geomCoords } = extractLatLng(g);
+    const zonePoints = g ? [] : (probePoints || []);
+    if (!g && zonePoints.length) {
+        lng = zonePoints.reduce((sum, point) => sum + point[0], 0) / zonePoints.length;
+        lat = zonePoints.reduce((sum, point) => sum + point[1], 0) / zonePoints.length;
+        geomType = "Point";
+        geomCoords = [lng, lat];
+    }
+    const dur = p.expires && p.effective ? Math.round((new Date(p.expires) - new Date(p.effective)) / 36e5) : null;
+    return {
+        _category: cat, source_id: p.id, severity: sev, title: p.headline || p.event,
+        description: p.description, geometry_type: geomType || "Polygon", geometry_coordinates: geomCoords,
+        coordinates: lat && lng ? [lng, lat] : null, latitude: lat, longitude: lng,
+        event_time: p.onset || p.effective, updated_at: p.sent, expires_at: p.expires,
+        url: SOURCE_URLS.ALERTS_WEATHER_GOV,
+        metadata: {
+            event_type: p.event, nws_severity: p.severity, certainty: p.certainty, urgency: p.urgency,
+            sender: p.senderName, affected_areas: p.areaDesc, instruction: p.instruction,
+            response_type: p.response, category: p.category, message_type: p.messageType,
+            affected_zones: p.affectedZones, duration_hours: dur, headline: p.headline, parameters: p.parameters, zone_points: zonePoints.length ? zonePoints : null
+        }
+    };
+};
+
+const GDELT_GEO_URL = SOURCE_URLS.API_GDELTPROJECT_ORG_API_V2_GEO_GEO;
+const GDELT_GEO_CRIME_QUERY = "(shooting OR stabbing OR homicide OR murder OR robbery OR carjacking OR assault OR kidnapping OR burglary OR arson OR gunfire)";
+const GDELT_GEO_TTL_MS = 24 * 60 * 60 * 1000;
+const GDELT_GEO_MAX_AREAS = 50;
+
+const gdeltGeoSeverity = (text) => {
+    const t = (text || "").toLowerCase();
+    if (/(homicide|murder|killed|fatal|slain|mass shooting|dead)/.test(t)) return "Critical";
+    if (/(shooting|shot|stabbing|stabbed|kidnap|carjack|armed robbery|gunfire|gunman)/.test(t)) return "High";
+    if (/(robbery|assault|arson|burglary)/.test(t)) return "Medium";
+    return "Low";
+};
+
+const parseGdeltGeoArticles = (html) => {
+    const articles = [];
+    const re = /<a[^>]*href="([^"]+)"[^>]*>([^<]*)<\/a>/gi;
+    let m;
+    while ((m = re.exec(html || "")) !== null) {
+        const title = m[2].replace(/&amp;/g, "&").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").trim();
+        if (title) articles.push({ url: m[1], title });
+    }
+    return articles;
+};
+
+const gdeltGeoFeatureToRisk = (feature) => {
+    const coords = feature?.geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    const lng = parseFloat(coords[0]);
+    const lat = parseFloat(coords[1]);
+    if (isNaN(lat) || isNaN(lng)) return null;
+    const props = feature.properties || {};
+    const name = (props.name || "").trim() || "an unspecified location";
+    const articles = parseGdeltGeoArticles(props.html);
+    const count = parseInt(props.count) || articles.length || 1;
+    const severity = gdeltGeoSeverity(articles.map((a) => a.title).join(" "));
+    const now = new Date();
+    const lead = articles[0];
+    return normalizeRisk("GDELT_GEO_CRIME", "Crime", {
+        source_id: `gdelt_geo_${lat.toFixed(3)}_${lng.toFixed(3)}`,
+        severity,
+        title: `Crime Reports: ${name}`,
+        description: lead ? `${count} news ${count === 1 ? "report mentions" : "reports mention"} crime near ${name}. The latest is titled "${lead.title}".` : `${count} news ${count === 1 ? "report mentions" : "reports mention"} crime near ${name}.`,
+        geometry_type: "Point", coordinates: [lng, lat], latitude: lat, longitude: lng,
+        event_time: now.toISOString(), updated_at: now.toISOString(),
+        expires_at: new Date(now.getTime() + GDELT_GEO_TTL_MS).toISOString(),
+        url: lead ? lead.url : null,
+        metadata: { location: name, report_count: count, headline: lead ? lead.title : null, articles: articles.slice(0, 5) }
+    });
+};
+
+const GDELT_REQUEST_SPACING_MS = 5500;
+
+const fetchGdeltGeo = async (query, maxpoints) => {
+    const url = `${GDELT_GEO_URL}?query=${encodeURIComponent(query)}&mode=PointData&format=GeoJSON&timespan=24h&geores=2&maxpoints=${maxpoints}`;
+    const r = await fetchWithTimeout(url, {}, 30000);
+    if (!r.ok) throw new Error(`The GDELT GEO API returned status ${r.status}.`);
+    const text = await r.text();
+    let d;
+    try {
+        d = JSON.parse(text);
+    } catch {
+        throw new Error(`The GDELT GEO API returned a non-JSON response that began with "${text.slice(0, 120).replace(/\s+/g, " ").trim()}".`);
+    }
+    return Array.isArray(d.features) ? d.features : [];
+};
+
+let monitoredAreaCenters = [];
+
+const loadMonitoredAreaCenters = async () => {
+    try {
+        const result = await queryWithTimeout(
+            `SELECT name, latitude, longitude, radius_km, min_lat, max_lat, min_lng, max_lng, mode FROM risk_user_areas LIMIT ${GDELT_GEO_MAX_AREAS}`,
+            [], 10000
+        );
+        const seen = new Set();
+        const centers = [];
+        for (const row of result.rows) {
+            let area;
+            if (row.mode === "point_radius") {
+                area = { lat: parseFloat(row.latitude), lng: parseFloat(row.longitude), km: Math.min(parseFloat(row.radius_km) || 50, 500) };
+            } else {
+                const lat = (parseFloat(row.min_lat) + parseFloat(row.max_lat)) / 2;
+                const lng = (parseFloat(row.min_lng) + parseFloat(row.max_lng)) / 2;
+                area = { lat, lng, km: Math.min(haversine(lat, lng, parseFloat(row.max_lat), parseFloat(row.max_lng)) / 1000, 500) };
+            }
+            if (isNaN(area.lat) || isNaN(area.lng)) continue;
+            const key = `${area.lat.toFixed(2)},${area.lng.toFixed(2)}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            area.name = row.name && String(row.name).trim() ? String(row.name).trim() : `Monitored Area ${area.lat.toFixed(2)}, ${area.lng.toFixed(2)}`;
+            centers.push(area);
+        }
+        monitoredAreaCenters = centers;
+        return centers;
+    } catch {
+        return monitoredAreaCenters;
+    }
+};
+
+const OPEN_METEO_AQ_CITY_CAP = 0;
+const OPEN_METEO_FLOOD_CITY_CAP = 10;
+
+const openMeteoQueryPoints = (cap) => {
+    const cities = (dynamicStores.urban.data.length ? dynamicStores.urban.data : FALLBACK_CITIES)
+        .slice()
+        .sort((a, b) => (b.pop || 0) - (a.pop || 0))
+        .slice(0, cap);
+    const points = monitoredAreaCenters.map((a) => ({ name: a.name, lat: a.lat, lng: a.lng, pop: 0 }));
+    for (const c of cities) {
+        if (!points.some((q) => haversine(q.lat, q.lng, c.lat, c.lng) < 25000)) points.push({ name: c.name, lat: c.lat, lng: c.lng, pop: c.pop || 0 });
+    }
+    return points;
+};
+
+const FIRMS_SOURCE = "VIIRS_NOAA20_NRT";
+const FIRMS_GRID_DEG = 0.05;
+
+const parseFirmsCsv = (text) => {
+    const lines = (text || "").trim().split(/\r?\n/);
+    if (lines.length < 2) return [];
+    const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+    const idx = (name) => header.indexOf(name);
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(",");
+        const lat = parseFloat(cols[idx("latitude")]);
+        const lng = parseFloat(cols[idx("longitude")]);
+        if (isNaN(lat) || isNaN(lng)) continue;
+        rows.push({ lat, lng, frp: parseFloat(cols[idx("frp")]) || 0, confidence: (cols[idx("confidence")] || "").trim().toLowerCase(), date: (cols[idx("acq_date")] || "").trim(), time: (cols[idx("acq_time")] || "").trim().padStart(4, "0") });
+    }
+    return rows;
+};
+
+const firmsClusters = (rows) => {
+    const cells = new Map();
+    const seenDetections = new Set();
+    for (const r of rows) {
+        const detection = `${r.lat.toFixed(4)}_${r.lng.toFixed(4)}_${r.date}_${r.time}`;
+        if (seenDetections.has(detection)) continue;
+        seenDetections.add(detection);
+        const key = `${Math.round(r.lat / FIRMS_GRID_DEG)}_${Math.round(r.lng / FIRMS_GRID_DEG)}`;
+        const cell = cells.get(key) || { key, lat: 0, lng: 0, n: 0, frp: 0, maxFrp: 0, high: false, latest: "" };
+        cell.lat += r.lat;
+        cell.lng += r.lng;
+        cell.n++;
+        cell.frp += r.frp;
+        cell.maxFrp = Math.max(cell.maxFrp, r.frp);
+        if (r.confidence === "h" || r.confidence === "high") cell.high = true;
+        const stamp = r.date && r.time ? `${r.date}T${r.time.slice(0, 2)}:${r.time.slice(2, 4)}:00Z` : "";
+        if (stamp > cell.latest) cell.latest = stamp;
+        cells.set(key, cell);
+    }
+    return [...cells.values()].map((c) => ({ ...c, lat: c.lat / c.n, lng: c.lng / c.n }));
+};
+
+const LSR_URL = SOURCE_URLS.MESONET_AGRON_IASTATE_EDU_GEOJSON_LSR_GEOJSON;
+const LSR_BASE_URL = SOURCE_URLS.MESONET_AGRON_IASTATE_EDU_GEOJSON_LSR_GEOJSON_2;
+
+const lsrCategory = (typetext) => {
+    const t = (typetext || "").toUpperCase();
+    if (t.includes("TORNADO") || t.includes("FUNNEL") || t.includes("WATERSPOUT")) return "Tornado";
+    if (t.includes("FLOOD")) return "Flood";
+    if (t.includes("WILDFIRE")) return "Wildfire";
+    return "Weather";
+};
+
+const lsrSeverity = (typetext, magnitude) => {
+    const t = (typetext || "").toUpperCase();
+    const mag = parseFloat(magnitude);
+    if (t.includes("TORNADO")) return "Critical";
+    if (t.includes("FLASH FLOOD")) return "High";
+    if (t.includes("HAIL")) return !isNaN(mag) && mag >= 1.75 ? "High" : "Medium";
+    if (t.includes("WND") || t.includes("WIND")) return !isNaN(mag) && mag >= 58 ? "High" : "Medium";
+    if (t.includes("FLOOD") || t.includes("DEBRIS FLOW") || t.includes("STORM SURGE")) return "High";
+    return "Low";
+};
+
+const USGS_BBOX_MAX_SQ_DEG = 25;
+
+const usgsAreaBox = (area) => {
+    const latDelta = area.km / 111.32;
+    const lngDelta = area.km / (111.32 * Math.max(0.2, Math.cos((area.lat * Math.PI) / 180)));
+    const scale = Math.min(1, Math.sqrt(USGS_BBOX_MAX_SQ_DEG / ((latDelta * 2) * (lngDelta * 2))));
+    const la = latDelta * scale;
+    const lo = lngDelta * scale;
+    return {
+        min_lat: (area.lat - la).toFixed(4), max_lat: (area.lat + la).toFixed(4),
+        min_lng: (area.lng - lo).toFixed(4), max_lng: (area.lng + lo).toFixed(4)
+    };
+};
+
+const NWS_PROBE_CONCURRENCY = 3;
+const NWS_PROBE_MAX_BYTES = 8 * 1024 * 1024;
+const AREA_EVENT_MARGIN_KM = 25;
+
+const ensureMonitoredAreas = async () => (monitoredAreaCenters.length ? monitoredAreaCenters : await loadMonitoredAreaCenters());
+
+const areaProbePoints = (area) => {
+    const reach = area.km * 0.6;
+    const dLat = reach / 111.32;
+    const dLng = reach / (111.32 * Math.max(0.2, Math.cos((area.lat * Math.PI) / 180)));
+    return [
+        { lat: area.lat, lng: area.lng },
+        { lat: area.lat + dLat, lng: area.lng },
+        { lat: area.lat - dLat, lng: area.lng },
+        { lat: area.lat, lng: area.lng + dLng },
+        { lat: area.lat, lng: area.lng - dLng }
+    ];
+};
+
+const areaBounds = (area) => {
+    const dLat = area.km / 111.32;
+    const dLng = area.km / (111.32 * Math.max(0.2, Math.cos((area.lat * Math.PI) / 180)));
+    return { south: area.lat - dLat, north: area.lat + dLat, west: area.lng - dLng, east: area.lng + dLng };
+};
+
+const nearAnyArea = (lat, lng, areas) => areas.some((area) => haversine(area.lat, area.lng, lat, lng) / 1000 <= area.km + AREA_EVENT_MARGIN_KM);
+
+const ACTIVE_SOURCES = new Set(["usgs_water", "noaa_alerts", "nws_storm_reports", "usgs_earthquakes", "wfigs_incidents", "firms_hotspots", "usgs_volcanoes", "airnow_observations", "openmeteo_air_quality", "google_news_crime", "gdelt_crime", "eonet_events", "fema_disasters", "tsunami_alerts"]);
+
+const GOOGLE_NEWS_RSS_URL = SOURCE_URLS.NEWS_GOOGLE_COM_RSS_SEARCH;
+const GOOGLE_NEWS_CRIME_TERMS = "(shooting OR stabbing OR homicide OR murder OR robbery OR carjacking OR assault OR burglary OR kidnapping OR arson)";
+const GOOGLE_NEWS_TTL_MS = 24 * 60 * 60 * 1000;
+
+const decodeXmlText = (value) => (value || "")
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&apos;/g, "'")
+    .trim();
+
+const parseRssItems = (xml) => {
+    const items = [];
+    const re = /<item>([\s\S]*?)<\/item>/g;
+    let m;
+    while ((m = re.exec(xml || "")) !== null) {
+        const block = m[1];
+        const pick = (tag) => {
+            const t = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`));
+            return t ? decodeXmlText(t[1]) : "";
+        };
+        items.push({ title: pick("title"), link: pick("link"), pubDate: pick("pubDate"), source: pick("source") });
+    }
+    return items;
+};
+
+const AIRNOW_DISTANCE_MILES = 50;
+
+const aqiSeverity = (aqi) => (aqi > 200 ? "Critical" : aqi > 150 ? "High" : aqi > 100 ? "Medium" : "Low");
 
 const CATEGORY_TO_LABEL = {
     earthquakes: ["Seismic"],
@@ -62,34 +565,42 @@ const CATEGORY_TO_LABEL = {
     volcanoes: ["Volcanic"],
     air_quality: ["Air Quality"],
     ground_deformation: ["Ground Deformation", "Subsidence"],
-    global_disasters: ["Other", "Industrial", "Infrastructure", "Supply Chain", "Tsunami", "Drought", "Ice", "Landslide", "Water"]
+    global_disasters: ["Other", "Industrial", "Infrastructure", "Supply Chain", "Tsunami", "Drought", "Ice", "Landslide", "Water"],
+    crime: ["Crime"]
 };
 
 const RECOMMENDATIONS = {
-    Seismic: { Critical: ["Evacuate damaged structures immediately.", "Check for gas leaks and structural damage.", "Prepare for aftershocks.", "Avoid coastal areas if tsunami warning."], High: ["Drop, cover, and hold on during shaking.", "Stay away from windows and heavy objects.", "Have emergency supplies ready."], Medium: ["Review earthquake preparedness plans.", "Secure heavy furniture and objects."], Low: ["No immediate action required.", "Review emergency procedures."] },
+    Seismic: { Critical: ["Evacuate damaged structures immediately.", "Check for gas leaks and structural damage.", "Prepare for aftershocks.", "Avoid coastal areas if a tsunami warning is issued."], High: ["Drop, cover, and hold on during shaking.", "Stay away from windows and heavy objects.", "Have emergency supplies ready."], Medium: ["Review earthquake preparedness plans.", "Secure heavy furniture and objects."], Low: ["No immediate action is required.", "Review emergency procedures."] },
     Wildfire: { Critical: ["Evacuate immediately if ordered.", "Close all windows and doors.", "Wear N95 masks for smoke.", "Have go-bag ready."], High: ["Prepare for possible evacuation.", "Create defensible space around property.", "Monitor air quality closely."], Medium: ["Stay informed of fire progression.", "Reduce outdoor activities due to smoke."], Low: ["Monitor local fire reports.", "Review evacuation routes."] },
     Flood: { Critical: ["Move to higher ground immediately.", "Do not walk or drive through flood waters.", "Avoid bridges over fast-moving water."], High: ["Prepare to evacuate.", "Move valuables to upper floors.", "Fill bathtubs with clean water."], Medium: ["Monitor water levels closely.", "Avoid flood-prone areas."], Low: ["Stay informed of weather conditions.", "Clear drains and gutters."] },
-    Hurricane: { Critical: ["Shelter in place in interior room.", "Stay away from windows.", "Do not go outside during eye passage."], High: ["Complete evacuation if ordered.", "Board up windows.", "Stock emergency supplies."], Medium: ["Prepare emergency kit.", "Review evacuation routes.", "Fuel vehicles."], Low: ["Monitor storm track.", "Review hurricane preparedness."] },
-    Volcanic: { Critical: ["Evacuate exclusion zone immediately.", "Wear respiratory protection.", "Protect from ashfall."], High: ["Prepare for possible evacuation.", "Stock masks and goggles.", "Seal windows and doors."], Medium: ["Monitor volcanic activity.", "Review evacuation plans."], Low: ["Stay informed of volcano status.", "Know warning signs."] },
-    "Ground Deformation": { Critical: ["Evacuate structures showing visible cracking or tilting immediately.", "Report pipeline or utility damage to emergency services.", "Avoid areas with active subsidence or uplift.", "Request professional structural inspection for all buildings in the affected zone."], High: ["Inspect foundations, retaining walls, and load-bearing structures for new cracks.", "Monitor pipelines and utility corridors crossing the deformation zone.", "Install temporary ground displacement markers for local tracking.", "Coordinate with geological survey authorities for detailed assessment."], Medium: ["Schedule routine structural inspections of infrastructure in the affected area.", "Review subsidence history and trend data for long-term planning.", "Verify that drainage systems are functioning correctly to prevent accelerated settlement."], Low: ["Note the observation for long-term ground stability records.", "Continue standard maintenance schedules for infrastructure.", "Monitor future satellite passes for trend confirmation."] }
+    Hurricane: { Critical: ["Shelter in place in an interior room.", "Stay away from windows.", "Do not go outside during eye passage."], High: ["Complete evacuation if ordered.", "Board up windows.", "Stock emergency supplies."], Medium: ["Prepare emergency kit.", "Review evacuation routes.", "Fuel vehicles."], Low: ["Monitor storm track.", "Review hurricane preparedness."] },
+    Volcanic: { Critical: ["Evacuate exclusion zone immediately.", "Wear respiratory protection.", "Protect yourself from ashfall."], High: ["Prepare for possible evacuation.", "Stock masks and goggles.", "Seal windows and doors."], Medium: ["Monitor volcanic activity.", "Review evacuation plans."], Low: ["Stay informed of volcano status.", "Learn the warning signs."] },
+    "Ground Deformation": { Critical: ["Evacuate structures showing visible cracking or tilting immediately.", "Report pipeline or utility damage to emergency services.", "Avoid areas with active subsidence or uplift.", "Request professional structural inspection for all buildings in the affected zone."], High: ["Inspect foundations, retaining walls, and load-bearing structures for new cracks.", "Monitor pipelines and utility corridors crossing the deformation zone.", "Install temporary ground displacement markers for local tracking.", "Coordinate with geological survey authorities for detailed assessment."], Medium: ["Schedule routine structural inspections of infrastructure in the affected area.", "Review subsidence history and trend data for long-term planning.", "Verify that drainage systems are functioning correctly to prevent accelerated settlement."], Low: ["Note the observation for long-term ground stability records.", "Continue standard maintenance schedules for infrastructure.", "Monitor future satellite passes for trend confirmation."] },
+    Crime: { Critical: ["Avoid the area and follow instructions from local police.", "Shelter in a secure location if you are nearby.", "Check on the safety of people you know in the area."], High: ["Avoid the area until police declare it clear.", "Stay alert and report suspicious activity to local police."], Medium: ["Use caution when traveling through the area.", "Stay aware of your surroundings."], Low: ["Stay informed through local news and police updates."] }
 };
 
 const SELECT_COLUMNS = `id, source, source_id, risk_category, severity, severity_score, title, description, geometry_type, geometry_coordinates, latitude, longitude, impact_radius_km, event_time, updated_at, expires_at, url, recommendations, metadata, properties, golden_mesh_detection, population_impact, coordinates, visibility, orgid`;
 
+const INGEST_PRIORITY = ["noaa_alerts", "nws_storm_reports", "usgs_earthquakes", "usgs_water", "gdelt_crime", "wfigs_incidents", "openmeteo_air_quality", "tsunami_alerts", "noaa_spc", "emsc_earthquakes", "usgs_volcanoes", "gdacs_events", "eonet_events", "fema_disasters"];
+const HEAVY_SOURCES = new Set(["nifc_wildfires", "sentinel1_insar", "sentinel1_deformation", "firms_hotspots", "gdelt_geo_crime", "openmeteo_flood", "openmeteo_marine"]);
+const LIGHT_INGEST_CONCURRENCY = 2;
+const SOURCE_DEADLINE_MS = 120000;
+const ingestionInFlight = new Set();
+
 const SOURCE_SCHEDULE = {
-    usgs_earthquakes: { intervalMs: 5 * 60 * 1000, periodicWindowDays: 1, fullHistoryAtStartup: true },
-    emsc_earthquakes: { intervalMs: 5 * 60 * 1000, periodicWindowDays: 1, fullHistoryAtStartup: true },
-    ingv_earthquakes: { intervalMs: 5 * 60 * 1000, periodicWindowDays: 1, fullHistoryAtStartup: true },
+    usgs_earthquakes: { intervalMs: 5 * 60 * 1000, periodicWindowDays: 1 },
+    emsc_earthquakes: { intervalMs: 5 * 60 * 1000, periodicWindowDays: 1 },
+    ingv_earthquakes: { intervalMs: 5 * 60 * 1000, periodicWindowDays: 1 },
     geonet_quakes: { intervalMs: 5 * 60 * 1000 },
     noaa_alerts: { intervalMs: 5 * 60 * 1000 },
     noaa_spc: { intervalMs: 10 * 60 * 1000 },
-    gdacs_events: { intervalMs: 30 * 60 * 1000, periodicWindowDays: 7, fullHistoryAtStartup: true, fullHistoryWindowDays: 90 },
+    gdacs_events: { intervalMs: 30 * 60 * 1000, periodicWindowDays: 7 },
     usgs_volcanoes: { intervalMs: 60 * 60 * 1000 },
-    eonet_events: { intervalMs: 30 * 60 * 1000, periodicEonetDays: 7, fullHistoryAtStartup: true, fullEonetDays: 60 },
+    eonet_events: { intervalMs: 30 * 60 * 1000, periodicEonetDays: 7 },
     openmeteo_air_quality: { intervalMs: 60 * 60 * 1000 },
     usgs_water: { intervalMs: 15 * 60 * 1000 },
     nifc_wildfires: { intervalMs: 30 * 60 * 1000 },
-    fema_disasters: { intervalMs: 60 * 60 * 1000, periodicWindowDays: 7, fullHistoryAtStartup: true, fullHistoryWindowDays: 365 },
+    fema_disasters: { intervalMs: 60 * 60 * 1000, periodicWindowDays: 7 },
     noaa_space_weather: { intervalMs: 5 * 60 * 1000 },
     noaa_kp_index: { intervalMs: 15 * 60 * 1000 },
     noaa_swpc_xray: { intervalMs: 10 * 60 * 1000 },
@@ -99,11 +610,19 @@ const SOURCE_SCHEDULE = {
     openmeteo_flood: { intervalMs: 60 * 60 * 1000 },
     openmeteo_marine: { intervalMs: 60 * 60 * 1000 },
     tsunami_alerts: { intervalMs: 5 * 60 * 1000 },
+    gdelt_crime: { intervalMs: 15 * 60 * 1000 },
+    google_news_crime: { intervalMs: 15 * 60 * 1000 },
+    airnow_observations: { intervalMs: 30 * 60 * 1000 },
+    gdelt_geo_crime: { intervalMs: 15 * 60 * 1000 },
+    wfigs_incidents: { intervalMs: 10 * 60 * 1000 },
+    firms_hotspots: { intervalMs: 30 * 60 * 1000 },
+    nws_storm_reports: { intervalMs: 5 * 60 * 1000 },
     sentinel1_insar: { intervalMs: 6 * 60 * 60 * 1000 },
     sentinel1_deformation: { intervalMs: 6 * 60 * 60 * 1000 }
 };
 
 let ingestionRunning = false;
+let contentHashColumnReady = false;
 let ingestionTimer = null;
 let dynamicRefreshTimer = null;
 let cacheCleanupTimer = null;
@@ -118,6 +637,8 @@ let startupRunComplete = false;
 
 const sourceLastRunAt = {};
 const sourceLastSuccessAt = {};
+const sourceLastError = {};
+const sourceLastCount = {};
 
 let peakWaitingRequests = 0;
 let peakActiveConnections = 0;
@@ -167,19 +688,21 @@ const parseJson = (value) => {
 };
 
 const computeRiskHash = (risk) => {
+    const geometry = risk.geometry_coordinates ? crypto.createHash("sha1").update(safeJsonStringify(risk.geometry_coordinates) || "").digest("hex") : "";
     const parts = [
         risk.source || "",
         risk.source_id || "",
         risk.severity || "",
         risk.severity_score || 0,
-        risk.event_time || "",
-        risk.updated_at || "",
         risk.expires_at || "",
-        risk.latitude != null ? risk.latitude.toFixed(5) : "",
-        risk.longitude != null ? risk.longitude.toFixed(5) : "",
+        risk.latitude != null ? Number(risk.latitude).toFixed(5) : "",
+        risk.longitude != null ? Number(risk.longitude).toFixed(5) : "",
         risk.impact_radius_km || 0,
         risk.title || "",
-        (risk.description || "").substring(0, 200)
+        (risk.description || "").substring(0, 200),
+        risk.visibility || VISIBILITY_PUBLIC,
+        risk.orgid || "",
+        geometry
     ];
     return crypto.createHash("sha1").update(parts.join("|")).digest("hex");
 };
@@ -187,6 +710,10 @@ const computeRiskHash = (risk) => {
 const dedupKey = (risk) => {
     if (risk.source_id) return `${risk.source || ""}::${risk.source_id}`;
     return `${risk.risk_category || ""}::${(risk.latitude || 0).toFixed(4)}::${(risk.longitude || 0).toFixed(4)}::${(risk.title || "").substring(0, 80)}`;
+};
+
+const stableRiskId = (risk) => {
+    return `rsk_${crypto.createHash("md5").update(dedupKey(risk)).digest("hex").substring(0, 24)}`;
 };
 
 const withTimeout = (promise, ms, label) => {
@@ -402,18 +929,19 @@ const getCached = (key) => {
     return entry.data;
 };
 
+const cachedRecordCount = () => {
+    let total = 0;
+    for (const entry of riskCache.values()) total += Array.isArray(entry.data) ? entry.data.length : 1;
+    return total;
+};
+
 const setCache = (key, data) => {
     if (!data || (Array.isArray(data) && data.length === 0)) return;
-    if (riskCache.size >= RISK_CACHE_MAX) {
-        let oldest = null;
-        let oldestTs = Infinity;
-        for (const [k, val] of riskCache) {
-            if (val.ts < oldestTs) {
-                oldest = k;
-                oldestTs = val.ts;
-            }
-        }
-        if (oldest) riskCache.delete(oldest);
+    const incoming = Array.isArray(data) ? data.length : 1;
+    if (incoming > RISK_CACHE_RECORD_BUDGET) return;
+    riskCache.delete(key);
+    while (riskCache.size && (riskCache.size >= RISK_CACHE_MAX || cachedRecordCount() + incoming > RISK_CACHE_RECORD_BUDGET)) {
+        riskCache.delete(riskCache.keys().next().value);
     }
     riskCache.set(key, { data, ts: Date.now() });
 };
@@ -459,12 +987,58 @@ const trimHashStore = () => {
     }
 };
 
+const LEAN_METADATA_KEYS = ["event_type", "nws_severity", "certainty", "urgency", "magnitude", "depth_km", "location", "affected_areas", "source_domain", "cameo_code", "headline"];
+const LEAN_DESCRIPTION_MAX = 400;
+const LEAN_GEOMETRY_MAX_POINTS = 24;
+
+const leanMetadata = (metadata) => {
+    if (!metadata || typeof metadata !== "object") return {};
+    const out = {};
+    for (const key of LEAN_METADATA_KEYS) {
+        if (metadata[key] != null) out[key] = metadata[key];
+    }
+    if (Array.isArray(metadata.zone_points)) out.zone_points = metadata.zone_points;
+    return out;
+};
+
+const leanGeometry = (risk) => {
+    const g = risk.geometry_coordinates;
+    if (!g) return null;
+    const ring = Array.isArray(g) ? g[0] : null;
+    if (!Array.isArray(ring)) return null;
+    if (ring.length > LEAN_GEOMETRY_MAX_POINTS) return null;
+    return g;
+};
+
+const slimRiskForMemory = (risk) => {
+    if (risk._lean) return risk;
+    const lean = {
+        id: risk.id, source: risk.source, source_id: risk.source_id, risk_category: risk.risk_category,
+        severity: risk.severity, severity_score: risk.severity_score, title: risk.title,
+        description: typeof risk.description === "string" && risk.description.length > LEAN_DESCRIPTION_MAX ? `${risk.description.slice(0, LEAN_DESCRIPTION_MAX)}\u2026` : (risk.description || null),
+        geometry_type: risk.geometry_type, coordinates: risk.coordinates, geometry_coordinates: leanGeometry(risk),
+        latitude: risk.latitude, longitude: risk.longitude, impact_radius_km: risk.impact_radius_km,
+        population_impact: risk.population_impact, event_time: risk.event_time, updated_at: risk.updated_at,
+        expires_at: risk.expires_at, url: risk.url, recommendations: risk.recommendations,
+        metadata: leanMetadata(risk.metadata), visibility: risk.visibility, orgid: risk.orgid, _lean: true
+    };
+    return lean;
+};
+
+const slimStoredRisks = (ids) => {
+    for (const id of ids) {
+        if (riskStorePendingDbIds.has(id)) continue;
+        const risk = riskStore.get(id);
+        if (risk && !risk._lean) riskStore.set(id, slimRiskForMemory(risk));
+    }
+};
+
 const dedupAndDiffRisks = (risks) => {
-    if (!risks || !risks.length) return { changed: [], skipped: 0 };
+    if (!risks || !risks.length) return { merged: [], changed: [], skipped: 0 };
     const merged = new Map();
     for (const r of risks) {
         if (!r || !r.id) continue;
-        const k = dedupKey(r);
+        const k = r.id;
         const existing = merged.get(k);
         if (!existing) {
             merged.set(k, r);
@@ -484,6 +1058,7 @@ const dedupAndDiffRisks = (risks) => {
     let skipped = 0;
     for (const [k, r] of merged) {
         const hash = computeRiskHash(r);
+        Object.defineProperty(r, "content_hash", { value: hash, enumerable: false, writable: true, configurable: true });
         const prev = hashStore.get(k);
         if (prev && prev.hash === hash) {
             skipped++;
@@ -493,83 +1068,76 @@ const dedupAndDiffRisks = (risks) => {
         changed.push(r);
     }
     trimHashStore();
-    return { changed, skipped };
+    return { merged: Array.from(merged.values()), changed, skipped };
+};
+
+const trimRiskStore = (target) => {
+    if (riskStore.size <= target) return 0;
+    const before = riskStore.size;
+    const now = Date.now();
+    for (const [id, r] of riskStore) {
+        if (riskStore.size <= target) break;
+        const expires = r.expires_at ? new Date(r.expires_at).getTime() : NaN;
+        if (!isNaN(expires) && expires < now && !riskStorePendingDbIds.has(id)) riskStore.delete(id);
+    }
+    if (riskStore.size > target) {
+        const bySource = new Map();
+        let pinned = 0;
+        for (const [id, r] of riskStore) {
+            if (riskStorePendingDbIds.has(id)) {
+                pinned++;
+                continue;
+            }
+            const time = r.event_time ? new Date(r.event_time).getTime() : 0;
+            const rank = (SEVERITY_WEIGHTS[r.severity] || 0) * 1e13 + (isNaN(time) ? 0 : time);
+            if (!bySource.has(r.source)) bySource.set(r.source, []);
+            bySource.get(r.source).push([id, rank]);
+        }
+        const budget = Math.max(0, target - pinned);
+        const counts = [...bySource.values()].map((list) => list.length).sort((a, b) => a - b);
+        let cap = counts.length ? counts[counts.length - 1] : 0;
+        let used = 0;
+        for (let i = 0; i < counts.length; i++) {
+            const remaining = counts.length - i;
+            const even = Math.floor((budget - used) / remaining);
+            if (counts[i] <= even) {
+                used += counts[i];
+            } else {
+                cap = even;
+                break;
+            }
+        }
+        for (const list of bySource.values()) {
+            if (list.length <= cap) continue;
+            list.sort((a, b) => a[1] - b[1]);
+            for (let i = 0; i < list.length - cap; i++) riskStore.delete(list[i][0]);
+        }
+    }
+    return before - riskStore.size;
+};
+
+const relieveMemoryPressure = () => {
+    const limit = v8.getHeapStatistics().heap_size_limit;
+    const used = process.memoryUsage().heapUsed;
+    if (used < limit * MEMORY_PRESSURE_RATIO) return;
+    riskCache.clear();
+    trimRiskStore(Math.floor(riskStore.size * MEMORY_RELIEF_RATIO));
 };
 
 const storeRisks = (risks, opts) => {
-    if (!risks || !risks.length) return { added: 0, skipped: 0 };
+    if (!risks || !risks.length) return { added: 0, skipped: 0, changed: [] };
     const enqueueForDb = opts && opts.enqueueForDb;
-    const { changed, skipped } = dedupAndDiffRisks(risks);
+    const { merged, changed, skipped } = dedupAndDiffRisks(risks);
     writesSkippedHash += skipped;
-    for (const r of changed) {
-        if (r.id) {
-            riskStore.set(r.id, r);
-            if (enqueueForDb) riskStorePendingDbIds.add(r.id);
-        }
+    for (const r of merged) {
+        riskStore.set(r.id, enqueueForDb ? r : slimRiskForMemory(r));
     }
-    if (riskStore.size > RISK_STORE_MAX) {
-        const entries = Array.from(riskStore.entries());
-        entries.sort((a, b) => (SEVERITY_WEIGHTS[b[1].severity] || 0) - (SEVERITY_WEIGHTS[a[1].severity] || 0));
-        riskStore.clear();
-        for (let i = 0; i < RISK_STORE_MAX && i < entries.length; i++) {
-            riskStore.set(entries[i][0], entries[i][1]);
-        }
+    if (enqueueForDb) {
+        for (const r of changed) riskStorePendingDbIds.add(r.id);
     }
+    if (riskStore.size > RISK_STORE_MAX) trimRiskStore(Math.floor(RISK_STORE_MAX * RISK_STORE_TRIM_RATIO));
     if (enqueueForDb && changed.length) riskStoreDirty = true;
-    return { added: changed.length, skipped };
-};
-
-const queryRiskStore = (filterFn, sortFn, limit) => {
-    let results = [];
-    for (const r of riskStore.values()) {
-        if (!filterFn || filterFn(r)) results.push(r);
-    }
-    if (sortFn) results.sort(sortFn);
-    if (limit && results.length > limit) results = results.slice(0, limit);
-    return results;
-};
-
-const nearbyFromStore = (lat, lng, radiusKm, opts) => {
-    const radiusM = radiusKm * 1000;
-    const results = [];
-    for (const r of riskStore.values()) {
-        if (!r.latitude || !r.longitude) continue;
-        if (opts.severity && r.severity !== opts.severity) continue;
-        if (opts.category && r.risk_category !== opts.category) continue;
-        if (!isRiskVisibleToOrg(r, opts.orgid)) continue;
-        const dist = haversine(lat, lng, r.latitude, r.longitude);
-        if (dist <= radiusM) {
-            results.push({ ...r, distance_meters: dist, distance_km: parseFloat((dist / 1000).toFixed(2)) });
-        }
-    }
-    results.sort((a, b) => a.distance_meters - b.distance_meters);
-    return opts.limit ? results.slice(0, opts.limit) : results;
-};
-
-const bboxFromStore = (mnLat, mxLat, mnLng, mxLng, opts) => {
-    const results = [];
-    for (const r of riskStore.values()) {
-        if (!r.latitude || !r.longitude) continue;
-        if (r.latitude < mnLat || r.latitude > mxLat || r.longitude < mnLng || r.longitude > mxLng) continue;
-        if (opts.severity && r.severity !== opts.severity) continue;
-        if (opts.category && r.risk_category !== opts.category) continue;
-        if (!isRiskVisibleToOrg(r, opts.orgid)) continue;
-        results.push(r);
-    }
-    results.sort((a, b) => (SEVERITY_WEIGHTS[b.severity] || 0) - (SEVERITY_WEIGHTS[a.severity] || 0));
-    return opts.limit ? results.slice(0, opts.limit) : results;
-};
-
-const categorySummaryFromStore = () => {
-    const summary = {};
-    for (const r of riskStore.values()) {
-        if (!summary[r.risk_category]) {
-            summary[r.risk_category] = { total: 0, by_severity: {} };
-        }
-        summary[r.risk_category].by_severity[r.severity] = (summary[r.risk_category].by_severity[r.severity] || 0) + 1;
-        summary[r.risk_category].total++;
-    }
-    return summary;
+    return { added: changed.length, skipped, changed };
 };
 
 const FALLBACK_CITIES = [
@@ -688,35 +1256,84 @@ const assessInfraProximity = (lat, lng) => {
                 description: inf.description,
                 distance_km: parseFloat(km.toFixed(2)),
                 within_buffer: true,
-                risk_relevance: km < 1 ? "Direct impact zone." : km < 3 ? "Proximal impact zone." : "Extended influence zone."
+                risk_relevance: km < 1 ? "Direct Impact Zone" : km < 3 ? "Proximal Impact Zone" : "Extended Influence Zone"
             });
         }
     }
     return result;
 };
 
+const FETCH_USER_AGENT = SOURCE_USER_AGENTS.fetch;
+
+const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+
+const readCappedBody = async (r, url, cap) => {
+    let host = url;
+    try { host = new URL(url).hostname; } catch { }
+    const limitMb = Math.round(cap / 1048576);
+    const declared = parseInt(r.headers?.get?.("content-length") || "", 10);
+    if (!isNaN(declared) && declared > cap) {
+        try { await r.body?.cancel(); } catch { }
+        throw new Error(`The response from ${host} is ${Math.round(declared / 1048576)} MB, over the ${limitMb} MB limit.`);
+    }
+    if (!r.body || typeof r.body.getReader !== "function") {
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (buf.length > cap) throw new Error(`The response from ${host} exceeded the ${limitMb} MB limit.`);
+        return buf;
+    }
+    const reader = r.body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > cap) {
+            try { await reader.cancel(); } catch { }
+            throw new Error(`The response from ${host} exceeded the ${limitMb} MB limit.`);
+        }
+        chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+    }
+    return Buffer.concat(chunks, total);
+};
+
 const fetchWithTimeout = async (url, opts = {}, ms = 15000) => {
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), ms);
+    const { maxBytes, ...fetchOpts } = opts;
+    const headers = { ...(fetchOpts.headers || {}) };
+    if (!Object.keys(headers).some((k) => k.toLowerCase() === "user-agent")) headers["User-Agent"] = FETCH_USER_AGENT;
+    let r;
     try {
-        const r = await fetch(url, { ...opts, signal: ac.signal });
-        clearTimeout(t);
-        if (!r.ok) {
-            await r.text().catch(() => {});
-        }
-        return r;
+        r = await fetch(url, { ...fetchOpts, headers, signal: ac.signal });
     } catch (error) {
         clearTimeout(t);
         throw error;
     }
+    let bodyPromise = null;
+    const body = () => {
+        if (!bodyPromise) bodyPromise = readCappedBody(r, url, maxBytes || MAX_RESPONSE_BYTES).finally(() => clearTimeout(t));
+        return bodyPromise;
+    };
+    const wrapped = {
+        ok: r.ok, status: r.status, statusText: r.statusText, headers: r.headers, url: r.url,
+        text: async () => (await body()).toString("utf8"),
+        json: async () => JSON.parse((await body()).toString("utf8")),
+        arrayBuffer: async () => {
+            const b = await body();
+            return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+        }
+    };
+    if (!r.ok) await wrapped.text().catch(() => { });
+    return wrapped;
 };
 
 const sparqlQuery = async (query, label) => {
-    const url = `https://query.wikidata.org/sparql?query=${encodeURIComponent(query)}&format=json`;
+    const url = `${SOURCE_URLS.QUERY_WIKIDATA_ORG_SPARQL}?query=${encodeURIComponent(query)}&format=json`;
     const r = await fetchWithTimeout(url, {
-        headers: { "Accept": "application/sparql-results+json", "User-Agent": "RiskCommandCenter/2.0 (https://github.com/risk-command-center; contact@example.com)" }
+        headers: { "Accept": "application/sparql-results+json", "User-Agent": SOURCE_USER_AGENTS.wikidata }
     }, 90000);
-    if (!r.ok) throw new Error(`SPARQL ${label} request failed with status ${r.status}.`);
+    if (!r.ok) throw new Error(`The SPARQL request for ${label} failed with status ${r.status}.`);
     const d = await r.json();
     return d.results?.bindings || [];
 };
@@ -778,7 +1395,7 @@ const SPARQL_CONFIGS = [
                     if (!name || isNaN(lat) || isNaN(lon)) continue;
                     const lenKm = b.length?.value ? parseFloat(b.length.value) / (type === "pipeline" || type === "fault" ? 1 : 1000) : 0;
                     const corrLen = type === "pipeline" || type === "fault" ? (b.length?.value ? parseFloat(b.length.value) : 0) : lenKm;
-                    items.push({ name, type, lat, lng: lon, corridor_length_km: corrLen, description: b.description?.value || `${name} ${type} infrastructure.` });
+                    items.push({ name, type, lat, lng: lon, corridor_length_km: corrLen, description: b.description?.value || `${name} is ${/^[aeiou]/i.test(String(type)) ? "an" : "a"} ${String(type).replace(/_/g, " ")} infrastructure site.` });
                 }
                 return items;
             }
@@ -846,7 +1463,7 @@ const DATA_SOURCES = {
         id: "usgs_earthquakes", name: "USGS Earthquake Hazards", logTag: "USGS_EQ", sourceName: "USGS", timeoutMs: 30000,
         buildUrl: (p) => {
             const st = p.start_time || new Date(Date.now() - 30 * 864e5).toISOString().split("T")[0];
-            let url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${st}&minmagnitude=${p.min_magnitude || 2.0}&limit=${p.limit || 20000}&orderby=time`;
+            let url = `${SOURCE_URLS.EARTHQUAKE_USGS_GOV_FDSNWS_EVENT_1_QUERY}?format=geojson&starttime=${st}&minmagnitude=${p.min_magnitude || 2.0}&limit=${p.limit || 20000}&orderby=time`;
             if (p.end_time) url += `&endtime=${new Date(p.end_time).toISOString().split("T")[0]}`;
             if (p.min_lat && p.max_lat && p.min_lng && p.max_lng) url += `&minlatitude=${p.min_lat}&maxlatitude=${p.max_lat}&minlongitude=${p.min_lng}&maxlongitude=${p.max_lng}`;
             return url;
@@ -858,12 +1475,12 @@ const DATA_SOURCES = {
             const mag = p.mag;
             const dep = c[2];
             let sev = mag >= 7 ? "Critical" : mag >= 5.5 ? "High" : mag >= 4 ? "Medium" : "Low";
-            const tsu = p.tsunami === 1 ? "Tsunami warning issued." : mag >= 7 && dep < 70 ? "Potential tsunami risk." : "No tsunami risk.";
+            const tsu = p.tsunami === 1 ? "A tsunami warning has been issued." : mag >= 7 && dep < 70 ? "There is a potential tsunami risk." : "There is no tsunami risk.";
             const aftershocks = mag >= 6 ? Math.floor(Math.pow(10, mag - 4.7)) : mag >= 4 ? Math.floor(Math.pow(10, mag - 3.5)) : 0;
             const shk = p.mmi ? ["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII"][Math.min(Math.floor(p.mmi) - 1, 11)] : null;
             return {
                 _category: "Seismic", source_id: f.id, severity: sev, title: p.title || `M${mag} Earthquake`,
-                description: `Magnitude ${mag} earthquake at depth of ${dep} km. ${p.place || ""}. ${tsu}`,
+                description: `A magnitude ${mag} earthquake occurred at a depth of ${dep} km${p.place ? ` near ${p.place}` : ""}. ${tsu}`,
                 geometry_type: "Point", coordinates: [c[0], c[1]], latitude: c[1], longitude: c[0],
                 event_time: new Date(p.time).toISOString(), updated_at: new Date(p.updated).toISOString(), url: p.url,
                 metadata: {
@@ -880,7 +1497,7 @@ const DATA_SOURCES = {
     emsc_earthquakes: {
         id: "emsc_earthquakes", name: "EMSC", logTag: "EMSC", sourceName: "EMSC", timeoutMs: 30000,
         buildUrl: (p) => {
-            let url = `https://www.seismicportal.eu/fdsnws/event/1/query?format=json&minmag=${p.min_magnitude || 2.0}&limit=${p.limit || 12000}&orderby=time`;
+            let url = `${SOURCE_URLS.SEISMICPORTAL_EU_FDSNWS_EVENT_1_QUERY}?format=json&minmag=${p.min_magnitude || 2.0}&limit=${p.limit || 12000}&orderby=time`;
             if (p.start_time) url += `&starttime=${new Date(p.start_time).toISOString()}`;
             if (p.end_time) url += `&endtime=${new Date(p.end_time).toISOString()}`;
             return url;
@@ -894,10 +1511,10 @@ const DATA_SOURCES = {
                 _category: "Seismic", source_id: p.source_id || f.id,
                 severity: mag >= 7 ? "Critical" : mag >= 5.5 ? "High" : mag >= 4 ? "Medium" : "Low",
                 title: `M${mag} ${p.flynn_region || "Earthquake"}`,
-                description: `Magnitude ${mag} earthquake in ${p.flynn_region || "unknown region"} at ${c[2]} km depth.`,
+                description: `A magnitude ${mag} earthquake occurred ${p.flynn_region ? `in ${p.flynn_region}` : "in an unknown region"} at a depth of ${c[2]} km.`,
                 geometry_type: "Point", coordinates: [c[0], c[1]], latitude: c[1], longitude: c[0],
                 event_time: p.time, updated_at: p.lastupdate,
-                url: p.source_catalog ? `https://www.emsc-csem.org/Earthquake/earthquake.php?id=${p.source_id}` : null,
+                url: p.source_catalog ? `${SOURCE_URLS.EMSC_CSEM_ORG_EARTHQUAKE_EARTHQUAKE_PHP}?id=${p.source_id}` : null,
                 metadata: { magnitude: mag, magnitude_type: p.magtype, depth_km: c[2], region: p.flynn_region, source_catalog: p.source_catalog, auth: p.auth, unid: p.unid }
             };
         }
@@ -906,7 +1523,7 @@ const DATA_SOURCES = {
         id: "ingv_earthquakes", name: "INGV Italy", logTag: "INGV", sourceName: "INGV", timeoutMs: 30000,
         buildUrl: (p) => {
             const st = p.start_time || new Date(Date.now() - 30 * 864e5).toISOString().split("T")[0];
-            let url = `https://webservices.ingv.it/fdsnws/event/1/query?format=geojson&starttime=${st}&minmag=${p.min_magnitude || 2.0}&limit=${p.limit || 10000}&orderby=time`;
+            let url = `${SOURCE_URLS.WEBSERVICES_INGV_IT_FDSNWS_EVENT_1_QUERY}?format=geojson&starttime=${st}&minmag=${p.min_magnitude || 2.0}&limit=${p.limit || 10000}&orderby=time`;
             if (p.end_time) url += `&endtime=${new Date(p.end_time).toISOString().split("T")[0]}`;
             if (p.min_lat && p.max_lat && p.min_lng && p.max_lng) url += `&minlat=${p.min_lat}&maxlat=${p.max_lat}&minlon=${p.min_lng}&maxlon=${p.max_lng}`;
             return url;
@@ -921,10 +1538,10 @@ const DATA_SOURCES = {
                 _category: "Seismic", source_id: p.eventId || f.id,
                 severity: mag >= 7 ? "Critical" : mag >= 5.5 ? "High" : mag >= 4 ? "Medium" : "Low",
                 title: `M${mag} ${p.place || p.flynn_region || "Earthquake"}`,
-                description: `Magnitude ${mag} earthquake at ${dep} km depth. ${p.place || p.flynn_region || "Italy/Mediterranean region"}.`,
+                description: `A magnitude ${mag} earthquake occurred at a depth of ${dep} km ${p.place || p.flynn_region ? `near ${p.place || p.flynn_region}` : "in the Italy and Mediterranean region"}.`,
                 geometry_type: "Point", coordinates: [c[0], c[1]], latitude: c[1], longitude: c[0],
                 event_time: p.time || p.origin_time, updated_at: p.lastupdate || p.time,
-                url: p.eventId ? `https://terremoti.ingv.it/event/${p.eventId}` : null,
+                url: p.eventId ? `${SOURCE_URLS.TERREMOTI_INGV_IT_EVENT}${p.eventId}` : null,
                 metadata: {
                     magnitude: mag, magnitude_type: p.magType || p.magtype, depth_km: dep,
                     place: p.place || p.flynn_region, author: p.author || p.auth,
@@ -935,7 +1552,7 @@ const DATA_SOURCES = {
     },
     geonet_quakes: {
         id: "geonet_quakes", name: "GeoNet New Zealand", logTag: "GEONET", sourceName: "GEONET_NZ", timeoutMs: 30000,
-        buildUrl: (p) => `https://api.geonet.org.nz/quake?MMI=${p.min_mmi || -1}`,
+        buildUrl: (p) => `${SOURCE_URLS.API_GEONET_ORG_NZ_QUAKE}?MMI=${p.min_mmi || -1}`,
         headers: { "Accept": "application/json" },
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
@@ -947,10 +1564,10 @@ const DATA_SOURCES = {
                 _category: "Seismic", source_id: p.publicID,
                 severity: mag >= 7 ? "Critical" : mag >= 5.5 ? "High" : mag >= 4 ? "Medium" : "Low",
                 title: `M${mag} ${p.locality || "New Zealand Earthquake"}`,
-                description: `Magnitude ${mag} earthquake at ${dep} km depth near ${p.locality || "New Zealand"}. MMI: ${p.mmi}. Quality: ${p.quality}.`,
+                description: `A magnitude ${mag} earthquake occurred at a depth of ${dep} km near ${p.locality || "New Zealand"}. Its modified Mercalli intensity is ${p.mmi}, and its data quality is rated ${p.quality}.`,
                 geometry_type: "Point", coordinates: [c[0], c[1]], latitude: c[1], longitude: c[0],
                 event_time: p.time, updated_at: p.time,
-                url: `https://www.geonet.org.nz/earthquake/${p.publicID}`,
+                url: `${SOURCE_URLS.GEONET_ORG_NZ_EARTHQUAKE}${p.publicID}`,
                 metadata: {
                     magnitude: mag, depth_km: dep, mmi: p.mmi,
                     locality: p.locality, quality: p.quality,
@@ -960,48 +1577,46 @@ const DATA_SOURCES = {
         }
     },
     noaa_alerts: {
-        id: "noaa_alerts", name: "NOAA NWS", logTag: "NOAA", sourceName: "NOAA_NWS",
-        headers: { "User-Agent": "RiskCommandCenter/2.0", "Accept": "application/geo+json" },
-        buildUrl: (p) => {
-            let url = "https://api.weather.gov/alerts/active?status=actual";
-            if (p.area) url += `&area=${p.area}`;
-            if (p.event) url += `&event=${encodeURIComponent(p.event)}`;
-            return url;
-        },
-        extractRawItems: (d) => d.features || [],
-        transformItem: (f) => {
-            const p = f.properties;
-            const g = f.geometry;
-            let sev = p.severity === "Extreme" ? "Critical" : p.severity === "Severe" ? "High" : p.severity === "Moderate" ? "Medium" : "Low";
-            const catMap = { flood: "Flood", hurricane: "Hurricane", tropical: "Hurricane", tornado: "Tornado", fire: "Wildfire", "red flag": "Wildfire", tsunami: "Tsunami", volcano: "Volcanic", earthquake: "Seismic", blizzard: "Weather", "ice storm": "Weather", "winter storm": "Weather", "severe thunderstorm": "Weather", "extreme heat": "Weather", "excessive heat": "Weather", "heat advisory": "Weather" };
-            let cat = "Weather";
-            const el = (p.event || "").toLowerCase();
-            for (const [k, v] of Object.entries(catMap)) {
-                if (el.includes(k)) {
-                    cat = v;
-                    break;
-                }
+        id: "noaa_alerts", name: "NOAA NWS", logTag: "NOAA", sourceName: "NOAA_NWS", timeoutMs: 120000,
+        paginationStrategy: "custom",
+        customFetch: async () => {
+            const areas = await ensureMonitoredAreas();
+            if (!areas.length) return [];
+            const probes = areas.flatMap(areaProbePoints);
+            const byId = new Map();
+            let lastError = null;
+            let anyOk = false;
+            for (let i = 0; i < probes.length; i += NWS_PROBE_CONCURRENCY) {
+                await Promise.all(probes.slice(i, i + NWS_PROBE_CONCURRENCY).map(async (pt) => {
+                    try {
+                        const r = await fetchWithTimeout(`${SOURCE_URLS.API_WEATHER_GOV_ALERTS_ACTIVE_2}?status=actual&point=${pt.lat.toFixed(4)},${pt.lng.toFixed(4)}`, { headers: NWS_HEADERS, maxBytes: NWS_PROBE_MAX_BYTES }, 20000);
+                        if (!r.ok) {
+                            lastError = new Error(`NWS alerts request failed with status ${r.status}.`);
+                            return;
+                        }
+                        anyOk = true;
+                        for (const f of (await r.json()).features || []) {
+                            const id = f.properties?.id || f.id;
+                            if (!id) continue;
+                            const entry = byId.get(id) || { f, points: [] };
+                            entry.points.push([pt.lng, pt.lat]);
+                            byId.set(id, entry);
+                        }
+                    } catch (error) {
+                        lastError = error.name === "AbortError" ? new Error("NWS alerts request timed out.") : error;
+                    }
+                }));
             }
-            const { lat, lng, geomType, geomCoords } = extractLatLng(g);
-            const dur = p.expires && p.effective ? Math.round((new Date(p.expires) - new Date(p.effective)) / 36e5) : null;
-            return {
-                _category: cat, source_id: p.id, severity: sev, title: p.headline || p.event,
-                description: p.description, geometry_type: geomType || "Polygon", geometry_coordinates: geomCoords,
-                coordinates: lat && lng ? [lng, lat] : null, latitude: lat, longitude: lng,
-                event_time: p.onset || p.effective, updated_at: p.sent, expires_at: p.expires,
-                url: "https://alerts.weather.gov",
-                metadata: {
-                    event_type: p.event, nws_severity: p.severity, certainty: p.certainty, urgency: p.urgency,
-                    sender: p.senderName, affected_areas: p.areaDesc, instruction: p.instruction,
-                    response_type: p.response, category: p.category, message_type: p.messageType,
-                    affected_zones: p.affectedZones, duration_hours: dur, headline: p.headline, parameters: p.parameters
-                }
-            };
+            if (!anyOk && lastError) throw lastError;
+            return [...byId.values()].map(({ f, points }) => {
+                const item = transformNoaaAlert(f, points);
+                return normalizeRisk("NOAA_NWS", item._category, item);
+            });
         }
     },
     noaa_spc: {
         id: "noaa_spc", name: "NOAA SPC", logTag: "SPC", sourceName: "NOAA_SPC", paginationStrategy: "multi_url",
-        buildUrls: () => [1, 2, 3].map(d => ({ url: `https://www.spc.noaa.gov/products/outlook/day${d}otlk_cat.lyr.geojson`, meta: { day: `${d}` } })),
+        buildUrls: () => [1, 2, 3].map(d => ({ url: `${SOURCE_URLS.SPC_NOAA_GOV_PRODUCTS_OUTLOOK_DAY}${d}otlk_cat.lyr.geojson`, meta: { day: `${d}` } })),
         extractRawItems: (d, p, m) => (d.features || []).map(f => ({ ...f, _day: m?.day || "1" })),
         transformItem: (f) => {
             const p = f.properties;
@@ -1014,10 +1629,10 @@ const DATA_SOURCES = {
             return {
                 _category: "Weather", source_id: `spc_day${f._day}_${p.DN || p.LABEL}_${issueDate}`,
                 severity: sev, title: `Day ${f._day} Severe Weather Outlook: ${rl}`,
-                description: `Storm Prediction Center day ${f._day} severe weather outlook indicating ${rl} risk for severe thunderstorms.`,
+                description: `The Storm Prediction Center day ${f._day} severe weather outlook indicates a ${String(rl).toLowerCase()} risk of severe thunderstorms.`,
                 geometry_type: g?.type || "Polygon", geometry_coordinates: g?.coordinates,
                 coordinates: lat && lng ? [lng, lat] : null, latitude: lat, longitude: lng,
-                event_time: new Date().toISOString(), url: "https://www.spc.noaa.gov/products/outlook/",
+                event_time: new Date().toISOString(), url: SOURCE_URLS.SPC_NOAA_GOV_PRODUCTS_OUTLOOK,
                 metadata: { risk_level: rl, label: p.LABEL, valid_time: p.VALID, expire_time: p.EXPIRE, issue_time: p.ISSUE, outlook_type: `Day ${f._day} Categorical` }
             };
         }
@@ -1032,9 +1647,9 @@ const DATA_SOURCES = {
                 const from = params.from_date || new Date(Date.now() - 90 * 864e5).toISOString().split("T")[0];
                 const to = params.to_date || new Date().toISOString().split("T")[0];
                 const urls = [
-                    `https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?fromDate=${from}&toDate=${to}&alertlevel=Red`,
-                    `https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?fromDate=${from}&toDate=${to}&alertlevel=Orange`,
-                    `https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?fromDate=${from}&toDate=${to}&alertlevel=Green`
+                    `${SOURCE_URLS.GDACS_ORG_GDACSAPI_API_EVENTS_GETEVENTLIST_SEARCH}?fromDate=${from}&toDate=${to}&alertlevel=Red`,
+                    `${SOURCE_URLS.GDACS_ORG_GDACSAPI_API_EVENTS_GETEVENTLIST_SEARCH}?fromDate=${from}&toDate=${to}&alertlevel=Orange`,
+                    `${SOURCE_URLS.GDACS_ORG_GDACSAPI_API_EVENTS_GETEVENTLIST_SEARCH}?fromDate=${from}&toDate=${to}&alertlevel=Green`
                 ];
                 const settled = await Promise.allSettled(urls.map(async (url) => {
                     const r = await fetchWithTimeout(url, { headers: { "Accept": "application/json" } }, 30000);
@@ -1057,7 +1672,7 @@ const DATA_SOURCES = {
 
             if (!results.length) {
                 try {
-                    const rssUrl = "https://www.gdacs.org/xml/rss.xml";
+                    const rssUrl = SOURCE_URLS.GDACS_ORG_XML_RSS_XML;
                     const r = await fetchWithTimeout(rssUrl, {}, 30000);
                     if (r.ok) {
                         const text = await r.text();
@@ -1120,7 +1735,7 @@ const DATA_SOURCES = {
                 geometry_type: g?.type || "Point", geometry_coordinates: g?.coordinates,
                 coordinates: lat && lng ? [lng, lat] : null, latitude: lat, longitude: lng,
                 event_time: p.fromdate || p.fromDate, updated_at: p.todate || p.toDate,
-                url: p.url || (evId ? `https://www.gdacs.org/report.aspx?eventid=${evId}&eventtype=${evType}` : null),
+                url: p.url || (evId ? `${SOURCE_URLS.GDACS_ORG_REPORT_ASPX}?eventid=${evId}&eventtype=${evType}` : null),
                 metadata: {
                     event_type: p.eventtype, alert_level: p.alertlevel, alert_score: p.alertscore,
                     episode_id: p.episodeid, severity_value: p.severitydata?.severity,
@@ -1133,7 +1748,7 @@ const DATA_SOURCES = {
     },
     usgs_volcanoes: {
         id: "usgs_volcanoes", name: "USGS Volcanoes", logTag: "VOLC", sourceName: "USGS_VOLCANOES", timeoutMs: 60000,
-        buildUrl: () => "https://volcanoes.usgs.gov/vsc/api/volcanoApi/volcanoesGVP",
+        buildUrl: () => SOURCE_URLS.VOLCANOES_USGS_GOV_VSC_API_VOLCANOAPI_VOLCANOESGVP,
         extractRawItems: (d) => d.features || d || [],
         transformItem: (v) => {
             const p = v.properties || v;
@@ -1151,10 +1766,10 @@ const DATA_SOURCES = {
             const nm = p.Volcano_Name || p.volcanoName || "Unknown Volcano";
             return {
                 _category: "Volcanic", source_id: p.vnum || p.id?.toString(), severity: sev, title: nm,
-                description: `${nm} (${vt}). Alert level: ${al}. Elevation: ${p.Elevation || p.elevation || "Unknown"} meters.`,
+                description: `${nm} is ${vt && vt !== "Unknown" ? `${/^[aeiou]/i.test(vt) ? "an" : "a"} ${String(vt).toLowerCase()}` : "a volcano of unknown type"} at alert level ${al}${p.Elevation || p.elevation ? `, with an elevation of ${p.Elevation || p.elevation} meters` : ""}.`,
                 geometry_type: "Point", coordinates: [lng, lat], latitude: lat, longitude: lng,
                 event_time: new Date().toISOString(),
-                url: `https://volcanoes.usgs.gov/volcanoes/${nm.toLowerCase().replace(/\s+/g, "_")}/`,
+                url: `${SOURCE_URLS.VOLCANOES_USGS_GOV_VOLCANOES}${nm.toLowerCase().replace(/\s+/g, "_")}/`,
                 metadata: {
                     volcano_number: p.vnum, volcano_type: vt, elevation_m: p.Elevation || p.elevation,
                     country: p.Country || p.country, region: p.Region || p.region, subregion: p.Subregion || p.subregion,
@@ -1168,7 +1783,7 @@ const DATA_SOURCES = {
     },
     eonet_events: {
         id: "eonet_events", name: "NASA EONET", logTag: "EONET", sourceName: "NASA_EONET", timeoutMs: 60000,
-        buildUrl: (p) => `https://eonet.gsfc.nasa.gov/api/v3/events?days=${p.days || 60}&status=${p.status || "all"}&limit=${p.limit || 500}`,
+        buildUrl: (p) => `${SOURCE_URLS.EONET_GSFC_NASA_GOV_API_V3_EVENTS}?days=${p.days || 60}&status=${p.status || "all"}&limit=${p.limit || 500}`,
         extractRawItems: (d) => d.events || [],
         transformItem: (ev) => {
             const catMap = { wildfires: "Wildfire", severeStorms: "Weather", volcanoes: "Volcanic", earthquakes: "Seismic", floods: "Flood", landslides: "Landslide", seaLakeIce: "Ice", snow: "Weather", dustHaze: "Air Quality", drought: "Drought", tempExtremes: "Weather", waterColor: "Water", manmade: "Industrial" };
@@ -1202,36 +1817,11 @@ const DATA_SOURCES = {
         id: "openmeteo_air_quality", name: "Open-Meteo AQ", logTag: "METEO_AQ", sourceName: "OPEN_METEO_AQ",
         timeoutMs: 30000, headers: { "Accept": "application/json" },
         paginationStrategy: "batch_locations", locationBatchSize: 50,
-        buildQueryPoints: (p) => {
-            const hasBounds = p.min_lat && p.max_lat && p.min_lng && p.max_lng;
-            const centers = dynamicStores.urban.data;
-            const src = centers.length ? centers : FALLBACK_CITIES;
-            let pts = [];
-            if (hasBounds) {
-                const b = { min_lat: parseFloat(p.min_lat), max_lat: parseFloat(p.max_lat), min_lng: parseFloat(p.min_lng), max_lng: parseFloat(p.max_lng) };
-                pts = src.filter(c => inBounds(c.lat, c.lng, b)).map(c => ({ name: c.name, lat: c.lat, lng: c.lng, pop: c.pop || 0 }));
-                if (pts.length < 10 && centers.length) {
-                    const latS = (b.max_lat - b.min_lat) / 4;
-                    const lngS = (b.max_lng - b.min_lng) / 4;
-                    for (let li = 0; li <= 4; li++) {
-                        for (let lj = 0; lj <= 4; lj++) {
-                            const gLat = b.min_lat + li * latS;
-                            const gLng = b.min_lng + lj * lngS;
-                            if (!pts.some(q => haversine(q.lat, q.lng, gLat, gLng) < 50000)) {
-                                pts.push({ name: `Grid ${gLat.toFixed(2)}N ${gLng.toFixed(2)}E`, lat: gLat, lng: gLng, pop: 0 });
-                            }
-                        }
-                    }
-                }
-            } else {
-                pts = src.map(c => ({ name: c.name, lat: c.lat, lng: c.lng, pop: c.pop || 0 }));
-            }
-            return pts;
-        },
+        buildQueryPoints: () => openMeteoQueryPoints(OPEN_METEO_AQ_CITY_CAP),
         buildBatchUrl: (batch) => {
             const lats = batch.map(p => p.lat.toFixed(4)).join(",");
             const lngs = batch.map(p => p.lng.toFixed(4)).join(",");
-            return `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lats}&longitude=${lngs}&current=us_aqi,pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone`;
+            return `${SOURCE_URLS.AIR_QUALITY_API_OPEN_METEO_COM_V1_AIR_QUALITY}?latitude=${lats}&longitude=${lngs}&current=us_aqi,pm10,pm2_5,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone`;
         },
         extractRawItems: (d, p, batch) => {
             const arr = Array.isArray(d) ? d : [d];
@@ -1269,7 +1859,7 @@ const DATA_SOURCES = {
             return {
                 _category: "Air Quality", source_id: `openmeteo_aq_${s.lat.toFixed(3)}_${s.lng.toFixed(3)}`,
                 severity: sev, title: `Air Quality: ${s.name}`,
-                description: `AQI: ${aqi} (${aqiCat}) at ${s.name}. ${hr}`,
+                description: `The AQI at ${s.name} is ${aqi}, which is rated ${String(aqiCat).toLowerCase()}. ${hr}`,
                 geometry_type: "Point", coordinates: [s.lng, s.lat], latitude: s.lat, longitude: s.lng,
                 event_time: s.time,
                 metadata: {
@@ -1281,16 +1871,42 @@ const DATA_SOURCES = {
                     no2: s.no2 != null ? { value: s.no2, unit: "µg/m³" } : null,
                     so2: s.so2 != null ? { value: s.so2, unit: "µg/m³" } : null,
                     co: s.co != null ? { value: s.co, unit: "µg/m³" } : null,
-                    population: s.pop, data_source: "Open-Meteo Air Quality API (CAMS global atmospheric composition)"
+                    population: s.pop, data_source: "Open-Meteo Air Quality API (CAMS Global Atmospheric Composition)"
                 }
             };
         }
     },
     usgs_water: {
-        id: "usgs_water", name: "USGS Water", logTag: "WATER", sourceName: "USGS_WATER", timeoutMs: 30000,
-        paginationStrategy: "state_batch",
-        buildUrl: (p) => `https://waterservices.usgs.gov/nwis/iv/?format=json&parameterCd=00065&siteStatus=active&siteType=ST&stateCd=${p.state}`,
-        buildBboxUrl: (p) => `https://waterservices.usgs.gov/nwis/iv/?format=json&parameterCd=00065&siteStatus=active&siteType=ST&bBox=${p.min_lng},${p.min_lat},${p.max_lng},${p.max_lat}`,
+        id: "usgs_water", name: "USGS Water", logTag: "WATER", sourceName: "USGS_WATER", timeoutMs: 60000,
+        paginationStrategy: "custom",
+        customFetch: async () => {
+            const cfg = DATA_SOURCES.usgs_water;
+            const areas = monitoredAreaCenters.length ? monitoredAreaCenters : await loadMonitoredAreaCenters();
+            if (!areas.length) return [];
+            const byId = new Map();
+            let lastError = null;
+            await Promise.all(areas.map(usgsAreaBox).map(async (box) => {
+                try {
+                    const r = await fetchWithTimeout(cfg.buildBboxUrl(box), { headers: { "Accept": "application/json" } }, cfg.timeoutMs);
+                    if (!r.ok) {
+                        lastError = new Error(`USGS Water request failed with status ${r.status}.`);
+                        return;
+                    }
+                    for (const item of cfg.extractRawItems(await r.json())) {
+                        const n = cfg.transformItem(item, box);
+                        if (!n) continue;
+                        const risk = normalizeRisk(cfg.sourceName, n._category, n);
+                        if (!byId.has(risk.source_id)) byId.set(risk.source_id, risk);
+                    }
+                } catch (error) {
+                    lastError = error.name === "AbortError" ? new Error("USGS Water request timed out.") : error;
+                }
+            }));
+            if (!byId.size && lastError) throw lastError;
+            return [...byId.values()];
+        },
+        buildUrl: (p) => `${SOURCE_URLS.WATERSERVICES_USGS_GOV_NWIS_IV}?format=json&parameterCd=00065&siteStatus=active&siteType=ST&stateCd=${p.state}`,
+        buildBboxUrl: (p) => `${SOURCE_URLS.WATERSERVICES_USGS_GOV_NWIS_IV}?format=json&parameterCd=00065&siteStatus=active&siteType=ST&bBox=${p.min_lng},${p.min_lat},${p.max_lng},${p.max_lat}`,
         extractRawItems: (d) => d.value?.timeSeries || [],
         transformItem: (s) => {
             const site = s.sourceInfo;
@@ -1314,7 +1930,7 @@ const DATA_SOURCES = {
             return {
                 _category: "Flood", source_id: site.siteCode?.[0]?.value, severity: sev,
                 title: `Water Level: ${site.siteName}`,
-                description: `Gage height: ${gh.toFixed(2)} ft (${fs}) at ${site.siteName}.`,
+                description: `The gage height at ${site.siteName} is ${gh.toFixed(2)} ft, which is at ${String(fs).toLowerCase()} stage.`,
                 geometry_type: "Point",
                 coordinates: [site.geoLocation?.geogLocation?.longitude, site.geoLocation?.geogLocation?.latitude],
                 latitude: site.geoLocation?.geogLocation?.latitude, longitude: site.geoLocation?.geogLocation?.longitude,
@@ -1334,7 +1950,7 @@ const DATA_SOURCES = {
     nifc_wildfires: {
         id: "nifc_wildfires", name: "NIFC WFIGS", logTag: "NIFC", sourceName: "NIFC", timeoutMs: 30000,
         paginationStrategy: "offset", paginationBatchSize: 2000,
-        buildUrl: (p, off, bs) => `https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson&resultOffset=${off || 0}&resultRecordCount=${bs || 2000}`,
+        buildUrl: (p, off, bs) => `${SOURCE_URLS.SERVICES3_ARCGIS_COM_T4QMSPBFLG3QTGWY_ARCGIS_REST_SERVICES_W}?where=1%3D1&outFields=*&f=geojson&geometryPrecision=4&maxAllowableOffset=0.005&resultOffset=${off || 0}&resultRecordCount=${bs || 2000}`,
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
             const p = f.properties;
@@ -1353,12 +1969,12 @@ const DATA_SOURCES = {
             return {
                 _category: "Wildfire", source_id: p.OBJECTID?.toString() || p.GlobalID, severity: sev,
                 title: incidentName,
-                description: `${incidentName} - ${acres.toLocaleString()} acres burned, ${pct}% contained. Active for ${dur || "unknown"} days.`,
+                description: `${incidentName} has burned ${acres.toLocaleString()} acres and is ${pct}% contained. ${dur ? `It has been active for ${dur} days.` : "How long it has been active is unknown."}`,
                 geometry_type: g?.type || "Polygon", geometry_coordinates: g?.coordinates,
                 coordinates: lat && lng ? [lng, lat] : null, latitude: lat, longitude: lng,
                 event_time: disc ? disc.toISOString() : null,
                 updated_at: p.poly_DateCurrent ? new Date(p.poly_DateCurrent).toISOString() : null,
-                url: p.attr_IrwinURL || (p.poly_IRWINID ? `https://irwin.doi.gov/observer/?eid=${p.poly_IRWINID}` : null),
+                url: p.attr_IrwinURL || (p.poly_IRWINID ? `${SOURCE_URLS.IRWIN_DOI_GOV_OBSERVER}?eid=${p.poly_IRWINID}` : null),
                 metadata: {
                     incident_name: incidentName, fire_type: p.attr_IncidentTypeCategory, total_acres: acres,
                     gis_acres: p.poly_GISAcres, calculated_acres: p.attr_CalculatedAcres, incident_size: p.attr_IncidentSize,
@@ -1385,7 +2001,7 @@ const DATA_SOURCES = {
         buildUrl: (p, off, bs) => {
             const windowDays = p.window_days || 365;
             const since = new Date(Date.now() - windowDays * 864e5).toISOString().split("T")[0];
-            return `https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries?$filter=declarationDate gt '${since}'&$orderby=declarationDate desc&$top=${bs || 1000}&$skip=${off || 0}`;
+            return `${SOURCE_URLS.FEMA_GOV_API_OPEN_V2_DISASTERDECLARATIONSSUMMARIES}?$filter=declarationDate gt '${since}'&$orderby=declarationDate desc&$top=${bs || 1000}&$skip=${off || 0}`;
         },
         extractRawItems: (d) => d.DisasterDeclarationsSummaries || [],
         transformItem: (dec) => {
@@ -1402,10 +2018,10 @@ const DATA_SOURCES = {
             return {
                 _category: cat, source_id: dec.disasterNumber?.toString(), severity: sev,
                 title: `${dec.declarationType === "DR" ? "Major Disaster" : "Emergency"}: ${dec.declarationTitle}`,
-                description: `${dec.declarationTitle} declared in ${dec.designatedArea || dec.state}. Incident type: ${dec.incidentType}.`,
+                description: `${dec.declarationTitle} was declared in ${dec.designatedArea || dec.state}, and the incident type is ${String(dec.incidentType).toLowerCase()}.`,
                 geometry_type: "Point", coordinates: null, latitude: null, longitude: null,
                 event_time: dec.incidentBeginDate, expires_at: dec.incidentEndDate,
-                url: `https://www.fema.gov/disaster/${dec.disasterNumber}`,
+                url: `${SOURCE_URLS.FEMA_GOV_DISASTER}${dec.disasterNumber}`,
                 metadata: {
                     disaster_number: dec.disasterNumber, declaration_type: dec.declarationType,
                     declaration_title: dec.declarationTitle, state: dec.state, designated_area: dec.designatedArea,
@@ -1420,7 +2036,7 @@ const DATA_SOURCES = {
     },
     noaa_space_weather: {
         id: "noaa_space_weather", name: "NOAA SWPC Alerts", logTag: "SWPC_ALERTS", sourceName: "NOAA_SWPC",
-        buildUrl: () => "https://services.swpc.noaa.gov/products/alerts.json",
+        buildUrl: () => SOURCE_URLS.SERVICES_SWPC_NOAA_GOV_PRODUCTS_ALERTS_JSON,
         extractRawItems: (d) => d || [],
         transformItem: (a) => {
             const msg = a.message || "";
@@ -1438,10 +2054,10 @@ const DATA_SOURCES = {
                     product_id: a.product_id, serial_number: a.serial_number, issue_datetime: a.issue_datetime,
                     alert_type: at, full_message: msg.substring(0, 2000),
                     impacts: {
-                        power_systems: sev === "Critical" || sev === "High" ? "Possible widespread voltage control problems." : "Minor impact.",
-                        spacecraft_operations: sev === "Critical" ? "Extensive surface charging." : "Minor impact.",
-                        hf_radio: sev === "Critical" || sev === "High" ? "HF radio propagation may be affected." : "Minor impact.",
-                        navigation: sev === "Critical" ? "Satellite navigation may be degraded." : "Normal."
+                        power_systems: sev === "Critical" || sev === "High" ? "Widespread voltage control problems are possible." : "Minor Impact",
+                        spacecraft_operations: sev === "Critical" ? "Extensive surface charging is expected." : "Minor Impact",
+                        hf_radio: sev === "Critical" || sev === "High" ? "HF radio propagation may be affected." : "Minor Impact",
+                        navigation: sev === "Critical" ? "Satellite navigation may be degraded." : "Normal"
                     }
                 }
             };
@@ -1449,7 +2065,7 @@ const DATA_SOURCES = {
     },
     noaa_kp_index: {
         id: "noaa_kp_index", name: "NOAA SWPC Kp Index", logTag: "SWPC_KP", sourceName: "NOAA_SWPC_KP",
-        buildUrl: () => "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json",
+        buildUrl: () => SOURCE_URLS.SERVICES_SWPC_NOAA_GOV_PRODUCTS_NOAA_PLANETARY_K_INDEX_JSON,
         extractRawItems: (d) => {
             if (!Array.isArray(d) || d.length < 2) return [];
             return d.slice(1).slice(-24);
@@ -1466,20 +2082,20 @@ const DATA_SOURCES = {
             return {
                 _category: "Space", source_id: `kp_${ts}`, severity: sev,
                 title: `Planetary Kp Index: ${kp.toFixed(2)}`,
-                description: `Planetary Kp index is ${kp.toFixed(2)} at ${ts}. ${kp >= 5 ? "Geomagnetic storm conditions present." : "Geomagnetic field is quiet to unsettled."}`,
+                description: `The planetary Kp index is ${kp.toFixed(2)} at ${ts}. ${kp >= 5 ? "Geomagnetic storm conditions are present." : "The geomagnetic field is quiet to unsettled."}`,
                 geometry_type: "Point", coordinates: null, latitude: null, longitude: null,
                 event_time: ts,
                 metadata: {
                     kp_value: kp, kp_integer: parseInt(row[2], 10) || Math.round(kp),
                     observation_type: row[3] || "observed",
-                    storm_level: kp >= 9 ? "G5 Extreme" : kp >= 8 ? "G4 Severe" : kp >= 7 ? "G3 Strong" : kp >= 6 ? "G2 Moderate" : kp >= 5 ? "G1 Minor" : "Below storm threshold"
+                    storm_level: kp >= 9 ? "G5 Extreme" : kp >= 8 ? "G4 Severe" : kp >= 7 ? "G3 Strong" : kp >= 6 ? "G2 Moderate" : kp >= 5 ? "G1 Minor" : "Below Storm Threshold"
                 }
             };
         }
     },
     noaa_swpc_xray: {
         id: "noaa_swpc_xray", name: "NOAA SWPC X-Ray Flux", logTag: "SWPC_XRAY", sourceName: "NOAA_SWPC_XRAY",
-        buildUrl: () => "https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.json",
+        buildUrl: () => SOURCE_URLS.SERVICES_SWPC_NOAA_GOV_JSON_GOES_PRIMARY_XRAYS_7_DAY_JSON,
         extractRawItems: (d) => {
             if (!Array.isArray(d)) return [];
             const recent = d.filter(entry => entry.current_class && entry.current_class !== "");
@@ -1495,7 +2111,7 @@ const DATA_SOURCES = {
             return {
                 _category: "Space", source_id: `xray_${entry.time_tag}`, severity: sev,
                 title: `Solar X-Ray Flux: ${cls}`,
-                description: `GOES satellite measured ${cls} class X-ray flux at ${entry.time_tag}. ${sev === "Critical" ? "Extreme radio blackout possible." : sev === "High" ? "Strong radio blackout possible." : sev === "Medium" ? "Moderate radio blackout possible." : "No significant radio blackout expected."}`,
+                description: `A GOES satellite measured ${cls} class X-ray flux at ${entry.time_tag}. ${sev === "Critical" ? "An extreme radio blackout is possible." : sev === "High" ? "A strong radio blackout is possible." : sev === "Medium" ? "A moderate radio blackout is possible." : "No significant radio blackout is expected."}`,
                 geometry_type: "Point", coordinates: null, latitude: null, longitude: null,
                 event_time: entry.time_tag,
                 metadata: {
@@ -1508,7 +2124,7 @@ const DATA_SOURCES = {
     },
     noaa_swpc_solar_wind: {
         id: "noaa_swpc_solar_wind", name: "NOAA SWPC Solar Wind Plasma", logTag: "SWPC_PLASMA", sourceName: "NOAA_SWPC_PLASMA",
-        buildUrl: () => "https://services.swpc.noaa.gov/products/solar-wind/plasma-7-day.json",
+        buildUrl: () => SOURCE_URLS.SERVICES_SWPC_NOAA_GOV_PRODUCTS_SOLAR_WIND_PLASMA_7_DAY_JSON,
         extractRawItems: (d) => {
             if (!Array.isArray(d) || d.length < 2) return [];
             return d.slice(1).slice(-48);
@@ -1528,7 +2144,7 @@ const DATA_SOURCES = {
             return {
                 _category: "Space", source_id: `plasma_${ts}`, severity: sev,
                 title: `Solar Wind: ${speed.toFixed(0)} km/s`,
-                description: `Solar wind speed ${speed.toFixed(0)} km/s, density ${isNaN(density) ? "N/A" : density.toFixed(1)} p/cm³ at ${ts}. ${isCmeCandidate ? "Elevated solar wind consistent with coronal mass ejection arrival." : speed > 500 ? "Enhanced solar wind stream detected." : "Solar wind conditions are nominal."}`,
+                description: `The solar wind speed is ${speed.toFixed(0)} km/s${isNaN(density) ? "" : ` with a density of ${density.toFixed(1)} p/cm³`} at ${ts}. ${isCmeCandidate ? "This elevated solar wind is consistent with a coronal mass ejection arrival." : speed > 500 ? "An enhanced solar wind stream has been detected." : "Solar wind conditions are nominal."}`,
                 geometry_type: "Point", coordinates: null, latitude: null, longitude: null,
                 event_time: ts,
                 metadata: {
@@ -1537,19 +2153,19 @@ const DATA_SOURCES = {
                     temperature_k: isNaN(temperature) ? null : temperature,
                     is_cme_candidate: isCmeCandidate,
                     impacts: {
-                        power_systems: speed > 700 ? "Possible voltage irregularities in high-latitude power grids." : "Nominal.",
-                        spacecraft_operations: speed > 600 ? "Increased drag on low-Earth orbit satellites." : "Nominal.",
-                        hf_radio: speed > 700 && density > 15 ? "Possible polar cap absorption events." : "Nominal.",
-                        navigation: speed > 800 ? "Possible degradation of GNSS accuracy." : "Nominal."
+                        power_systems: speed > 700 ? "Voltage irregularities are possible in high-latitude power grids." : "Nominal",
+                        spacecraft_operations: speed > 600 ? "Satellites in low-Earth orbit will experience increased drag." : "Nominal",
+                        hf_radio: speed > 700 && density > 15 ? "Polar cap absorption events are possible." : "Nominal",
+                        navigation: speed > 800 ? "GNSS accuracy may be degraded." : "Nominal"
                     },
-                    data_source: "NOAA SWPC DSCOVR and ACE real-time solar wind measurements"
+                    data_source: "NOAA SWPC DSCOVR and ACE Real-Time Solar Wind Measurements"
                 }
             };
         }
     },
     noaa_swpc_mag_field: {
         id: "noaa_swpc_mag_field", name: "NOAA SWPC Interplanetary Magnetic Field", logTag: "SWPC_MAG", sourceName: "NOAA_SWPC_MAG",
-        buildUrl: () => "https://services.swpc.noaa.gov/products/solar-wind/mag-7-day.json",
+        buildUrl: () => SOURCE_URLS.SERVICES_SWPC_NOAA_GOV_PRODUCTS_SOLAR_WIND_MAG_7_DAY_JSON,
         extractRawItems: (d) => {
             if (!Array.isArray(d) || d.length < 2) return [];
             return d.slice(1).slice(-48);
@@ -1572,7 +2188,7 @@ const DATA_SOURCES = {
             return {
                 _category: "Space", source_id: `mag_${ts}`, severity: sev,
                 title: `IMF Bz: ${bzVal.toFixed(1)} nT`,
-                description: `Interplanetary magnetic field Bz component at ${bzVal.toFixed(1)} nT, total field ${btVal.toFixed(1)} nT at ${ts}. ${geoEffective ? "Southward Bz indicates geo-effective solar wind coupling with Earth magnetosphere." : "Magnetic field orientation is not strongly geo-effective."}`,
+                description: `The interplanetary magnetic field Bz component is ${bzVal.toFixed(1)} nT and the total field is ${btVal.toFixed(1)} nT at ${ts}. ${geoEffective ? "The southward Bz indicates geo-effective coupling between the solar wind and the Earth's magnetosphere." : "The magnetic field orientation is not strongly geo-effective."}`,
                 geometry_type: "Point", coordinates: null, latitude: null, longitude: null,
                 event_time: ts,
                 metadata: {
@@ -1582,15 +2198,15 @@ const DATA_SOURCES = {
                     bt_nT: btVal,
                     is_geo_effective: geoEffective,
                     coupling_efficiency: bzVal < 0 ? "High" : "Low",
-                    expected_geomagnetic_response: bzVal < -20 ? "Severe geomagnetic storming likely." : bzVal < -10 ? "Active to storm-level geomagnetic conditions expected." : bzVal < -5 ? "Unsettled to active geomagnetic conditions possible." : "Quiet geomagnetic conditions expected.",
-                    data_source: "NOAA SWPC DSCOVR and ACE real-time interplanetary magnetic field measurements"
+                    expected_geomagnetic_response: bzVal < -20 ? "Severe geomagnetic storming is likely." : bzVal < -10 ? "Active to storm-level geomagnetic conditions are expected." : bzVal < -5 ? "Unsettled to active geomagnetic conditions are possible." : "Quiet geomagnetic conditions are expected.",
+                    data_source: "NOAA SWPC DSCOVR and ACE Real-Time Interplanetary Magnetic Field Measurements"
                 }
             };
         }
     },
     noaa_swpc_kp_forecast: {
         id: "noaa_swpc_kp_forecast", name: "NOAA SWPC Kp Forecast", logTag: "SWPC_KP_FC", sourceName: "NOAA_SWPC_KP_FC",
-        buildUrl: () => "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json",
+        buildUrl: () => SOURCE_URLS.SERVICES_SWPC_NOAA_GOV_PRODUCTS_NOAA_PLANETARY_K_INDEX_FOREC,
         extractRawItems: (d) => {
             if (!Array.isArray(d) || d.length < 2) return [];
             return d.slice(1);
@@ -1608,20 +2224,20 @@ const DATA_SOURCES = {
             return {
                 _category: "Space", source_id: `kp_fc_${ts}`, severity: sev,
                 title: `Kp Forecast: ${kp.toFixed(2)}`,
-                description: `Forecasted planetary Kp index of ${kp.toFixed(2)} for ${ts}. ${kp >= 7 ? "Severe geomagnetic storm forecast with potential power grid and satellite impacts." : kp >= 5 ? "Geomagnetic storm conditions forecast with aurora visible at mid-latitudes." : kp >= 4 ? "Unsettled to active geomagnetic conditions forecast." : "Quiet geomagnetic conditions forecast."}`,
+                description: `The planetary Kp index is forecast to reach ${kp.toFixed(2)} at ${ts}. ${kp >= 7 ? "A severe geomagnetic storm is forecast, with potential impacts on power grids and satellites." : kp >= 5 ? "Geomagnetic storm conditions are forecast, and aurora may be visible at mid-latitudes." : kp >= 4 ? "Unsettled to active geomagnetic conditions are forecast." : "Quiet geomagnetic conditions are forecast."}`,
                 geometry_type: "Point", coordinates: null, latitude: null, longitude: null,
                 event_time: ts,
                 metadata: {
                     kp_value: kp,
                     kp_integer: Math.round(kp),
                     observation_type: observed,
-                    storm_scale: kp >= 9 ? "G5 Extreme" : kp >= 8 ? "G4 Severe" : kp >= 7 ? "G3 Strong" : kp >= 6 ? "G2 Moderate" : kp >= 5 ? "G1 Minor" : "Below storm threshold",
+                    storm_scale: kp >= 9 ? "G5 Extreme" : kp >= 8 ? "G4 Severe" : kp >= 7 ? "G3 Strong" : kp >= 6 ? "G2 Moderate" : kp >= 5 ? "G1 Minor" : "Below Storm Threshold",
                     forecast_impacts: {
-                        power_systems: kp >= 8 ? "Widespread voltage control problems and protective system issues." : kp >= 6 ? "Possible voltage irregularities and false alarms on protection devices." : "Nominal.",
-                        spacecraft_operations: kp >= 7 ? "Surface charging and tracking difficulties." : kp >= 5 ? "Increased drag on LEO satellites." : "Nominal.",
-                        hf_radio: kp >= 7 ? "HF radio may be intermittent." : kp >= 5 ? "Degraded HF radio propagation at high latitudes." : "Nominal.",
-                        navigation: kp >= 8 ? "Satellite navigation degraded for hours." : kp >= 5 ? "Minor GNSS accuracy reduction." : "Nominal.",
-                        aurora_visibility: kp >= 8 ? "Aurora visible at low latitudes." : kp >= 6 ? "Aurora visible at mid-latitudes." : kp >= 4 ? "Aurora visible at high latitudes." : "Aurora limited to polar regions."
+                        power_systems: kp >= 8 ? "Widespread voltage control problems and protective system issues are likely." : kp >= 6 ? "Voltage irregularities and false alarms on protection devices are possible." : "Nominal",
+                        spacecraft_operations: kp >= 7 ? "Spacecraft may experience surface charging and tracking difficulties." : kp >= 5 ? "Satellites in low-Earth orbit will experience increased drag." : "Nominal",
+                        hf_radio: kp >= 7 ? "HF radio may be intermittent." : kp >= 5 ? "HF radio propagation will be degraded at high latitudes." : "Nominal",
+                        navigation: kp >= 8 ? "Satellite navigation may be degraded for hours." : kp >= 5 ? "GNSS accuracy may be slightly reduced." : "Nominal",
+                        aurora_visibility: kp >= 8 ? "Aurora may be visible at low latitudes." : kp >= 6 ? "Aurora may be visible at mid-latitudes." : kp >= 4 ? "Aurora may be visible at high latitudes." : "Aurora will be limited to polar regions."
                     },
                     data_source: "NOAA SWPC Geomagnetic Forecast"
                 }
@@ -1632,23 +2248,11 @@ const DATA_SOURCES = {
         id: "openmeteo_flood", name: "Open-Meteo Flood (GloFAS)", logTag: "METEO_FLOOD", sourceName: "OPEN_METEO_FLOOD",
         timeoutMs: 30000, headers: { "Accept": "application/json" },
         paginationStrategy: "batch_locations", locationBatchSize: 50,
-        buildQueryPoints: (p) => {
-            const hasBounds = p.min_lat && p.max_lat && p.min_lng && p.max_lng;
-            const centers = dynamicStores.urban.data;
-            const src = centers.length ? centers : FALLBACK_CITIES;
-            let pts = [];
-            if (hasBounds) {
-                const b = { min_lat: parseFloat(p.min_lat), max_lat: parseFloat(p.max_lat), min_lng: parseFloat(p.min_lng), max_lng: parseFloat(p.max_lng) };
-                pts = src.filter(c => inBounds(c.lat, c.lng, b)).map(c => ({ name: c.name, lat: c.lat, lng: c.lng, pop: c.pop || 0 }));
-            } else {
-                pts = src.slice(0, 100).map(c => ({ name: c.name, lat: c.lat, lng: c.lng, pop: c.pop || 0 }));
-            }
-            return pts;
-        },
+        buildQueryPoints: () => openMeteoQueryPoints(OPEN_METEO_FLOOD_CITY_CAP),
         buildBatchUrl: (batch) => {
             const lats = batch.map(p => p.lat.toFixed(4)).join(",");
             const lngs = batch.map(p => p.lng.toFixed(4)).join(",");
-            return `https://flood-api.open-meteo.com/v1/flood?latitude=${lats}&longitude=${lngs}&daily=river_discharge,river_discharge_max&forecast_days=7`;
+            return `${SOURCE_URLS.FLOOD_API_OPEN_METEO_COM_V1_FLOOD}?latitude=${lats}&longitude=${lngs}&daily=river_discharge,river_discharge_max&forecast_days=7`;
         },
         extractRawItems: (d, p, batch) => {
             const arr = Array.isArray(d) ? d : [d];
@@ -1680,20 +2284,20 @@ const DATA_SOURCES = {
             let status = "Normal";
             if (peak > 5000 || ratio > 5) {
                 sev = "Critical";
-                status = "Extreme flood forecast";
+                status = "Extreme Flood Forecast";
             } else if (peak > 2000 || ratio > 3) {
                 sev = "High";
-                status = "Significant flood forecast";
+                status = "Significant Flood Forecast";
             } else if (peak > 500 || ratio > 2) {
                 sev = "Medium";
-                status = "Elevated discharge forecast";
+                status = "Elevated Discharge Forecast";
             } else {
-                status = "Normal discharge forecast";
+                status = "Normal Discharge Forecast";
             }
             return {
                 _category: "Flood", source_id: `glofas_${s.lat.toFixed(3)}_${s.lng.toFixed(3)}`,
                 severity: sev, title: `River Discharge Forecast: ${s.name}`,
-                description: `GloFAS forecast for ${s.name}: peak discharge ${peak.toFixed(1)} m³/s over ${s.forecast_days} days. ${status}.`,
+                description: `The GloFAS forecast for ${s.name} shows a peak discharge of ${peak.toFixed(1)} m³/s over the next ${s.forecast_days} days, which is rated as ${status.toLowerCase()}.`,
                 geometry_type: "Point", coordinates: [s.lng, s.lat], latitude: s.lat, longitude: s.lng,
                 event_time: s.peak_time,
                 metadata: {
@@ -1733,7 +2337,7 @@ const DATA_SOURCES = {
         buildBatchUrl: (batch) => {
             const lats = batch.map(p => p.lat.toFixed(4)).join(",");
             const lngs = batch.map(p => p.lng.toFixed(4)).join(",");
-            return `https://marine-api.open-meteo.com/v1/marine?latitude=${lats}&longitude=${lngs}&current=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height`;
+            return `${SOURCE_URLS.MARINE_API_OPEN_METEO_COM_V1_MARINE}?latitude=${lats}&longitude=${lngs}&current=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height`;
         },
         extractRawItems: (d, p, batch) => {
             const arr = Array.isArray(d) ? d : [d];
@@ -1756,24 +2360,24 @@ const DATA_SOURCES = {
         transformItem: (s) => {
             const wh = s.wave_height;
             let sev = "Low";
-            let status = "Calm to moderate seas";
+            let status = "Calm to Moderate Seas";
             if (wh >= 9) {
                 sev = "Critical";
-                status = "Phenomenal seas - extreme maritime hazard";
+                status = "Phenomenal Seas (Extreme Maritime Hazard)";
             } else if (wh >= 6) {
                 sev = "High";
-                status = "Very rough to high seas - dangerous conditions";
+                status = "Very Rough to High Seas (Dangerous Conditions)";
             } else if (wh >= 4) {
                 sev = "Medium";
-                status = "Rough seas - small craft advisory conditions";
+                status = "Rough Seas (Small Craft Advisory Conditions)";
             } else if (wh >= 2.5) {
                 sev = "Low";
-                status = "Moderate seas";
+                status = "Moderate Seas";
             }
             return {
                 _category: "Weather", source_id: `marine_${s.lat.toFixed(2)}_${s.lng.toFixed(2)}`,
                 severity: sev, title: `Marine Conditions: ${s.name}`,
-                description: `Wave height: ${wh.toFixed(1)} m. Period: ${s.wave_period.toFixed(1)} s. Direction: ${s.wave_direction}°. ${status}.`,
+                description: `Waves are ${wh.toFixed(1)} m high with a ${s.wave_period.toFixed(1)} s period, arriving from ${s.wave_direction}°, and conditions are rated as ${status.toLowerCase()}.`,
                 geometry_type: "Point", coordinates: [s.lng, s.lat], latitude: s.lat, longitude: s.lng,
                 event_time: s.time,
                 metadata: {
@@ -1789,7 +2393,7 @@ const DATA_SOURCES = {
     tsunami_alerts: {
         id: "tsunami_alerts", name: "NWS Tsunami", logTag: "TSU", sourceName: "NWS_TSUNAMI",
         headers: { "User-Agent": "RiskCommandCenter/2.0", "Accept": "application/geo+json" },
-        buildUrl: () => "https://api.weather.gov/alerts/active?event=Tsunami",
+        buildUrl: () => SOURCE_URLS.API_WEATHER_GOV_ALERTS_ACTIVE,
         extractRawItems: (d) => d.features || [],
         transformItem: (f) => {
             const p = f.properties;
@@ -1804,11 +2408,11 @@ const DATA_SOURCES = {
             return {
                 _category: "Tsunami", source_id: p.id, severity: sev,
                 title: p.headline || p.event || "Tsunami Alert",
-                description: p.description || `${p.event} issued for ${p.areaDesc || "coastal areas"}.`,
+                description: p.description || `${p.event || "A tsunami alert"} has been issued for ${p.areaDesc || "coastal areas"}.`,
                 geometry_type: geomType || "Polygon", geometry_coordinates: geomCoords,
                 coordinates: lat && lng ? [lng, lat] : null, latitude: lat, longitude: lng,
                 event_time: p.onset || p.effective, expires_at: p.expires,
-                url: "https://www.tsunami.gov/",
+                url: SOURCE_URLS.TSUNAMI_GOV,
                 metadata: {
                     event_type: p.event, nws_severity: p.severity, certainty: p.certainty, urgency: p.urgency,
                     sender: p.senderName, affected_areas: p.areaDesc, instruction: p.instruction, headline: p.headline
@@ -1816,12 +2420,303 @@ const DATA_SOURCES = {
             };
         }
     },
+    wfigs_incidents: {
+        id: "wfigs_incidents", name: "NIFC WFIGS Incident Locations", logTag: "WFIGS_INC", sourceName: "NIFC_INCIDENTS", timeoutMs: 30000,
+        paginationStrategy: "offset", paginationBatchSize: 2000,
+        buildUrl: (p, off, bs) => `${SOURCE_URLS.SERVICES3_ARCGIS_COM_T4QMSPBFLG3QTGWY_ARCGIS_REST_SERVICES_W_2}?where=1%3D1&outFields=*&f=geojson&resultOffset=${off}&resultRecordCount=${bs}`,
+        extractRawItems: (d) => d.features || [],
+        transformItem: (f) => {
+            const p = f.properties || {};
+            const c = f.geometry?.coordinates;
+            if (!Array.isArray(c) || c.length < 2) return null;
+            const type = String(p.IncidentTypeCategory || p.attr_IncidentTypeCategory || "").toUpperCase();
+            if (type === "RX") return null;
+            const acres = parseFloat(p.IncidentSize ?? p.DailyAcres ?? p.CalculatedAcres ?? 0) || 0;
+            const pct = parseFloat(p.PercentContained ?? 0) || 0;
+            let sev = "Low";
+            if (acres > 50000 || (acres > 10000 && pct < 20)) sev = "Critical";
+            else if (acres > 10000 || (acres > 1000 && pct < 30)) sev = "High";
+            else if (acres > 100) sev = "Medium";
+            const name = String(p.IncidentName || "Unnamed Fire").trim();
+            const titleName = name.toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase());
+            const place = [p.POOCounty, p.POOState].filter(Boolean).join(", ");
+            const disc = p.FireDiscoveryDateTime ? new Date(p.FireDiscoveryDateTime) : null;
+            const modified = p.ModifiedOnDateTime_dt || p.ModifiedOnDateTime;
+            return {
+                _category: "Wildfire", source_id: p.UniqueFireIdentifier || p.IrwinID || String(p.OBJECTID || ""),
+                severity: sev,
+                title: /fire$/i.test(titleName) ? titleName : `${titleName} Fire`,
+                description: `${/fire$/i.test(titleName) ? titleName : `${titleName} Fire`} has burned ${acres.toLocaleString()} acres${place ? ` in ${place}` : ""} and is ${pct}% contained.`,
+                geometry_type: "Point", coordinates: [c[0], c[1]], latitude: c[1], longitude: c[0],
+                event_time: disc && !isNaN(disc) ? disc.toISOString() : null,
+                updated_at: modified ? new Date(modified).toISOString() : null,
+                url: p.IrwinID ? `${SOURCE_URLS.IRWIN_DOI_GOV_OBSERVER}?eid=${p.IrwinID}` : null,
+                metadata: { event_type: "Wildfire Incident", location: place || null, total_acres: acres, percent_contained: pct }
+            };
+        }
+    },
+    firms_hotspots: {
+        id: "firms_hotspots", name: "NASA FIRMS Hotspots", logTag: "FIRMS", sourceName: "NASA_FIRMS", timeoutMs: 60000,
+        paginationStrategy: "custom",
+        customFetch: async () => {
+            const key = process.env[SOURCE_KEYS.firmsMapKey];
+            if (!key) return null;
+            const areas = monitoredAreaCenters.length ? monitoredAreaCenters : await loadMonitoredAreaCenters();
+            if (!areas.length) return null;
+            const settled = await Promise.allSettled(areas.map(async (a) => {
+                const dLat = a.km / 111.32;
+                const dLng = a.km / (111.32 * Math.max(0.01, Math.cos((a.lat * Math.PI) / 180)));
+                const box = [a.lng - dLng, a.lat - dLat, a.lng + dLng, a.lat + dLat].map((v) => v.toFixed(3)).join(",");
+                const r = await fetchWithTimeout(`${SOURCE_URLS.FIRMS_MODAPS_EOSDIS_NASA_GOV_API_AREA_CSV}${key}/${FIRMS_SOURCE}/${box}/1`, {}, 30000);
+                if (!r.ok) return null;
+                return parseFirmsCsv(await r.text());
+            }));
+            const rows = settled.filter((r) => r.status === "fulfilled" && Array.isArray(r.value)).flatMap((r) => r.value);
+            if (!settled.some((r) => r.status === "fulfilled" && Array.isArray(r.value))) return null;
+            return firmsClusters(rows).map((c) => {
+                const sev = c.maxFrp > 100 || c.n >= 10 ? "High" : c.maxFrp > 30 || c.high ? "Medium" : "Low";
+                const when = c.latest || new Date().toISOString();
+                return normalizeRisk("NASA_FIRMS", "Wildfire", {
+                    source_id: `firms_${c.key}`,
+                    severity: sev,
+                    title: `Satellite Fire Detection: ${c.lat.toFixed(3)}, ${c.lng.toFixed(3)}`,
+                    description: `${c.n} satellite fire ${c.n === 1 ? "detection was" : "detections were"} recorded here in the last day, with a peak radiative power of ${c.maxFrp.toFixed(1)} MW.`,
+                    geometry_type: "Point", coordinates: [c.lng, c.lat], latitude: c.lat, longitude: c.lng,
+                    event_time: when, updated_at: when,
+                    expires_at: new Date(Date.parse(when) + 24 * 60 * 60 * 1000).toISOString(),
+                    url: SOURCE_URLS.FIRMS_MODAPS_EOSDIS_NASA_GOV_MAP,
+                    metadata: { event_type: "Satellite Fire Detection", detection_count: c.n, peak_frp_mw: parseFloat(c.maxFrp.toFixed(1)), high_confidence: c.high }
+                });
+            });
+        }
+    },
+    gdelt_geo_crime: {
+        id: "gdelt_geo_crime", name: "GDELT Crime News", logTag: "GDELT_GEO", sourceName: "GDELT_GEO_CRIME", timeoutMs: 120000,
+        paginationStrategy: "custom",
+        customFetch: async () => {
+            const queries = [{ query: GDELT_GEO_CRIME_QUERY, maxpoints: 1000 }];
+            for (const area of monitoredAreaCenters.length ? monitoredAreaCenters : await loadMonitoredAreaCenters()) {
+                queries.push({ query: `${GDELT_GEO_CRIME_QUERY} near:${area.lat.toFixed(4)},${area.lng.toFixed(4)},${Math.max(10, Math.round(area.km))}km`, maxpoints: 250 });
+            }
+            const featureSets = [];
+            let lastError = null;
+            for (let i = 0; i < queries.length; i++) {
+                if (i > 0) await new Promise((done) => setTimeout(done, GDELT_REQUEST_SPACING_MS));
+                try {
+                    featureSets.push(await fetchGdeltGeo(queries[i].query, queries[i].maxpoints));
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            if (!featureSets.length) throw lastError || new Error("The GDELT GEO API did not respond.");
+            const byId = new Map();
+            for (const features of featureSets) {
+                for (const feature of features) {
+                    const risk = gdeltGeoFeatureToRisk(feature);
+                    if (risk && !byId.has(risk.source_id)) byId.set(risk.source_id, risk);
+                }
+            }
+            return [...byId.values()];
+        }
+    },
+    nws_storm_reports: {
+        id: "nws_storm_reports", name: "NWS Local Storm Reports", logTag: "LSR", sourceName: "NWS_LSR", timeoutMs: 30000,
+        headers: { "Accept": "application/geo+json" },
+        paginationStrategy: "custom",
+        customFetch: async () => {
+            const cfg = DATA_SOURCES.nws_storm_reports;
+            const areas = await ensureMonitoredAreas();
+            if (!areas.length) return [];
+            const byId = new Map();
+            let lastError = null;
+            let anyOk = false;
+            for (const area of areas) {
+                const b = areaBounds(area);
+                try {
+                    const ets = new Date();
+                    const sts = new Date(ets.getTime() - 24 * 60 * 60 * 1000);
+                    const stamp = (d) => d.toISOString().slice(0, 16) + "Z";
+                    const r = await fetchWithTimeout(`${LSR_BASE_URL}?west=${b.west.toFixed(4)}&east=${b.east.toFixed(4)}&south=${b.south.toFixed(4)}&north=${b.north.toFixed(4)}&sts=${stamp(sts)}&ets=${stamp(ets)}`, { headers: cfg.headers }, cfg.timeoutMs);
+                    if (!r.ok) {
+                        lastError = new Error(`NWS storm reports request failed with status ${r.status}.`);
+                        continue;
+                    }
+                    anyOk = true;
+                    for (const f of cfg.extractRawItems(await r.json())) {
+                        const n = cfg.transformItem(f);
+                        if (!n) continue;
+                        if (!nearAnyArea(n.latitude, n.longitude, areas)) continue;
+                        const risk = normalizeRisk(cfg.sourceName, n._category, n);
+                        if (!byId.has(risk.source_id)) byId.set(risk.source_id, risk);
+                    }
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            if (!anyOk && lastError) throw lastError;
+            return [...byId.values()];
+        },
+        buildUrl: () => LSR_URL,
+        extractRawItems: (d) => d.features || [],
+        transformItem: (f) => {
+            const p = f.properties || {};
+            const lat = parseFloat(p.lat ?? f.geometry?.coordinates?.[1]);
+            const lng = parseFloat(p.lon ?? f.geometry?.coordinates?.[0]);
+            if (isNaN(lat) || isNaN(lng)) return null;
+            const type = p.typetext || p.type || "Storm Report";
+            const place = [p.city, p.st || p.state].filter(Boolean).join(", ");
+            const magnitude = p.magnitude != null && p.magnitude !== "" ? `${p.magnitude}${p.unit ? ` ${p.unit}` : ""}` : null;
+            const typeTitle = String(type).toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase());
+            const valid = p.valid ? new Date(p.valid) : new Date();
+            return {
+                _category: lsrCategory(type), source_id: `lsr_${p.valid || ""}_${lat.toFixed(3)}_${lng.toFixed(3)}_${type}`,
+                severity: lsrSeverity(type, p.magnitude),
+                title: place ? `${typeTitle}: ${place}` : typeTitle,
+                description: p.remark ? `${p.remark.trim().replace(/\.?$/, ".")}` : `A ${typeTitle.toLowerCase()} was reported${place ? ` near ${place}` : ""}.`,
+                geometry_type: "Point", coordinates: [lng, lat], latitude: lat, longitude: lng,
+                event_time: valid.toISOString(), updated_at: valid.toISOString(),
+                expires_at: new Date(valid.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+                url: SOURCE_URLS.MESONET_AGRON_IASTATE_EDU_LSR,
+                metadata: { event_type: typeTitle, magnitude, location: place || null, source_domain: p.source || null, headline: p.wfo ? `NWS ${p.wfo}` : null }
+            };
+        }
+    },
+    airnow_observations: {
+        id: "airnow_observations", name: "EPA AirNow", logTag: "AIRNOW", sourceName: "EPA_AIRNOW", timeoutMs: 30000,
+        paginationStrategy: "custom",
+        customFetch: async () => {
+            const key = process.env[SOURCE_KEYS.airnowApiKey];
+            if (!key) return [];
+            const areas = await ensureMonitoredAreas();
+            const results = [];
+            let lastError = null;
+            let anyOk = false;
+            for (const area of areas) {
+                try {
+                    const r = await fetchWithTimeout(`${SOURCE_URLS.AIRNOWAPI_ORG_AQ_OBSERVATION_LATLONG_CURRENT}?format=application/json&latitude=${area.lat.toFixed(4)}&longitude=${area.lng.toFixed(4)}&distance=${AIRNOW_DISTANCE_MILES}&API_KEY=${key}`, {}, 30000);
+                    if (!r.ok) {
+                        lastError = new Error(`EPA AirNow request failed with status ${r.status}.`);
+                        continue;
+                    }
+                    anyOk = true;
+                    const rows = await r.json();
+                    if (!Array.isArray(rows) || !rows.length) continue;
+                    const worst = rows.reduce((a, b) => ((b.AQI || 0) > (a.AQI || 0) ? b : a));
+                    const aqi = worst.AQI || 0;
+                    const category = worst.Category?.Name || "Unknown";
+                    const lat = parseFloat(worst.Latitude) || area.lat;
+                    const lng = parseFloat(worst.Longitude) || area.lng;
+                    const observed = worst.DateObserved ? new Date(`${worst.DateObserved.trim()}T${String(worst.HourObserved || 0).padStart(2, "0")}:00:00`) : new Date();
+                    results.push(normalizeRisk("EPA_AIRNOW", "Air Quality", {
+                        source_id: `airnow_${(worst.ReportingArea || area.name || "").replace(/\s+/g, "_")}_${worst.StateCode || ""}`,
+                        severity: aqiSeverity(aqi),
+                        title: `Air Quality: ${worst.ReportingArea || area.name}`,
+                        description: `The AQI is ${aqi} (${category}) for ${worst.ParameterName || "the leading pollutant"} at ${worst.ReportingArea || area.name}.`,
+                        geometry_type: "Point", coordinates: [lng, lat], latitude: lat, longitude: lng,
+                        event_time: isNaN(observed.getTime()) ? new Date().toISOString() : observed.toISOString(),
+                        expires_at: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+                        url: SOURCE_URLS.AIRNOW_GOV,
+                        metadata: { aqi_value: aqi, aqi_category: category, event_type: worst.ParameterName || null, location: worst.ReportingArea || area.name, source_domain: "airnow.gov" }
+                    }));
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            if (!anyOk && lastError) throw lastError;
+            return results;
+        }
+    },
+    google_news_crime: {
+        id: "google_news_crime", name: "Google News Crime", logTag: "GNEWS_CRIME", sourceName: "GOOGLE_NEWS_CRIME", timeoutMs: 30000,
+        paginationStrategy: "custom",
+        customFetch: async () => {
+            const areas = await ensureMonitoredAreas();
+            if (!areas.length) return [];
+            const byId = new Map();
+            let lastError = null;
+            let anyOk = false;
+            for (const area of areas) {
+                const place = (area.name || "").trim();
+                if (!place) continue;
+                const query = `${GOOGLE_NEWS_CRIME_TERMS} "${place}" when:1d`;
+                try {
+                    const r = await fetchWithTimeout(`${GOOGLE_NEWS_RSS_URL}?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`, { headers: { "Accept": "application/rss+xml, application/xml" } }, 30000);
+                    if (!r.ok) {
+                        lastError = new Error(`Google News request failed with status ${r.status}.`);
+                        continue;
+                    }
+                    anyOk = true;
+                    for (const item of parseRssItems(await r.text())) {
+                        if (!item.title || !item.link) continue;
+                        const published = item.pubDate ? new Date(item.pubDate) : new Date();
+                        const eventTime = isNaN(published.getTime()) ? new Date() : published;
+                        const id = crypto.createHash("md5").update(item.link).digest("hex").slice(0, 20);
+                        if (byId.has(id)) continue;
+                        const headline = item.source && item.title.endsWith(` - ${item.source}`) ? item.title.slice(0, -(item.source.length + 3)) : item.title;
+                        byId.set(id, normalizeRisk("GOOGLE_NEWS_CRIME", "Crime", {
+                            source_id: `gnews_${id}`,
+                            severity: gdeltGeoSeverity(headline),
+                            title: headline,
+                            description: `${item.source || "A news outlet"} reported this crime story for ${place}.`,
+                            geometry_type: "Point", coordinates: [area.lng, area.lat], latitude: area.lat, longitude: area.lng,
+                            event_time: eventTime.toISOString(), updated_at: eventTime.toISOString(),
+                            expires_at: new Date(eventTime.getTime() + GOOGLE_NEWS_TTL_MS).toISOString(),
+                            url: item.link,
+                            metadata: { location: place, source_domain: item.source || null, headline }
+                        }));
+                    }
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            if (!anyOk && lastError) throw lastError;
+            return [...byId.values()];
+        }
+    },
+    gdelt_crime: {
+        id: "gdelt_crime", name: "GDELT Crime Events", logTag: "GDELT_CRIME", sourceName: "GDELT_CRIME", timeoutMs: 60000,
+        paginationStrategy: "custom",
+        customFetch: async () => {
+            const index = await fetchWithTimeout(GDELT_LAST_UPDATE_URL, {}, 20000);
+            if (!index.ok) throw new Error(`The GDELT update index returned status ${index.status}.`);
+            const match = (await index.text()).match(/(\d{14})\.export\.CSV\.zip/);
+            if (!match) throw new Error("The GDELT update index did not list an export file.");
+            const stamps = gdeltPreviousTimestamps(match[1], GDELT_CRIME_WINDOW_FILES);
+            for (const ts of [...gdeltFileCache.keys()]) {
+                if (!stamps.includes(ts)) gdeltFileCache.delete(ts);
+            }
+            const missing = stamps.filter((ts) => !gdeltFileCache.has(ts)).slice(0, GDELT_CRIME_MAX_NEW_FILES);
+            for (let i = 0; i < missing.length; i += GDELT_CRIME_DOWNLOAD_CONCURRENCY) {
+                await Promise.all(missing.slice(i, i + GDELT_CRIME_DOWNLOAD_CONCURRENCY).map(async (ts) => {
+                    try {
+                        const r = await fetchWithTimeout(`${GDELT_EXPORT_BASE_URL}${ts}.export.CSV.zip`, {}, 30000);
+                        if (!r.ok) return;
+                        const areasNow = await ensureMonitoredAreas();
+                        const parsed = parseGdeltCrimeEvents(readFirstZipEntry(Buffer.from(await r.arrayBuffer())), new Set());
+                        gdeltFileCache.set(ts, parsed.filter((event) => nearAnyArea(event.latitude, event.longitude, areasNow)));
+                    } catch { }
+                }));
+            }
+            if (!gdeltFileCache.size) return null;
+            const seen = new Set();
+            const results = [];
+            for (const ts of stamps) {
+                for (const event of gdeltFileCache.get(ts) || []) {
+                    const key = `${event.url}|${event.metadata?.cameo_code}|${event.metadata?.location}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    results.push(event);
+                }
+            }
+            return results;
+        }
+    },
     sentinel1_insar: {
         id: "sentinel1_insar", name: "ESA Sentinel-1 InSAR", logTag: "S1_INSAR", sourceName: "ESA_SENTINEL1_INSAR",
         timeoutMs: 60000, headers: { "Accept": "application/json" },
         buildUrl: (p) => {
             const sd = p.start_date || p.start_time || new Date(Date.now() - 90 * 864e5).toISOString().split("T")[0];
-            let url = `https://api.daac.asf.alaska.edu/services/search/param?platform=Sentinel-1&processingLevel=GUNW_STD&start=${sd}&output=geojson&maxResults=${p.max_results || 5000}`;
+            let url = `${SOURCE_URLS.API_DAAC_ASF_ALASKA_EDU_SERVICES_SEARCH_PARAM}?platform=Sentinel-1&processingLevel=GUNW_STD&start=${sd}&output=geojson&maxResults=${p.max_results || 500}`;
             if (p.min_lat && p.max_lat && p.min_lng && p.max_lng) url += `&bbox=${p.min_lng},${p.min_lat},${p.max_lng},${p.max_lat}`;
             else if (p.latitude && p.longitude) url += `&intersectsWith=point(${p.longitude}+${p.latitude})`;
             return url;
@@ -1843,7 +2738,7 @@ const DATA_SOURCES = {
             const estDisp = perpB !== null ? Math.abs(perpB) * 0.15 : null;
             const estCoh = perpB !== null ? Math.max(0.1, Math.min(0.95, 1.0 - Math.abs(perpB) / 5000)) : null;
             let sev = "Low";
-            let sevInfo = { confidence: "medium", reason: "Interferogram available for deformation analysis." };
+            let sevInfo = { confidence: "medium", reason: "An interferogram is available for deformation analysis." };
             if (estDisp !== null) {
                 const absD = Math.abs(estDisp);
                 const daily = tempDays > 0 ? absD / tempDays : absD;
@@ -1854,16 +2749,16 @@ const DATA_SOURCES = {
             const infra = lat && lng ? assessInfraProximity(lat, lng) : [];
             if (infra.length > 0 && sev === "Low") {
                 sev = "Medium";
-                sevInfo.reason += " Infrastructure proximity elevates monitoring priority.";
+                sevInfo.reason += " Nearby infrastructure raises its monitoring priority.";
             }
             return {
                 _category: "Ground Deformation", source_id: p.fileID || scene, severity: sev,
                 title: `InSAR Observation: ${scene.substring(0, 60)}`,
-                description: `Sentinel-1 ARIA GUNW interferogram product over ${lat ? lat.toFixed(2) : "unknown"}, ${lng ? lng.toFixed(2) : "unknown"}. Flight direction: ${p.flightDirection || p.orbit || "unknown"}. Path: ${p.pathNumber || p.relativeOrbit || "unknown"}. Temporal baseline: ${tempDays} days. ${sevInfo.reason}`,
+                description: `A Sentinel-1 ARIA GUNW interferogram covers ${lat && lng ? `${lat.toFixed(2)}, ${lng.toFixed(2)}` : "an unknown location"}, with ${p.flightDirection || p.orbit ? `a ${String(p.flightDirection || p.orbit).toLowerCase()} flight direction` : "an unknown flight direction"}, ${p.pathNumber || p.relativeOrbit ? `path ${p.pathNumber || p.relativeOrbit}` : "an unknown path"}, and a temporal baseline of ${tempDays} days. ${sevInfo.reason}`,
                 geometry_type: g?.type || "Polygon", geometry_coordinates: g?.coordinates,
                 coordinates: lat && lng ? [lng, lat] : null, latitude: lat, longitude: lng,
                 event_time: startT, updated_at: p.processingDate || startT,
-                url: p.url || p.downloadUrl || "https://search.asf.alaska.edu/#/?dataset=SENTINEL-1%20INTERFEROGRAM%20(BETA)&productTypes=GUNW_STD",
+                url: p.url || p.downloadUrl || SOURCE_URLS.SEARCH_ASF_ALASKA_EDU,
                 metadata: {
                     product_type: "ARIA S1 GUNW Standard Interferogram", processing_level: "L2 Geocoded Unwrapped Interferogram",
                     sensor: "Sentinel-1 C-Band SAR", wavelength_cm: 5.6, scene_name: scene,
@@ -1871,7 +2766,7 @@ const DATA_SOURCES = {
                     frame_number: p.frameNumber || p.frame, beam_mode: p.beamMode || p.beamModeType || "IW",
                     polarization: p.polarization || "VV", perpendicular_baseline_m: perpB,
                     temporal_baseline_days: tempDays, estimated_displacement_mm: estDisp,
-                    estimated_displacement_note: "Heuristic proxy derived from perpendicular baseline. Not a direct LOS displacement measurement.",
+                    estimated_displacement_note: "This value is a heuristic proxy derived from the perpendicular baseline, not a direct line-of-sight displacement measurement.",
                     estimated_coherence: estCoh, severity_classification: sevInfo,
                     pixel_spacing_m: 90, processing_software: "ISCE2 TopsApp",
                     data_provider: "NASA JPL ARIA Project via ASF DAAC", file_format: "NetCDF-4",
@@ -1879,7 +2774,7 @@ const DATA_SOURCES = {
                     infrastructure_proximity: infra, infrastructure_at_risk: infra.length,
                     download_url: p.url || p.downloadUrl || null, browse_url: p.browseUrl || p.browse || null,
                     file_size_mb: p.sizeMB || p.bytes ? (p.bytes / 1048576).toFixed(1) : null,
-                    insar_applications: ["Surface deformation monitoring", "Pipeline integrity assessment", "Dam and levee stability", "Urban subsidence tracking", "Landslide detection", "Volcanic inflation and deflation", "Aquifer compaction measurement", "Post-seismic deformation analysis"]
+                    insar_applications: ["Surface Deformation Monitoring", "Pipeline Integrity Assessment", "Dam and Levee Stability", "Urban Subsidence Tracking", "Landslide Detection", "Volcanic Inflation and Deflation", "Aquifer Compaction Measurement", "Post-Seismic Deformation Analysis"]
                 }
             };
         }
@@ -1904,14 +2799,14 @@ const DATA_SOURCES = {
 } LIMIT 1500`;
                 const fetchEgms = async () => {
                     try {
-                        const r = await fetchWithTimeout("https://egms.land.copernicus.eu/api/ogc/features/v1/collections/L3_2018_2022_ortho/items?limit=500&f=json", { headers: { "Accept": "application/json", "User-Agent": "RiskCommandCenter/2.0" } }, 45000);
+                        const r = await fetchWithTimeout(SOURCE_URLS.EGMS_LAND_COPERNICUS_EU_API_OGC_FEATURES_V1_COLLECTIONS_L3_2, { headers: { "Accept": "application/json", "User-Agent": "RiskCommandCenter/2.0" } }, 45000);
                         if (!r.ok) return [];
                         const feats = (await r.json()).features || [];
                         return feats.filter(ef => ef.geometry?.coordinates?.length >= 2 && (ef.properties?.mean_velocity || ef.properties?.velocity) != null)
                             .map(ef => {
                                 const c = ef.geometry.coordinates;
                                 const v = ef.properties.mean_velocity || ef.properties.velocity;
-                                return { name: `EGMS Zone ${c[1].toFixed(3)}N ${c[0].toFixed(3)}E`, lat: c[1], lng: c[0], known_rate_mm_yr: v, cause: "Ground motion detected by European Ground Motion Service satellite measurement.", monitoring_since: "2018-01-01", source: "egms", description: `Mean LOS velocity: ${v} mm per year.` };
+                                return { name: `EGMS Zone ${c[1].toFixed(3)}N ${c[0].toFixed(3)}E`, lat: c[1], lng: c[0], known_rate_mm_yr: v, cause: "The European Ground Motion Service detected this ground motion from satellite measurements.", monitoring_since: "2018-01-01", source: "egms", description: `The mean line-of-sight velocity is ${v} mm per year.` };
                             });
                     } catch (error) {
                         return [];
@@ -1926,14 +2821,14 @@ const DATA_SOURCES = {
                 const seen = new Set();
                 const zones = [];
                 const rateMap = [
-                    [["oil", "petroleum"], -10, "Subsurface compaction associated with hydrocarbon extraction."],
-                    [["gas field", "natural gas"], -8, "Reservoir compaction from natural gas extraction."],
-                    [["geothermal"], -15, "Geothermal fluid extraction causing reservoir compaction."],
-                    [["desert", "arid"], -12, "Groundwater overdraft in arid region aquifer system."],
-                    [["mine", "mining", "coal"], -14, "Subsurface void collapse and compaction from mining activity."],
-                    [["landfill", "waste"], -8, "Organic decomposition and compaction within landfill body."],
-                    [["delta", "alluvial"], -10, "Natural sediment compaction and anthropogenic loading on deltaic deposits."],
-                    [["polder", "reclaim"], -7, "Peat oxidation and sediment consolidation in reclaimed land."]
+                    [["oil", "petroleum"], -10, "The likely cause is subsurface compaction from hydrocarbon extraction."],
+                    [["gas field", "natural gas"], -8, "The likely cause is reservoir compaction from natural gas extraction."],
+                    [["geothermal"], -15, "The likely cause is reservoir compaction from geothermal fluid extraction."],
+                    [["desert", "arid"], -12, "The likely cause is groundwater overdraft in an arid aquifer system."],
+                    [["mine", "mining", "coal"], -14, "The likely cause is subsurface void collapse and compaction from mining."],
+                    [["landfill", "waste"], -8, "The likely cause is organic decomposition and compaction within a landfill."],
+                    [["delta", "alluvial"], -10, "The likely cause is natural sediment compaction and human loading on deltaic deposits."],
+                    [["polder", "reclaim"], -7, "The likely cause is peat oxidation and sediment consolidation in reclaimed land."]
                 ];
                 for (const b of bindings) {
                     const name = b.itemLabel?.value;
@@ -1945,7 +2840,7 @@ const DATA_SOURCES = {
                     seen.add(dk);
                     const desc = (b.description?.value || "").toLowerCase();
                     let rate = -5;
-                    let cause = "Geological or anthropogenic ground deformation in monitored zone.";
+                    let cause = "The likely cause is geological or human-driven ground deformation in the monitored zone.";
                     for (const [keys, r, c] of rateMap) {
                         if (keys.some(k => desc.includes(k))) {
                             rate = r;
@@ -1961,19 +2856,19 @@ const DATA_SOURCES = {
                     if (seen.has(dk)) continue;
                     seen.add(dk);
                     let rate = -3;
-                    let cause = "Urban loading and potential groundwater extraction beneath populated area.";
+                    let cause = "The likely cause is urban loading and possible groundwater extraction beneath a populated area.";
                     if (Math.abs(city.lat) < 30 && city.pop > 5e6) {
                         rate = -20;
-                        cause = "Intensive groundwater withdrawal in tropical or subtropical alluvial deposits.";
+                        cause = "The likely cause is intensive groundwater withdrawal from tropical or subtropical alluvial deposits.";
                     } else if (city.pop > 1e7) {
                         rate = -15;
-                        cause = "Large-scale aquifer compaction beneath megacity from municipal and industrial water demand.";
+                        cause = "The likely cause is large-scale aquifer compaction beneath a megacity from municipal and industrial water demand.";
                     } else if (city.pop > 3e6) {
                         rate = -8;
-                        cause = "Moderate aquifer stress and urban loading beneath major metropolitan area.";
+                        cause = "The likely cause is moderate aquifer stress and urban loading beneath a major metropolitan area.";
                     } else if (city.pop > 1e6) {
                         rate = -5;
-                        cause = "Urban loading and localized groundwater extraction beneath large city.";
+                        cause = "The likely cause is urban loading and localized groundwater extraction beneath a large city.";
                     }
                     zones.push({ name: `${city.name} Metropolitan Subsidence Zone`, lat: city.lat, lng: city.lng, known_rate_mm_yr: rate, cause, monitoring_since: "2015-01-01", source: "derived_from_urban_centers", description: null });
                 }
@@ -2005,19 +2900,19 @@ const DATA_SOURCES = {
                         const fallbackZones = [];
                         for (const city of fallbackSrc.filter(c => (c.pop || 0) > 500000)) {
                             let rate = -3;
-                            let cause = "Urban loading and potential groundwater extraction beneath populated area.";
+                            let cause = "The likely cause is urban loading and possible groundwater extraction beneath a populated area.";
                             if (Math.abs(city.lat) < 30 && (city.pop || 0) > 5e6) {
                                 rate = -20;
-                                cause = "Intensive groundwater withdrawal in tropical or subtropical alluvial deposits.";
+                                cause = "The likely cause is intensive groundwater withdrawal from tropical or subtropical alluvial deposits.";
                             } else if ((city.pop || 0) > 1e7) {
                                 rate = -15;
-                                cause = "Large-scale aquifer compaction beneath megacity from municipal and industrial water demand.";
+                                cause = "The likely cause is large-scale aquifer compaction beneath a megacity from municipal and industrial water demand.";
                             } else if ((city.pop || 0) > 3e6) {
                                 rate = -8;
-                                cause = "Moderate aquifer stress and urban loading beneath major metropolitan area.";
+                                cause = "The likely cause is moderate aquifer stress and urban loading beneath a major metropolitan area.";
                             } else if ((city.pop || 0) > 1e6) {
                                 rate = -5;
-                                cause = "Urban loading and localized groundwater extraction beneath large city.";
+                                cause = "The likely cause is urban loading and localized groundwater extraction beneath a large city.";
                             }
                             fallbackZones.push({ name: `${city.name} Metropolitan Subsidence Zone`, lat: city.lat, lng: city.lng, known_rate_mm_yr: rate, cause, monitoring_since: "2015-01-01", source: "fallback_urban_centers", description: null });
                         }
@@ -2049,32 +2944,13 @@ const DATA_SOURCES = {
                     if (infra.length > 0 && (eSev === "Low" || eSev === "Medium")) {
                         eSev = eSev === "Low" ? "Medium" : "High";
                     }
-                    const synAsset = `asset_zone_${z.name.toLowerCase().replace(/\s+/g, "_")}`;
-                    let gmDet = null;
-                    const meshes = [];
-                    for (const [mid, m] of goldenMeshStore.entries()) {
-                        if (m.asset_id === synAsset && m.is_active && !m.deleted_at) {
-                            meshes.push({ meshId: mid, mesh: m });
-                        }
-                    }
-                    if (meshes.length) {
-                        meshes.sort((a, b) => new Date(b.mesh.scan_date) - new Date(a.mesh.scan_date));
-                        const bp = meshes[0].mesh.mesh_data.points || [];
-                        const simPts = bp.map(b => ({ lat: b.lat, lng: b.lng, z: b.z + curDisp + (Math.random() - 0.5) * 2 }));
-                        gmDet = runChangeDetection(synAsset, simPts, DEFORM_THRESH_MM);
-                        if (gmDet.exceeded_threshold) {
-                            if (gmDet.severity === "Critical") eSev = "Critical";
-                            else if (gmDet.severity === "High" && eSev !== "Critical") eSev = "High";
-                        }
-                    }
                     results.push(normalizeRisk("ESA_SENTINEL1_DEFORMATION", "Ground Deformation", {
                         source_id: `deformation_${z.name.toLowerCase().replace(/\s+/g, "_")}`,
                         severity: eSev, title: `Ground Deformation: ${z.name}`,
-                        description: `Sentinel-1 InSAR time series analysis for ${z.name}. Cumulative displacement: ${cumDisp.toFixed(1)} mm since ${z.monitoring_since}. Current rate: ${z.known_rate_mm_yr} mm per year. Cause: ${z.cause}. ${infra.length ? `${infra.length} critical infrastructure element(s) within proximity.` : "No critical infrastructure in immediate proximity."}${gmDet?.exceeded_threshold ? ` Golden mesh baseline comparison flagged deformity risk with a maximum delta of ${gmDet.max_delta_mm} mm.` : ""}`,
+                        description: `Sentinel-1 InSAR time series analysis of ${z.name} shows ${cumDisp.toFixed(1)} mm of cumulative displacement since ${z.monitoring_since}, at a current rate of ${z.known_rate_mm_yr} mm per year. ${z.cause} ${infra.length ? `${infra.length} critical infrastructure ${infra.length === 1 ? "element is" : "elements are"} nearby.` : "No critical infrastructure is in the immediate vicinity."}`,
                         geometry_type: "Point", coordinates: [z.lng, z.lat], latitude: z.lat, longitude: z.lng,
                         event_time: passDate.toISOString(), updated_at: passDate.toISOString(),
-                        url: "https://search.asf.alaska.edu/#/?dataset=SENTINEL-1%20INTERFEROGRAM%20(BETA)",
-                        golden_mesh_detection: gmDet,
+                        url: SOURCE_URLS.SEARCH_ASF_ALASKA_EDU_2,
                         metadata: {
                             sensor: "Sentinel-1 C-Band SAR", technique: "Persistent Scatterer InSAR and Small Baseline Subset Time Series",
                             wavelength_cm: 5.6, revisit_days: revisit, zone_name: z.name,
@@ -2083,18 +2959,16 @@ const DATA_SOURCES = {
                             known_annual_rate_mm: z.known_rate_mm_yr, cumulative_displacement_mm: parseFloat(cumDisp.toFixed(1)),
                             recent_displacement_mm: parseFloat(curDisp.toFixed(2)), measurement_interval_days: revisit,
                             estimated_coherence: parseFloat(coh.toFixed(2)), severity_classification: sevInfo,
-                            displacement_direction: z.known_rate_mm_yr < 0 ? "Subsidence (downward movement in line of sight)." : "Uplift (upward movement in line of sight).",
+                            displacement_direction: z.known_rate_mm_yr < 0 ? "Subsidence (Downward Movement in Line of Sight)" : "Uplift (Upward Movement in Line of Sight)",
                             infrastructure_proximity: infra, infrastructure_at_risk: infra.length,
-                            data_source: "Derived from ESA Copernicus Sentinel-1 SAR constellation and dynamically sourced deformation zone data.",
-                            reference_frame: "Line of sight projected to vertical using local incidence angle.",
+                            data_source: "ESA Copernicus Sentinel-1 SAR Constellation and Dynamically Sourced Deformation Zone Data",
+                            reference_frame: "Line of Sight Projected to Vertical Using the Local Incidence Angle",
                             accuracy_mm: 1.5, spatial_resolution_m: 100,
-                            processing_chain: "SqueeSAR persistent and distributed scatterer analysis with GNSS calibration.",
-                            risk_to_energy_infrastructure: infra.filter(i => i.type === "pipeline" || i.type === "extraction").length > 0 ? "Elevated risk to energy infrastructure detected within deformation zone." : "No energy infrastructure detected within immediate deformation zone.",
-                            risk_to_water_infrastructure: infra.filter(i => i.type === "dam" || i.type === "subsidence").length > 0 ? "Elevated risk to water infrastructure or known subsidence zone." : "No water infrastructure detected within immediate deformation zone.",
+                            processing_chain: "SqueeSAR Persistent and Distributed Scatterer Analysis With GNSS Calibration",
+                            risk_to_energy_infrastructure: infra.filter(i => i.type === "pipeline" || i.type === "extraction").length > 0 ? "Energy infrastructure within the deformation zone is at elevated risk." : "No energy infrastructure was detected within the immediate deformation zone.",
+                            risk_to_water_infrastructure: infra.filter(i => i.type === "dam" || i.type === "subsidence").length > 0 ? "Water infrastructure or a known subsidence zone is at elevated risk." : "No water infrastructure was detected within the immediate deformation zone.",
                             latest_satellite_pass: passDate.toISOString(),
                             next_expected_pass: new Date(passDate.getTime() + revisit * 864e5).toISOString(),
-                            golden_mesh_baseline_available: meshes.length > 0,
-                            golden_mesh_detection_summary: gmDet ? { exceeded_threshold: gmDet.exceeded_threshold, max_delta_mm: gmDet.max_delta_mm, affected_percentage: gmDet.affected_percentage, detection_severity: gmDet.severity } : null
                         }
                     }));
                 }
@@ -2113,12 +2987,13 @@ for (const [k, cfg] of Object.entries(DATA_SOURCES)) {
 
 const SOURCE_GROUPS = {
     earthquakes: ["usgs_earthquakes", "emsc_earthquakes", "ingv_earthquakes", "geonet_quakes"],
-    wildfires: ["nifc_wildfires"],
-    weather: ["noaa_alerts", "noaa_spc", "openmeteo_marine"],
+    wildfires: ["wfigs_incidents", "nifc_wildfires", "firms_hotspots"],
+    weather: ["noaa_alerts", "nws_storm_reports", "noaa_spc", "openmeteo_marine"],
     floods: ["usgs_water", "noaa_alerts", "openmeteo_flood"],
     volcanoes: ["usgs_volcanoes"],
-    air_quality: ["openmeteo_air_quality"],
+    air_quality: ["airnow_observations", "openmeteo_air_quality"],
     global_disasters: ["gdacs_events", "eonet_events", "fema_disasters", "tsunami_alerts"],
+    crime: ["google_news_crime", "gdelt_geo_crime", "gdelt_crime"],
     ground_deformation: ["sentinel1_insar", "sentinel1_deformation"],
     space_weather: ["noaa_space_weather", "noaa_kp_index", "noaa_swpc_xray", "noaa_swpc_solar_wind", "noaa_swpc_mag_field", "noaa_swpc_kp_forecast"],
     all: Object.keys(DATA_SOURCES)
@@ -2140,8 +3015,8 @@ const getRecommendations = (category, severity) => {
 const normalizeRisk = (source, category, item) => {
     const lat = item.latitude;
     const lng = item.longitude;
-    return {
-        id: generateId("rsk"), source, source_id: item.source_id || null, risk_category: category,
+    const risk = {
+        id: null, source, source_id: item.source_id || null, risk_category: category,
         severity: item.severity || "Medium", severity_score: SEVERITY_WEIGHTS[item.severity] || 30,
         title: item.title || "Unknown Event", description: item.description || null,
         geometry_type: item.geometry_type || "Point", coordinates: item.coordinates || null,
@@ -2156,17 +3031,26 @@ const normalizeRisk = (source, category, item) => {
         visibility: item.visibility || VISIBILITY_PUBLIC,
         orgid: item.orgid || null
     };
+    risk.id = stableRiskId(risk);
+    return risk;
 };
 
-const universalFetch = async (cfg, params = {}) => {
+const universalFetch = async (cfg, rawParams = {}) => {
+    const { _fresh: fresh, ...params } = rawParams;
     const ck = `${cfg.id}_${JSON.stringify(params)}`;
-    const cached = getCached(ck);
+    const cached = fresh ? null : getCached(ck);
     if (cached) return cached;
+    const remember = (key, value) => {
+        if (!fresh) setCache(key, value);
+    };
     try {
         if (cfg.paginationStrategy === "custom") {
             const r = await cfg.customFetch(params);
-            if (r === null) return [];
-            setCache(ck, r);
+            if (r === null) {
+                sourceLastError[cfg.id] = "The source did not return a usable response.";
+                return [];
+            }
+            remember(ck, r);
             return r;
         }
         const tms = cfg.timeoutMs || 30000;
@@ -2201,9 +3085,14 @@ const universalFetch = async (cfg, params = {}) => {
                 const batch = pts.slice(i, i + bs);
                 try {
                     const r = await fetchWithTimeout(cfg.buildBatchUrl(batch, params), { headers: hdr }, tms);
-                    if (!r.ok) continue;
+                    if (!r.ok) {
+                        sourceLastError[cfg.id] = `${cfg.name} request failed with status ${r.status}.`;
+                        continue;
+                    }
                     raw.push(...cfg.extractRawItems(await r.json(), params, batch));
-                } catch (error) {}
+                } catch (error) {
+                    sourceLastError[cfg.id] = error.name === "AbortError" ? `${cfg.name} request timed out.` : `${cfg.name} request failed: ${error.message}`;
+                }
             }
         } else if (cfg.paginationStrategy === "state_batch") {
             const states = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
@@ -2247,9 +3136,10 @@ const universalFetch = async (cfg, params = {}) => {
         }
         const filtered = params.min_lat ? results.filter(r => r.latitude && inBounds(r.latitude, r.longitude, params)) : results;
 
-        setCache(ck, filtered);
+        remember(ck, filtered);
         return filtered;
     } catch (error) {
+        sourceLastError[cfg.id] = error.name === "AbortError" ? `${cfg.name} request timed out.` : (error.message || String(error));
         return [];
     }
 };
@@ -2271,6 +3161,42 @@ const fetchRisk = async (source, params = {}, overrides = {}) => {
         if (r.status === "fulfilled" && Array.isArray(r.value)) combined.push(...r.value);
     }
     return combined;
+};
+
+const riskMatchesStreamParams = (risk, params) => {
+    if (params.min_lat != null && params.max_lat != null && params.min_lng != null && params.max_lng != null) {
+        if (risk.latitude == null || risk.longitude == null) return false;
+        if (risk.latitude < params.min_lat || risk.latitude > params.max_lat) return false;
+        if (params.min_lng <= params.max_lng) {
+            if (risk.longitude < params.min_lng || risk.longitude > params.max_lng) return false;
+        } else if (risk.longitude < params.min_lng && risk.longitude > params.max_lng) {
+            return false;
+        }
+    }
+    if (params.start_time || params.end_time) {
+        const time = risk.event_time ? new Date(risk.event_time).getTime() : NaN;
+        if (isNaN(time)) return false;
+        if (params.start_time && time < new Date(params.start_time).getTime()) return false;
+        if (params.end_time && time > new Date(params.end_time).getTime()) return false;
+    }
+    return true;
+};
+
+const streamGroupFromMemory = async (group, params, overrides, onChunk) => {
+    const keys = SOURCE_GROUPS[group] ? SOURCE_GROUPS[group] : SOURCE_REGISTRY[group] ? [group] : [];
+    const nameToKey = new Map(keys.map((key) => [DATA_SOURCES[key]?.sourceName, key]));
+    const bySource = new Map();
+    for (const risk of riskStore.values()) {
+        const key = nameToKey.get(risk.source);
+        if (!key || !riskMatchesStreamParams(risk, params)) continue;
+        if (!bySource.has(key)) bySource.set(key, []);
+        bySource.get(key).push(risk);
+    }
+    for (const [sourceKey, risks] of bySource) {
+        for (let i = 0; i < risks.length; i += LIVE_CHUNK_SIZE) {
+            if ((await onChunk(sourceKey, risks.slice(i, i + LIVE_CHUNK_SIZE))) === false) return;
+        }
+    }
 };
 
 const fetchRiskStreaming = async (source, params, overrides, onChunk) => {
@@ -2303,11 +3229,13 @@ const upsertBatch = async (batch) => {
         await client.query(`SET LOCAL statement_timeout = '${UPSERT_TIMEOUT_MS}'`);
         await client.query(`SET LOCAL lock_timeout = '10000'`);
         const D = String.fromCharCode(36);
+        const useContentHash = contentHashColumnReady;
         const values = [];
         const placeholders = [];
         let pi = 1;
         for (const r of batch) {
-            placeholders.push(`(${D}${pi}, ${D}${pi+1}, ${D}${pi+2}, ${D}${pi+3}, ${D}${pi+4}, ${D}${pi+5}, ${D}${pi+6}, ${D}${pi+7}, ${D}${pi+8}, ${D}${pi+9}::jsonb, ${D}${pi+10}, ${D}${pi+11}, ${D}${pi+12}, ${D}${pi+13}, ${D}${pi+14}, ${D}${pi+15}, ${D}${pi+16}, ${D}${pi+17}::jsonb, ${D}${pi+18}::jsonb, ${D}${pi+19}::jsonb, ${D}${pi+20}::jsonb, ${D}${pi+21}::jsonb, ${D}${pi+22}::jsonb, ${D}${pi+23}, ${D}${pi+24}, NOW(), CASE WHEN ${D}${pi+10}::double precision IS NOT NULL AND ${D}${pi+11}::double precision IS NOT NULL THEN ST_SetSRID(ST_MakePoint(${D}${pi+11}::double precision, ${D}${pi+10}::double precision), 4326)::geography ELSE NULL END)`);
+            const hashSlot = useContentHash ? `${D}${pi+25}, ` : "";
+            placeholders.push(`(${D}${pi}, ${D}${pi+1}, ${D}${pi+2}, ${D}${pi+3}, ${D}${pi+4}, ${D}${pi+5}, ${D}${pi+6}, ${D}${pi+7}, ${D}${pi+8}, ${D}${pi+9}::jsonb, ${D}${pi+10}, ${D}${pi+11}, ${D}${pi+12}, ${D}${pi+13}, ${D}${pi+14}, ${D}${pi+15}, ${D}${pi+16}, ${D}${pi+17}::jsonb, ${D}${pi+18}::jsonb, ${D}${pi+19}::jsonb, ${D}${pi+20}::jsonb, ${D}${pi+21}::jsonb, ${D}${pi+22}::jsonb, ${D}${pi+23}, ${D}${pi+24}, ${hashSlot}NOW(), CASE WHEN ${D}${pi+10}::double precision IS NOT NULL AND ${D}${pi+11}::double precision IS NOT NULL THEN ST_SetSRID(ST_MakePoint(${D}${pi+11}::double precision, ${D}${pi+10}::double precision), 4326)::geography ELSE NULL END)`);
             values.push(
                 r.id, r.source, r.source_id, r.risk_category, r.severity, r.severity_score,
                 r.title, r.description ? r.description.substring(0, 10000) : null,
@@ -2319,10 +3247,11 @@ const upsertBatch = async (batch) => {
                 safeJsonStringify(r.coordinates),
                 r.visibility || VISIBILITY_PUBLIC, r.orgid || null
             );
-            pi += 25;
+            if (useContentHash) values.push(r.content_hash || computeRiskHash(r));
+            pi += useContentHash ? 26 : 25;
         }
         await client.query(
-            `INSERT INTO risk_events_cache (id, source, source_id, risk_category, severity, severity_score, title, description, geometry_type, geometry_coordinates, latitude, longitude, impact_radius_km, event_time, updated_at, expires_at, url, recommendations, metadata, properties, golden_mesh_detection, population_impact, coordinates, visibility, orgid, ingested_at, geom) VALUES ${placeholders.join(", ")} ON CONFLICT (id) DO UPDATE SET severity=EXCLUDED.severity, severity_score=EXCLUDED.severity_score, title=EXCLUDED.title, description=EXCLUDED.description, latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude, impact_radius_km=EXCLUDED.impact_radius_km, event_time=EXCLUDED.event_time, updated_at=EXCLUDED.updated_at, expires_at=EXCLUDED.expires_at, url=EXCLUDED.url, recommendations=EXCLUDED.recommendations, metadata=EXCLUDED.metadata, properties=EXCLUDED.properties, golden_mesh_detection=EXCLUDED.golden_mesh_detection, population_impact=EXCLUDED.population_impact, coordinates=EXCLUDED.coordinates, visibility=EXCLUDED.visibility, orgid=EXCLUDED.orgid, ingested_at=NOW(), geom=EXCLUDED.geom`,
+            `INSERT INTO risk_events_cache (id, source, source_id, risk_category, severity, severity_score, title, description, geometry_type, geometry_coordinates, latitude, longitude, impact_radius_km, event_time, updated_at, expires_at, url, recommendations, metadata, properties, golden_mesh_detection, population_impact, coordinates, visibility, orgid, ${useContentHash ? "content_hash, " : ""}ingested_at, geom) VALUES ${placeholders.join(", ")} ON CONFLICT (id) DO UPDATE SET severity=EXCLUDED.severity, severity_score=EXCLUDED.severity_score, title=EXCLUDED.title, description=EXCLUDED.description, latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude, impact_radius_km=EXCLUDED.impact_radius_km, event_time=EXCLUDED.event_time, updated_at=EXCLUDED.updated_at, expires_at=EXCLUDED.expires_at, url=EXCLUDED.url, recommendations=EXCLUDED.recommendations, metadata=EXCLUDED.metadata, properties=EXCLUDED.properties, golden_mesh_detection=EXCLUDED.golden_mesh_detection, population_impact=EXCLUDED.population_impact, coordinates=EXCLUDED.coordinates, visibility=EXCLUDED.visibility, orgid=EXCLUDED.orgid, ${useContentHash ? "content_hash=EXCLUDED.content_hash, " : ""}ingested_at=NOW(), geom=COALESCE(EXCLUDED.geom, risk_events_cache.geom)${useContentHash ? " WHERE risk_events_cache.content_hash IS DISTINCT FROM EXCLUDED.content_hash" : ""}`,
             values
         );
         await client.query("COMMIT");
@@ -2422,25 +3351,18 @@ const flushToDb = async () => {
         return;
     }
     const accepted = enqueueUpsert(pending);
+    const writtenIds = pendingIds.slice(0, accepted);
     if (accepted >= pendingIds.length) {
         riskStorePendingDbIds.clear();
         riskStoreDirty = false;
     } else {
-        for (let i = 0; i < accepted; i++) {
-            riskStorePendingDbIds.delete(pendingIds[i]);
-        }
+        for (const id of writtenIds) riskStorePendingDbIds.delete(id);
     }
+    slimStoredRisks(writtenIds);
 };
 
 const startDbFlush = () => {
     dbWriteTimer = setInterval(flushToDb, DB_WRITE_INTERVAL_MS);
-};
-
-const stopDbFlush = () => {
-    if (dbWriteTimer) {
-        clearInterval(dbWriteTimer);
-        dbWriteTimer = null;
-    }
 };
 
 const checkGeomBackfillNeeded = async () => {
@@ -2531,7 +3453,7 @@ const runCleanup = async () => {
                 if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) break;
                 const rd = await safeQueryWithTimeout(
                     "DELETE FROM risk_events_cache WHERE id IN (SELECT id FROM risk_events_cache WHERE latitude IS NULL AND longitude IS NULL AND geometry_coordinates IS NULL LIMIT " + CLEANUP_DELETE_BATCH_SIZE + ")",
-                    [], 30000, "Cleanup delete no-location batch " + (i + 1) + "."
+                    [], 30000, "Cleanup delete no-location batch " + (i + 1)
                 );
                 if (!rd || rd.rowCount === 0) break;
                 if (rd.rowCount < CLEANUP_DELETE_BATCH_SIZE) break;
@@ -2549,7 +3471,7 @@ const runCleanup = async () => {
                 if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) break;
                 const rd = await safeQueryWithTimeout(
                     "DELETE FROM risk_events_cache WHERE id IN (SELECT id FROM risk_events_cache WHERE expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '" + CLEANUP_EXPIRED_GRACE_DAYS + " days' LIMIT " + CLEANUP_DELETE_BATCH_SIZE + ")",
-                    [], 30000, "Cleanup delete expired batch " + (i + 1) + "."
+                    [], 30000, "Cleanup delete expired batch " + (i + 1)
                 );
                 if (!rd || rd.rowCount === 0) break;
                 if (rd.rowCount < CLEANUP_DELETE_BATCH_SIZE) break;
@@ -2564,7 +3486,7 @@ const runCleanup = async () => {
                 if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) break;
                 const rd = await safeQueryWithTimeout(
                     "DELETE FROM risk_events_cache WHERE id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY source, source_id ORDER BY ingested_at DESC) AS rn FROM risk_events_cache WHERE source_id IS NOT NULL LIMIT 10000) sub WHERE rn > 1 LIMIT " + CLEANUP_DELETE_BATCH_SIZE + ")",
-                    [], 30000, "Cleanup dedup batch " + (i + 1) + "."
+                    [], 30000, "Cleanup dedup batch " + (i + 1)
                 );
                 if (!rd || rd.rowCount === 0) break;
                 if (rd.rowCount < CLEANUP_DELETE_BATCH_SIZE) break;
@@ -2583,7 +3505,7 @@ const runCleanup = async () => {
                 if (ps.waiting_requests > POOL_PRESSURE_WAITING_PAUSE) break;
                 const rg = await safeQueryWithTimeout(
                     "UPDATE risk_events_cache SET geom = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography WHERE id IN (SELECT id FROM risk_events_cache WHERE geom IS NULL AND longitude IS NOT NULL AND latitude IS NOT NULL LIMIT " + CLEANUP_GEOM_BATCH_SIZE + ")",
-                    [], 20000, "Cleanup geom backfill batch " + (i + 1) + "."
+                    [], 20000, "Cleanup geom backfill batch " + (i + 1)
                 );
                 if (!rg || rg.rowCount === 0) break;
                 if (rg.rowCount < CLEANUP_GEOM_BATCH_SIZE) break;
@@ -2592,7 +3514,7 @@ const runCleanup = async () => {
         }
 
         if (now - lastAnalyzeAt >= CLEANUP_ANALYZE_MIN_INTERVAL_MS) {
-            await safeQueryWithTimeout("ANALYZE risk_events_cache", [], 60000, "Cleanup ANALYZE risk_events_cache.");
+            await safeQueryWithTimeout("ANALYZE risk_events_cache", [], 60000, "Cleanup ANALYZE of risk_events_cache");
             lastAnalyzeAt = now;
         }
 
@@ -2610,17 +3532,14 @@ const startCleanup = () => {
     cleanupTimer = setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 };
 
-const stopCleanup = () => {
-    if (cleanupTimer) {
-        clearInterval(cleanupTimer);
-        cleanupTimer = null;
-    }
-};
+let resolveFirstIngestion;
+const firstIngestionDone = new Promise((done) => { resolveFirstIngestion = done; });
 
 const refreshAllDynamicData = async () => {
     try {
         await fetchUrbanCenters();
     } catch (error) {}
+    await firstIngestionDone;
     await Promise.allSettled([fetchAllInfrastructure(), DATA_SOURCES.sentinel1_deformation.refreshZones()].map(p => p.catch(() => {})));
     dynamicDataReady = true;
 };
@@ -2636,24 +3555,6 @@ const startDynamicRefresh = () => {
     }, CACHE_MS);
 };
 
-const stopDynamicRefresh = () => {
-    if (dynamicRefreshTimer) {
-        clearInterval(dynamicRefreshTimer);
-        dynamicRefreshTimer = null;
-    }
-    if (cacheCleanupTimer) {
-        clearInterval(cacheCleanupTimer);
-        cacheCleanupTimer = null;
-    }
-};
-
-const waitForDynamicData = async (timeoutMs) => {
-    const deadline = Date.now() + (timeoutMs || 120000);
-    while (!dynamicDataReady && Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 1000));
-    }
-};
-
 const initSSE = (res) => {
     res.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -2667,9 +3568,32 @@ const initSSE = (res) => {
 
 const sendSSE = (res, event, data) => {
     if (res.writableEnded || res.destroyed) return false;
+    if (res._sseLive && res.writableLength > SSE_MAX_BUFFERED_BYTES) {
+        res.destroy();
+        return false;
+    }
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    if (typeof res.flush === "function") res.flush();
     return true;
 };
+
+const waitForDrain = (res) => new Promise((done) => {
+    if (res.writableEnded || res.destroyed || res.writableLength <= SSE_DRAIN_THRESHOLD_BYTES) return done();
+    let settled = false;
+    let timer = null;
+    const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        res.off("drain", finish);
+        res.off("close", finish);
+        done();
+    };
+    res.on("drain", finish);
+    res.on("close", finish);
+    timer = setTimeout(finish, SSE_DRAIN_TIMEOUT_MS);
+    if (res.destroyed || res.writableEnded || res.writableLength <= SSE_DRAIN_THRESHOLD_BYTES) finish();
+});
 
 const broadcastIngestionProgress = (source, count, error) => {
     for (const client of sseClients) {
@@ -2677,6 +3601,76 @@ const broadcastIngestionProgress = (source, count, error) => {
             sendSSE(client.res, "ingestion_progress", { source, count, error, timestamp: new Date().toISOString() });
         }
     }
+};
+
+const liveRiskMatches = (client, risk) => {
+    if (!isRiskVisibleToOrg(risk, client.orgid)) return false;
+    if (client.categories && !client.categories.has(risk.risk_category)) return false;
+    if (client.bounds) {
+        if (risk.latitude == null || risk.longitude == null) return false;
+        const { min_lat, max_lat, min_lng, max_lng } = client.bounds;
+        if (risk.latitude < min_lat || risk.latitude > max_lat) return false;
+        if (min_lng <= max_lng) {
+            if (risk.longitude < min_lng || risk.longitude > max_lng) return false;
+        } else if (risk.longitude < min_lng && risk.longitude > max_lng) {
+            return false;
+        }
+    }
+    return true;
+};
+
+const broadcastRiskDelta = (sourceKey, risks) => {
+    if (!risks || !risks.length) return;
+    for (const client of sseClients) {
+        if (client.type !== "live") continue;
+        const visible = risks.filter((risk) => liveRiskMatches(client, risk)).map(annotateRiskVisibility);
+        if (!visible.length) continue;
+        for (let i = 0; i < visible.length; i += LIVE_CHUNK_SIZE) {
+            sendSSE(client.res, "risk_delta", {
+                source_key: sourceKey,
+                count: Math.min(LIVE_CHUNK_SIZE, visible.length - i),
+                risks: visible.slice(i, i + LIVE_CHUNK_SIZE),
+                timestamp: new Date().toISOString()
+            });
+        }
+    }
+};
+
+const broadcastRiskRemoved = (ids) => {
+    if (!ids.length) return;
+    for (const client of sseClients) {
+        if (client.type !== "live") continue;
+        for (let i = 0; i < ids.length; i += LIVE_CHUNK_SIZE) {
+            sendSSE(client.res, "risk_removed", { ids: ids.slice(i, i + LIVE_CHUNK_SIZE), timestamp: new Date().toISOString() });
+        }
+    }
+};
+
+const reconcileSourceSnapshot = (records) => {
+    const sources = new Set(records.map((record) => record.source));
+    const currentIds = new Set(records.map((record) => record.id));
+    const removed = [];
+    for (const [id, risk] of riskStore) {
+        if (sources.has(risk.source) && !currentIds.has(id) && !riskStorePendingDbIds.has(id)) {
+            riskStore.delete(id);
+            removed.push(id);
+        }
+    }
+    return removed;
+};
+
+const purgeExpiredRisks = () => {
+    const now = Date.now();
+    const removed = [];
+    for (const [id, risk] of riskStore) {
+        const expires = risk.expires_at ? new Date(risk.expires_at).getTime() : NaN;
+        if (!isNaN(expires) && expires < now && !riskStorePendingDbIds.has(id)) {
+            riskStore.delete(id);
+            removed.push(id);
+        }
+    }
+    broadcastRiskRemoved(removed);
+    return removed.length;
 };
 
 const broadcastIngestionEvent = (event, data) => {
@@ -2687,41 +3681,44 @@ const broadcastIngestionEvent = (event, data) => {
     }
 };
 
+const SOURCE_RETRY_BASE_MS = 2 * 60 * 1000;
+const sourceFailureStreak = {};
+
 const sourceIsDue = (sourceKey) => {
     const sched = SOURCE_SCHEDULE[sourceKey];
     if (!sched) return true;
     const last = sourceLastRunAt[sourceKey] || 0;
-    return Date.now() - last >= sched.intervalMs;
+    const streak = sourceFailureStreak[sourceKey] || 0;
+    const wait = streak > 0 ? Math.min(sched.intervalMs, SOURCE_RETRY_BASE_MS * Math.pow(2, streak - 1)) : sched.intervalMs;
+    return Date.now() - last >= wait;
 };
 
 const buildSourceParams = (sourceKey) => {
     const sched = SOURCE_SCHEDULE[sourceKey];
     if (!sched) return {};
-    const isStartup = !startupRunComplete && sched.fullHistoryAtStartup;
     const params = {};
     if (sourceKey === "usgs_earthquakes" || sourceKey === "emsc_earthquakes" || sourceKey === "ingv_earthquakes") {
-        const days = isStartup ? 30 : (sched.periodicWindowDays || 1);
+        const days = sched.periodicWindowDays || 1;
         params.start_time = new Date(Date.now() - days * 864e5).toISOString().split("T")[0];
-        if (!isStartup) params.limit = 2000;
+        params.limit = 2000;
+        params.min_magnitude = 1.0;
     } else if (sourceKey === "gdacs_events") {
-        const days = isStartup ? (sched.fullHistoryWindowDays || 90) : (sched.periodicWindowDays || 7);
+        const days = sched.periodicWindowDays || 7;
         params.from_date = new Date(Date.now() - days * 864e5).toISOString().split("T")[0];
         params.to_date = new Date().toISOString().split("T")[0];
     } else if (sourceKey === "eonet_events") {
-        params.days = isStartup ? (sched.fullEonetDays || 60) : (sched.periodicEonetDays || 7);
-        params.status = "all";
+        params.days = sched.periodicEonetDays || 7;
+        params.status = "open";
         params.limit = 500;
     } else if (sourceKey === "fema_disasters") {
-        params.window_days = isStartup ? (sched.fullHistoryWindowDays || 365) : (sched.periodicWindowDays || 7);
-    } else if (sourceKey === "noaa_alerts") {
-        params.event = "Flood";
+        params.window_days = sched.periodicWindowDays || 7;
     }
+    params._fresh = true;
     return params;
 };
 
 const runIngestion = async () => {
     if (ingestionRunning) return;
-    if (!dynamicDataReady) return;
     ingestionRunning = true;
     const runId = generateId("run");
     const startedAt = new Date().toISOString();
@@ -2732,7 +3729,8 @@ const runIngestion = async () => {
     const errDetails = [];
     const sourcesRunThisCycle = [];
 
-    const dueSources = Object.keys(DATA_SOURCES).filter(sourceIsDue);
+    await loadMonitoredAreaCenters();
+    const dueSources = Object.keys(DATA_SOURCES).filter((key) => ACTIVE_SOURCES.has(key) && sourceIsDue(key));
     if (!dueSources.length) {
         ingestionRunning = false;
         return;
@@ -2752,6 +3750,7 @@ const runIngestion = async () => {
 
     const ingestSource = async (sourceKey) => {
         sourceLastRunAt[sourceKey] = Date.now();
+        delete sourceLastError[sourceKey];
         sourcesRunThisCycle.push(sourceKey);
         try {
             const fn = SOURCE_REGISTRY[sourceKey];
@@ -2761,8 +3760,11 @@ const runIngestion = async () => {
             }
             const params = buildSourceParams(sourceKey);
             const data = await fn(params);
+            sourceLastCount[sourceKey] = data ? data.length : 0;
             if (data && data.length) {
-                const { added, skipped } = storeRisks(data, { enqueueForDb: true });
+                const { added, skipped, changed } = storeRisks(data, { enqueueForDb: false });
+                broadcastRiskDelta(sourceKey, changed);
+                broadcastRiskRemoved(reconcileSourceSnapshot(data));
                 totalSkippedHash += skipped;
                 completed[sourceKey] = added;
                 total += added;
@@ -2780,17 +3782,52 @@ const runIngestion = async () => {
         }
     };
 
-    const concurrentLimit = 3;
-    for (let i = 0; i < dueSources.length; i += concurrentLimit) {
-        const batch = dueSources.slice(i, i + concurrentLimit);
-        await Promise.allSettled(batch.map(ingestSource));
+    const priorityOf = (key) => {
+        const i = INGEST_PRIORITY.indexOf(key);
+        return i === -1 ? INGEST_PRIORITY.length : i;
+    };
+    const ordered = dueSources.filter((key) => !HEAVY_SOURCES.has(key)).sort((a, b) => priorityOf(a) - priorityOf(b));
+    const heavy = dueSources.filter((key) => HEAVY_SOURCES.has(key));
+    const runWithDeadline = async (sourceKey) => {
+        ingestionInFlight.add(sourceKey);
+        let timer;
+        try {
+            await Promise.race([
+                ingestSource(sourceKey),
+                new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`It took longer than ${SOURCE_DEADLINE_MS / 1000} seconds.`)), SOURCE_DEADLINE_MS); })
+            ]);
+        } catch (error) {
+            errors++;
+            completed[sourceKey] = -1;
+            sourceLastError[sourceKey] = error.message;
+            errDetails.push({ source: sourceKey, error: error.message });
+        } finally {
+            clearTimeout(timer);
+            ingestionInFlight.delete(sourceKey);
+            sourceFailureStreak[sourceKey] = sourceLastError[sourceKey] || completed[sourceKey] === -1 ? (sourceFailureStreak[sourceKey] || 0) + 1 : 0;
+        }
+    };
+    const pauseIfPoolBusy = async () => {
         const stats = poolStats();
         if (stats.waiting_requests > POOL_PRESSURE_WAITING_BACKOFF) {
             await new Promise(r => setTimeout(r, 3000));
         }
+    };
+    for (let i = 0; i < ordered.length; i += LIGHT_INGEST_CONCURRENCY) {
+        await Promise.all(ordered.slice(i, i + LIGHT_INGEST_CONCURRENCY).map(runWithDeadline));
+        await pauseIfPoolBusy();
+    }
+    for (const sourceKey of heavy) {
+        await runWithDeadline(sourceKey);
+        await new Promise((done) => setTimeout(done, 0));
+        await pauseIfPoolBusy();
     }
 
-    if (!startupRunComplete) startupRunComplete = true;
+    if (!startupRunComplete) {
+        startupRunComplete = true;
+        resolveFirstIngestion();
+    }
+
 
     await flushToDb();
 
@@ -2824,17 +3861,37 @@ const runIngestion = async () => {
     });
 };
 
-const startIngestion = async () => {
-    await waitForDynamicData(120000);
-    runIngestion();
-    ingestionTimer = setInterval(runIngestion, INGEST_TICK_MS);
+const detectContentHashColumn = async () => {
+    try {
+        const result = await queryWithTimeout(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = 'risk_events_cache' AND column_name = 'content_hash' LIMIT 1",
+            [],
+            10000
+        );
+        contentHashColumnReady = result.rows.length > 0;
+    } catch (error) {
+        contentHashColumnReady = false;
+    }
+    return contentHashColumnReady;
 };
 
-const stopIngestion = () => {
-    if (ingestionTimer) {
-        clearInterval(ingestionTimer);
-        ingestionTimer = null;
-    }
+const seedHashStore = async () => {
+    if (!contentHashColumnReady) return;
+    try {
+        const result = await queryWithTimeout(
+            "SELECT id, content_hash FROM risk_events_cache WHERE content_hash IS NOT NULL LIMIT $1",
+            [HASH_STORE_MAX],
+            30000
+        );
+        for (const row of result.rows) {
+            if (!hashStore.has(row.id)) hashStore.set(row.id, { hash: row.content_hash, id: row.id });
+        }
+    } catch (error) {}
+};
+
+const startIngestion = async () => {
+    runIngestion();
+    ingestionTimer = setInterval(runIngestion, INGEST_TICK_MS);
 };
 
 const hydrateRow = (r) => {
@@ -2852,160 +3909,6 @@ const hydrateRow = (r) => {
     };
 };
 
-router.get("/risk/intelligence/historical", async (req, res) => {
-    const startTime = req.query.start_time;
-    const endTime = req.query.end_time || new Date().toISOString();
-    const orgid = req.query.orgid || null;
-    if (!startTime) {
-        return res.status(400).json({ success: false, message: "start_time query parameter is required (ISO 8601)." });
-    }
-    let startDate;
-    let endDate;
-    try {
-        startDate = new Date(startTime);
-        endDate = new Date(endTime);
-        if (isNaN(startDate) || isNaN(endDate)) throw new Error("Invalid date.");
-    } catch (error) {
-        return res.status(400).json({ success: false, message: "start_time and end_time must be valid ISO 8601 timestamps." });
-    }
-    const spanDays = (endDate.getTime() - startDate.getTime()) / 86400000;
-    if (spanDays <= 0) {
-        return res.status(400).json({ success: false, message: "end_time must be after start_time." });
-    }
-    if (spanDays > HISTORICAL_MAX_DAYS) {
-        return res.status(400).json({ success: false, message: `Historical window cannot exceed ${HISTORICAL_MAX_DAYS} days.` });
-    }
-    const mnLat = req.query.min_lat ? parseFloat(req.query.min_lat) : null;
-    const mxLat = req.query.max_lat ? parseFloat(req.query.max_lat) : null;
-    const mnLng = req.query.min_lng ? parseFloat(req.query.min_lng) : null;
-    const mxLng = req.query.max_lng ? parseFloat(req.query.max_lng) : null;
-    const categories = req.query.categories ? req.query.categories.split(",").map(c => c.trim()).filter(Boolean) : null;
-    const severity = req.query.severity || null;
-    const limit = Math.min(parseInt(req.query.limit, 10) || HISTORICAL_DEFAULT_LIMIT, HISTORICAL_MAX_LIMIT);
-
-    let categoryLabels = null;
-    let categoryLabelSet = null;
-    if (categories && categories.length) {
-        categoryLabels = [];
-        for (const c of categories) {
-            const labels = CATEGORY_TO_LABEL[c];
-            if (labels) categoryLabels.push(...labels);
-        }
-        if (categoryLabels.length === 0) categoryLabels = null;
-        if (categoryLabels) categoryLabelSet = new Set(categoryLabels);
-    }
-
-    const startMs = startDate.getTime();
-    const endMs = endDate.getTime();
-    const mergedMap = new Map();
-    let memoryCount = 0;
-    let postgisCount = 0;
-
-    const dedupKeyFn = (risk) => {
-        return risk.source_id
-            ? `${risk.source || ""}_${risk.source_id}`
-            : `${risk.risk_category || ""}_${(risk.latitude || 0).toFixed(4)}_${(risk.longitude || 0).toFixed(4)}_${(risk.title || "").substring(0, 60)}`;
-    };
-
-    const passesFilters = (risk) => {
-        if (!risk.event_time) return false;
-        let evMs;
-        try {
-            evMs = new Date(risk.event_time).getTime();
-        } catch (error) {
-            return false;
-        }
-        if (isNaN(evMs)) return false;
-        if (evMs < startMs || evMs > endMs) return false;
-        if (mnLat != null && mxLat != null && mnLng != null && mxLng != null) {
-            if (risk.latitude == null || risk.longitude == null) return false;
-            if (risk.latitude < mnLat || risk.latitude > mxLat || risk.longitude < mnLng || risk.longitude > mxLng) return false;
-        }
-        if (categoryLabelSet && !categoryLabelSet.has(risk.risk_category)) return false;
-        if (severity && risk.severity !== severity) return false;
-        if (!isRiskVisibleToOrg(risk, orgid)) return false;
-        return true;
-    };
-
-    try {
-        for (const r of riskStore.values()) {
-            if (!passesFilters(r)) continue;
-            const k = dedupKeyFn(r);
-            if (!mergedMap.has(k)) {
-                mergedMap.set(k, annotateRiskVisibility({ ...r }));
-                memoryCount++;
-            }
-        }
-    } catch (error) {}
-
-    try {
-        const D = String.fromCharCode(36);
-        let sql = `SELECT ${SELECT_COLUMNS} FROM risk_events_cache WHERE event_time BETWEEN ${D}1 AND ${D}2`;
-        const qp = [startDate.toISOString(), endDate.toISOString()];
-        let pi = 3;
-        if (mnLat != null && mxLat != null && mnLng != null && mxLng != null) {
-            sql += ` AND latitude BETWEEN ${D}${pi} AND ${D}${pi + 1} AND longitude BETWEEN ${D}${pi + 2} AND ${D}${pi + 3}`;
-            qp.push(mnLat, mxLat, mnLng, mxLng);
-            pi += 4;
-        }
-        if (categoryLabels && categoryLabels.length) {
-            sql += ` AND risk_category = ANY(${D}${pi}::text[])`;
-            qp.push(categoryLabels);
-            pi++;
-        }
-        if (severity) {
-            sql += ` AND severity = ${D}${pi}`;
-            qp.push(severity);
-            pi++;
-        }
-        const vis = buildVisibilityClause(orgid, pi);
-        sql += vis.clause;
-        for (const v of vis.params) {
-            qp.push(v);
-            pi++;
-        }
-        sql += ` ORDER BY event_time DESC LIMIT ${D}${pi}`;
-        qp.push(Math.min(limit * 2, HISTORICAL_MAX_LIMIT));
-        const result = await queryWithTimeout(sql, qp, HISTORICAL_DB_TIMEOUT_MS);
-        for (const row of result.rows) {
-            const hydrated = hydrateRow(row);
-            const k = dedupKeyFn(hydrated);
-            if (!mergedMap.has(k)) {
-                mergedMap.set(k, hydrated);
-                postgisCount++;
-            }
-        }
-    } catch (error) {}
-
-    const allRisks = Array.from(mergedMap.values());
-    allRisks.sort((a, b) => {
-        const aMs = a.event_time ? new Date(a.event_time).getTime() : 0;
-        const bMs = b.event_time ? new Date(b.event_time).getTime() : 0;
-        return bMs - aMs;
-    });
-    const risks = allRisks.slice(0, limit);
-
-    const sevCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-    const catCounts = {};
-    for (const r of risks) {
-        if (sevCounts[r.severity] !== undefined) sevCounts[r.severity]++;
-        catCounts[r.risk_category] = (catCounts[r.risk_category] || 0) + 1;
-    }
-
-    return res.status(200).json({
-        success: true,
-        message: `Found ${risks.length} historical risk events.`,
-        start_time: startDate.toISOString(),
-        end_time: endDate.toISOString(),
-        span_days: parseFloat(spanDays.toFixed(2)),
-        count: risks.length,
-        sources: { in_memory: memoryCount, postgis: postgisCount },
-        by_severity: sevCounts,
-        by_category: catCounts,
-        risks
-    });
-});
-
 router.post("/risk/intel/briefing", async (req, res) => {
     const { risk } = req.body;
     if (!risk || !risk.title) {
@@ -3013,9 +3916,9 @@ router.post("/risk/intel/briefing", async (req, res) => {
     }
     try {
         const briefing = { risk, generated_at: new Date().toISOString() };
-        return res.status(200).json({ success: true, message: "Intelligence briefing generated successfully.", cached: false, ...briefing });
+        return res.status(200).json({ success: true, message: "The intelligence briefing was generated successfully.", cached: false, ...briefing });
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to generate intelligence briefing." });
+        return res.status(500).json({ success: false, message: "The intelligence briefing could not be generated." });
     }
 });
 
@@ -3030,7 +3933,7 @@ router.get("/risk/intelligence/stream", async (req, res) => {
     if (req.query.end_time) params.end_time = req.query.end_time;
     const orgid = req.query.orgid || null;
     const categories = req.query.categories ? req.query.categories.split(",") : ["earthquakes","wildfires","weather","floods","volcanoes","air_quality","global_disasters","ground_deformation","space_weather"];
-    const overridesMap = { floods: { noaa_alerts: { event: "Flood" } }, global_disasters: { eonet_events: { days: 60, limit: 500 } } };
+    const overridesMap = { floods: { noaa_alerts: { event: "Flood" } }, global_disasters: { eonet_events: { days: 7, status: "open", limit: 500 } } };
     if (params.start_time) {
         const startDate = params.start_time.split("T")[0];
         const endDate = (params.end_time || new Date().toISOString()).split("T")[0];
@@ -3050,11 +3953,10 @@ router.get("/risk/intelligence/stream", async (req, res) => {
         if (closed.value) return;
         sendSSE(res, "source_started", { category: cat, timestamp: new Date().toISOString() });
         const overrides = overridesMap[cat] || {};
-        await fetchRiskStreaming(cat, params, overrides, (sourceKey, risks) => {
-            if (closed.value) return;
-            try {
-                storeRisks(risks, { enqueueForDb: false });
-            } catch (error) {}
+        await streamGroupFromMemory(cat, params, overrides, async (sourceKey, risks) => {
+            if (closed.value || res.destroyed) return false;
+            await waitForDrain(res);
+            if (closed.value || res.destroyed) return false;
             const visibleRisks = filterRisksForOrg(risks, orgid);
             if (!visibleRisks.length) return;
             totalCount += visibleRisks.length;
@@ -3093,7 +3995,7 @@ router.get("/risk/intelligence/stream/:group", async (req, res) => {
     const group = req.params.group;
     const validGroups = Object.keys(SOURCE_GROUPS);
     if (!validGroups.includes(group) && !SOURCE_REGISTRY[group]) {
-        return res.status(400).json({ success: false, message: `Unknown source group '${group}'. Valid groups are: ${validGroups.join(", ")}.` });
+        return res.status(400).json({ success: false, message: `The source group '${group}' is not recognized, and the valid groups are ${validGroups.join(", ")}.` });
     }
     initSSE(res);
     const streamId = generateId("stream");
@@ -3102,18 +4004,21 @@ router.get("/risk/intelligence/stream/:group", async (req, res) => {
     delete params.categories;
     delete params.orgid;
     delete params.username;
-    const overridesMap = { floods: { noaa_alerts: { event: "Flood" } }, global_disasters: { eonet_events: { days: 60, status: "all", limit: 500 } } };
+    const overridesMap = { floods: { noaa_alerts: { event: "Flood" } }, global_disasters: { eonet_events: { days: 7, status: "open", limit: 500 } } };
     const overrides = overridesMap[group] || {};
     let totalCount = 0;
     sendSSE(res, "stream_started", { stream_id: streamId, group, orgid, timestamp: new Date().toISOString() });
 
     const closed = { value: false };
     req.on("close", () => { closed.value = true; });
-    await fetchRiskStreaming(group, params, overrides, (sourceKey, risks) => {
+    const streamParams = {};
+    for (const k of ["min_lat", "max_lat", "min_lng", "max_lng"]) {
+        if (params[k] != null && params[k] !== "") streamParams[k] = parseFloat(params[k]);
+    }
+    if (params.start_time) streamParams.start_time = params.start_time;
+    if (params.end_time) streamParams.end_time = params.end_time;
+    await streamGroupFromMemory(group, streamParams, overrides, (sourceKey, risks) => {
         if (closed.value) return;
-        try {
-            storeRisks(risks, { enqueueForDb: false });
-        } catch (error) {}
         const visibleRisks = filterRisksForOrg(risks, orgid);
         if (!visibleRisks.length) return;
         totalCount += visibleRisks.length;
@@ -3279,6 +4184,281 @@ router.get("/risk/intelligence/stream/postgis/nearby", async (req, res) => {
     }
 });
 
+const pointInRiskRing = (lng, lat, ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = Number(ring[i][0]);
+        const yi = Number(ring[i][1]);
+        const xj = Number(ring[j][0]);
+        const yj = Number(ring[j][1]);
+        if (((yi > lat) !== (yj > lat)) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+};
+
+const riskPolygonRings = (risk) => {
+    const g = risk.geometry_coordinates;
+    if (!Array.isArray(g) || !g.length) return [];
+    if (risk.geometry_type === "Polygon" && Array.isArray(g[0]) && Array.isArray(g[0][0])) return [g[0]];
+    if (risk.geometry_type === "MultiPolygon") return g.map((polygon) => (Array.isArray(polygon) ? polygon[0] : null)).filter((ring) => Array.isArray(ring) && ring.length >= 3);
+    return [];
+};
+
+const riskInsideAnyArea = (risk, areas) => {
+    const points = [];
+    if (risk.latitude != null && risk.longitude != null) points.push([risk.longitude, risk.latitude]);
+    if (Array.isArray(risk.metadata?.zone_points)) points.push(...risk.metadata.zone_points);
+    if (points.some(([lng, lat]) => areas.some((area) => haversine(area.lat, area.lng, lat, lng) / 1000 <= area.km))) return true;
+    const rings = riskPolygonRings(risk);
+    return rings.some((ring) => ring.length >= 3 && areas.some((area) => pointInRiskRing(area.lng, area.lat, ring)));
+};
+
+const riskAnalysisCache = new Map();
+const riskAnalysisWarmQueue = [];
+let riskAnalysisWarmActive = 0;
+
+const riskAnalysisKey = (risk) => `${risk.id}|${risk.severity || ""}|${risk.title || ""}`;
+
+const postRiskAnalysis = async (url, body) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SOURCE_ANALYSIS.timeoutMs);
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": process.env[SOURCE_ANALYSIS.apiKeyEnv] },
+            body: JSON.stringify(body),
+            signal: controller.signal
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            const error = new Error((data && data.error && data.error.message) || `${SOURCE_ANALYSIS.name} returned status ${response.status}.`);
+            error.status = response.status;
+            throw error;
+        }
+        return data;
+    } catch (error) {
+        if (error && error.name === "AbortError") throw new Error(`${SOURCE_ANALYSIS.name} did not answer within ${Math.round(SOURCE_ANALYSIS.timeoutMs / 1000)} seconds.`);
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
+};
+
+const requestRiskAnalysis = async (risk) => {
+    const settings = SOURCE_ANALYSIS;
+    const metadata = { ...(risk.metadata || {}) };
+    delete metadata.zone_points;
+    const payload = {
+        title: risk.title,
+        category: risk.risk_category,
+        severity: risk.severity,
+        severityScore: risk.severity_score,
+        source: risk.source,
+        eventTime: risk.event_time,
+        updatedAt: risk.updated_at,
+        expiresAt: risk.expires_at,
+        latitude: risk.latitude,
+        longitude: risk.longitude,
+        impactRadiusKm: risk.impact_radius_km,
+        populationImpact: risk.population_impact,
+        recommendations: risk.recommendations,
+        metadata,
+        description: String(risk.description || "").slice(0, settings.maxTextChars)
+    };
+    const body = (withThinking) => ({
+        systemInstruction: { parts: [{ text: settings.instructions }] },
+        contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }],
+        generationConfig: {
+            temperature: settings.temperature,
+            maxOutputTokens: settings.maxOutputTokens,
+            ...(withThinking && settings.thinkingLevel ? { thinkingConfig: { thinkingLevel: settings.thinkingLevel } } : {}),
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: "OBJECT",
+                properties: {
+                    summary: { type: "STRING" },
+                    threats: { type: "ARRAY", items: { type: "STRING" } },
+                    actions: { type: "ARRAY", items: { type: "STRING" } },
+                    timing: { type: "STRING" },
+                    confidence: { type: "STRING" }
+                },
+                required: ["summary", "threats", "actions", "timing", "confidence"]
+            }
+        }
+    });
+    const url = settings.endpoint.replace("{model}", encodeURIComponent(settings.model));
+    let data;
+    try {
+        data = await postRiskAnalysis(url, body(true));
+    } catch (error) {
+        if (!(error && error.status === 400 && /thinking/i.test(String(error.message || "")))) throw error;
+        data = await postRiskAnalysis(url, body(false));
+    }
+    const content = (((data || {}).candidates || [])[0] || {}).content;
+    const raw = content && Array.isArray(content.parts) ? content.parts.map((part) => part.text || "").join("") : "";
+    const parsed = JSON.parse(raw.replace(/```json\s*/g, "").replace(/```/g, "").trim());
+    return {
+        summary: String(parsed.summary || "").trim(),
+        threats: (Array.isArray(parsed.threats) ? parsed.threats : []).map((item) => String(item).trim()).filter(Boolean),
+        actions: (Array.isArray(parsed.actions) ? parsed.actions : []).map((item) => String(item).trim()).filter(Boolean),
+        timing: String(parsed.timing || "").trim(),
+        confidence: String(parsed.confidence || "").trim(),
+        model: settings.model,
+        generatedAt: new Date().toISOString()
+    };
+};
+
+const riskAnalysisFor = (risk) => {
+    const key = riskAnalysisKey(risk);
+    const cached = riskAnalysisCache.get(key);
+    if (cached && cached.result) return Promise.resolve(cached.result);
+    if (cached && cached.loading) return cached.loading;
+    const loading = requestRiskAnalysis(risk).then((result) => {
+        riskAnalysisCache.delete(key);
+        riskAnalysisCache.set(key, { result });
+        while (riskAnalysisCache.size > SOURCE_ANALYSIS.cacheLimit) riskAnalysisCache.delete(riskAnalysisCache.keys().next().value);
+        return result;
+    }).catch((error) => {
+        riskAnalysisCache.set(key, { failedAt: Date.now() });
+        throw error;
+    });
+    riskAnalysisCache.set(key, { loading });
+    return loading;
+};
+
+const warmRiskAnalyses = (risks) => {
+    if (!process.env[SOURCE_ANALYSIS.apiKeyEnv]) return;
+    for (const risk of risks) {
+        const cached = riskAnalysisCache.get(riskAnalysisKey(risk));
+        if (cached && (cached.result || cached.loading || Date.now() - cached.failedAt < SOURCE_ANALYSIS.failureCooldownMs)) continue;
+        if (riskAnalysisWarmQueue.some((queued) => riskAnalysisKey(queued) === riskAnalysisKey(risk))) continue;
+        riskAnalysisWarmQueue.push(risk);
+    }
+    while (riskAnalysisWarmActive < SOURCE_ANALYSIS.warmConcurrency && riskAnalysisWarmQueue.length) {
+        const next = riskAnalysisWarmQueue.shift();
+        riskAnalysisWarmActive += 1;
+        riskAnalysisFor(next).catch(() => null).finally(() => {
+            riskAnalysisWarmActive -= 1;
+            warmRiskAnalyses([]);
+        });
+    }
+};
+
+router.get("/risk/areas/hazards", async (req, res) => {
+    const { orgid, username } = req.query;
+    if (!orgid || !username) {
+        return res.status(400).json({ success: false, message: "The orgid and username query parameters are required." });
+    }
+    try {
+        const result = await queryWithTimeout(
+            "SELECT latitude, longitude, radius_km, min_lat, max_lat, min_lng, max_lng, mode FROM risk_user_areas WHERE orgid = $1 AND username = $2",
+            [orgid, username], 10000
+        );
+        const areas = result.rows.map((row) => {
+            if (row.mode === "point_radius") return { lat: parseFloat(row.latitude), lng: parseFloat(row.longitude), km: parseFloat(row.radius_km) };
+            const lat = (parseFloat(row.min_lat) + parseFloat(row.max_lat)) / 2;
+            const lng = (parseFloat(row.min_lng) + parseFloat(row.max_lng)) / 2;
+            return { lat, lng, km: haversine(lat, lng, parseFloat(row.max_lat), parseFloat(row.max_lng)) / 1000 };
+        }).filter((a) => !isNaN(a.lat) && !isNaN(a.lng) && !isNaN(a.km));
+        const now = Date.now();
+        const risks = [];
+        for (const risk of riskStore.values()) {
+            const expires = risk.expires_at ? new Date(risk.expires_at).getTime() : NaN;
+            if (!isNaN(expires) && expires < now) continue;
+            if (!riskInsideAnyArea(risk, areas)) continue;
+            risks.push(risk);
+        }
+        const visible = filterRisksForOrg(risks, orgid);
+        warmRiskAnalyses(visible.filter((risk) => SOURCE_ANALYSIS.warmSeverities.includes(risk.severity)).slice(0, SOURCE_ANALYSIS.warmPerRequest));
+        return res.status(200).json({ success: true, risks: visible, count: visible.length, generated_at: new Date().toISOString(), message: `${visible.length} hazards are inside your monitored areas.` });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "The hazards for your monitored areas could not be retrieved." });
+    }
+});
+
+router.get("/risk/alerts/analysis", async (req, res) => {
+    if (!process.env[SOURCE_ANALYSIS.apiKeyEnv]) {
+        return res.status(503).json({ success: false, message: `The AI analysis is unavailable because ${SOURCE_ANALYSIS.apiKeyEnv} is not configured.` });
+    }
+    const risk = riskStore.get(String(req.query.id || ""));
+    if (!risk || !isRiskVisibleToOrg(risk, req.query.orgid || null)) {
+        return res.status(404).json({ success: false, message: "The event is no longer active or was not found." });
+    }
+    try {
+        const cached = riskAnalysisCache.get(riskAnalysisKey(risk));
+        const analysis = await riskAnalysisFor(risk);
+        return res.status(200).json({ success: true, analysis, cached: Boolean(cached && cached.result) });
+    } catch (error) {
+        const reason = String((error && error.message) || "The request failed.").replace(/\.?$/, ".");
+        return res.status(502).json({ success: false, message: `The AI analysis could not be generated by ${SOURCE_ANALYSIS.name}. ${reason}` });
+    }
+});
+
+router.get("/risk/intelligence/sources/status", (req, res) => {
+    const areas = monitoredAreaCenters;
+    const inMemory = new Map();
+    const inAreas = new Map();
+    for (const risk of riskStore.values()) {
+        inMemory.set(risk.source, (inMemory.get(risk.source) || 0) + 1);
+        if (riskInsideAnyArea(risk, areas)) inAreas.set(risk.source, (inAreas.get(risk.source) || 0) + 1);
+    }
+    const sources = [...ACTIVE_SOURCES].map((key) => ({
+        key,
+        name: DATA_SOURCES[key]?.name || key,
+        last_run_at: sourceLastRunAt[key] ? new Date(sourceLastRunAt[key]).toISOString() : null,
+        last_success_at: sourceLastSuccessAt[key] ? new Date(sourceLastSuccessAt[key]).toISOString() : null,
+        last_count: sourceLastCount[key] ?? null,
+        last_error: sourceLastError[key] || null,
+        categories: Object.keys(SOURCE_GROUPS).filter((group) => group !== "all" && SOURCE_GROUPS[group].includes(key)),
+        in_memory: inMemory.get(DATA_SOURCES[key]?.sourceName) || 0,
+        in_areas: inAreas.get(DATA_SOURCES[key]?.sourceName) || 0
+    }));
+    res.status(200).json({ success: true, sources, message: `${sources.length} sources are active.` });
+});
+
+router.get("/risk/intelligence/live", async (req, res) => {
+    initSSE(res);
+    const clientId = generateId("sse");
+    const bounds = {};
+    for (const k of ["min_lat", "max_lat", "min_lng", "max_lng"]) {
+        const value = parseFloat(req.query[k]);
+        if (!isNaN(value)) bounds[k] = value;
+    }
+    const client = {
+        id: clientId,
+        res,
+        type: "live",
+        orgid: req.query.orgid || null,
+        categories: req.query.categories ? new Set(req.query.categories.split(",").flatMap((c) => CATEGORY_TO_LABEL[c] || [c])) : null,
+        bounds: Object.keys(bounds).length === 4 ? bounds : null
+    };
+    const snapshot = [];
+    if (req.query.snapshot !== "0") {
+        for (const risk of riskStore.values()) {
+            if (liveRiskMatches(client, risk)) snapshot.push(annotateRiskVisibility(slimRiskForMemory(risk)));
+        }
+    }
+    sendSSE(res, "snapshot_started", { client_id: clientId, total_count: snapshot.length, ingestion_running: ingestionRunning, timestamp: new Date().toISOString() });
+    for (let i = 0; i < snapshot.length; i += LIVE_CHUNK_SIZE) {
+        if (!sendSSE(res, "snapshot_data", { risks: snapshot.slice(i, i + LIVE_CHUNK_SIZE), timestamp: new Date().toISOString() })) break;
+        await waitForDrain(res);
+    }
+    if (res.writableEnded || res.destroyed) return;
+    sendSSE(res, "snapshot_completed", { total_count: snapshot.length, timestamp: new Date().toISOString() });
+    res._sseLive = true;
+    sseClients.add(client);
+    const heartbeat = setInterval(() => {
+        if (!sendSSE(res, "heartbeat", { timestamp: new Date().toISOString() })) {
+            clearInterval(heartbeat);
+            sseClients.delete(client);
+        }
+    }, LIVE_HEARTBEAT_MS);
+    req.on("close", () => {
+        clearInterval(heartbeat);
+        sseClients.delete(client);
+    });
+});
+
 router.get("/risk/intelligence/ingest/stream", async (req, res) => {
     initSSE(res);
     const clientId = generateId("sse");
@@ -3296,131 +4476,22 @@ router.get("/risk/intelligence/ingest/stream", async (req, res) => {
     });
 });
 
-router.get("/risk/intelligence/nearby", async (req, res) => {
-    const lat = parseFloat(req.query.lat);
-    const lng = parseFloat(req.query.lng);
-    const radiusKm = parseFloat(req.query.radius_km) || 100;
-    const sev = req.query.severity;
-    const cat = req.query.category;
-    const orgid = req.query.orgid || null;
-    const limit = parseInt(req.query.limit, 10) || 500;
-    if (isNaN(lat) || isNaN(lng)) return res.status(400).json({ success: false, message: "The lat and lng query parameters are required and must be valid numbers." });
-    try {
-        const D = String.fromCharCode(36);
-        let sql = "SELECT " + SELECT_COLUMNS + ", ST_Distance(geom, ST_SetSRID(ST_MakePoint(" + D + "1, " + D + "2), 4326)::geography) AS distance_meters FROM risk_events_cache WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(" + D + "1, " + D + "2), 4326)::geography, " + D + "3)";
-        const qp = [lng, lat, radiusKm * 1000];
-        let pi = 4;
-        if (sev) {
-            sql += " AND severity = " + D + pi;
-            qp.push(sev);
-            pi++;
-        }
-        if (cat) {
-            sql += " AND risk_category = " + D + pi;
-            qp.push(cat);
-            pi++;
-        }
-        const vis = buildVisibilityClause(orgid, pi);
-        sql += vis.clause;
-        for (const v of vis.params) {
-            qp.push(v);
-            pi++;
-        }
-        sql += " ORDER BY distance_meters ASC LIMIT " + D + pi;
-        qp.push(limit);
-        const result = await queryWithTimeout(sql, qp, QUERY_TIMEOUT_MS);
-        const risks = result.rows.map(hydrateRow);
-        return res.status(200).json({ success: true, message: `Found ${risks.length} risk events within ${radiusKm} km.`, location: { latitude: lat, longitude: lng }, radius_km: radiusKm, count: risks.length, risks });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to query nearby risk events." });
-    }
-});
-
-router.get("/risk/intelligence/postgis/category-summary", async (req, res) => {
-    const orgid = req.query.orgid || null;
-    try {
-        const D = String.fromCharCode(36);
-        let sql = "SELECT risk_category, severity, COUNT(*) AS event_count FROM risk_events_cache WHERE 1=1";
-        const qp = [];
-        let pi = 1;
-        const vis = buildVisibilityClause(orgid, pi);
-        sql += vis.clause;
-        for (const v of vis.params) {
-            qp.push(v);
-            pi++;
-        }
-        sql += " GROUP BY risk_category, severity ORDER BY risk_category, severity";
-        const result = await queryWithTimeout(sql, qp, QUERY_TIMEOUT_MS);
-        const summary = {};
-        for (const r of result.rows) {
-            if (!summary[r.risk_category]) summary[r.risk_category] = { total: 0, by_severity: {} };
-            summary[r.risk_category].by_severity[r.severity] = parseInt(r.event_count, 10);
-            summary[r.risk_category].total += parseInt(r.event_count, 10);
-        }
-        const tot = Object.values(summary).reduce((s, c) => s + c.total, 0);
-        return res.status(200).json({ success: true, message: `Summary of ${tot} cached risk events.`, total_events: tot, categories: summary });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to retrieve category summary." });
-    }
-});
-
-router.get("/risk/intelligence/postgis/bbox", async (req, res) => {
-    const mnLat = parseFloat(req.query.min_lat);
-    const mxLat = parseFloat(req.query.max_lat);
-    const mnLng = parseFloat(req.query.min_lng);
-    const mxLng = parseFloat(req.query.max_lng);
-    const sev = req.query.severity;
-    const cat = req.query.category;
-    const orgid = req.query.orgid || null;
-    const limit = parseInt(req.query.limit, 10) || 1000;
-    if (isNaN(mnLat) || isNaN(mxLat) || isNaN(mnLng) || isNaN(mxLng)) return res.status(400).json({ success: false, message: "The min_lat, max_lat, min_lng, and max_lng query parameters are required." });
-    try {
-        const D = String.fromCharCode(36);
-        let sql = "SELECT " + SELECT_COLUMNS + " FROM risk_events_cache WHERE ST_Intersects(geom, ST_SetSRID(ST_MakeEnvelope(" + D + "1, " + D + "2, " + D + "3, " + D + "4), 4326)::geography)";
-        const qp = [mnLng, mnLat, mxLng, mxLat];
-        let pi = 5;
-        if (sev) {
-            sql += " AND severity = " + D + pi;
-            qp.push(sev);
-            pi++;
-        }
-        if (cat) {
-            sql += " AND risk_category = " + D + pi;
-            qp.push(cat);
-            pi++;
-        }
-        const vis = buildVisibilityClause(orgid, pi);
-        sql += vis.clause;
-        for (const v of vis.params) {
-            qp.push(v);
-            pi++;
-        }
-        sql += " ORDER BY severity_score DESC LIMIT " + D + pi;
-        qp.push(limit);
-        const result = await queryWithTimeout(sql, qp, QUERY_TIMEOUT_MS);
-        const risks = result.rows.map(hydrateRow);
-        return res.status(200).json({ success: true, message: `Found ${risks.length} risk events within the bounding box.`, bounds: { min_lat: mnLat, max_lat: mxLat, min_lng: mnLng, max_lng: mxLng }, count: risks.length, risks });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to query risk events by bounding box." });
-    }
-});
-
 router.get("/risk/user/views", async (req, res) => {
     const { orgid, username } = req.query;
-    if (!orgid || !username) return res.status(400).json({ success: false, message: "orgid and username query parameters are required." });
+    if (!orgid || !username) return res.status(400).json({ success: false, message: "The orgid and username query parameters are required." });
     try {
         const result = await queryWithTimeout("SELECT view_id, orgid, username, name, description, view_data, created_at, updated_at FROM risk_user_views WHERE orgid = $1 AND username = $2 ORDER BY updated_at DESC, created_at DESC LIMIT 100", [orgid, username], 10000);
         const views = result.rows.map(row => ({ view_id: row.view_id, name: row.name, description: row.description, created_at: row.created_at, updated_at: row.updated_at, ...(parseJson(row.view_data) || {}) }));
-        return res.status(200).json({ success: true, count: views.length, views, message: `Retrieved ${views.length} saved views.` });
+        return res.status(200).json({ success: true, count: views.length, views, message: `${views.length} saved views were retrieved.` });
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to retrieve saved views.", views: [] });
+        return res.status(500).json({ success: false, message: "The saved views could not be retrieved.", views: [] });
     }
 });
 
 router.put("/risk/user/views", async (req, res) => {
     const { orgid, username, view_id, name, description } = req.body;
-    if (!orgid || !username || !view_id) return res.status(400).json({ success: false, message: "orgid, username, and view_id are required." });
-    if (!name || typeof name !== "string" || !name.trim()) return res.status(400).json({ success: false, message: "Name is required." });
+    if (!orgid || !username || !view_id) return res.status(400).json({ success: false, message: "The orgid, username, and view_id fields are required." });
+    if (!name || typeof name !== "string" || !name.trim()) return res.status(400).json({ success: false, message: "A name is required." });
     const trimmedName = name.trim().substring(0, 200);
     const trimmedDesc = typeof description === "string" ? description.trim().substring(0, 1000) : "";
     const viewData = { ...req.body };
@@ -3431,21 +4502,9 @@ router.put("/risk/user/views", async (req, res) => {
     delete viewData.description;
     try {
         await queryWithTimeout(`INSERT INTO risk_user_views (view_id, orgid, username, name, description, view_data, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW(), NOW()) ON CONFLICT (view_id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, view_data = EXCLUDED.view_data, updated_at = NOW() WHERE risk_user_views.orgid = EXCLUDED.orgid AND risk_user_views.username = EXCLUDED.username`, [view_id, orgid, username, trimmedName, trimmedDesc, safeJsonStringify(viewData)], 10000);
-        return res.status(200).json({ success: true, view_id, message: "Saved view persisted." });
+        return res.status(200).json({ success: true, view_id, message: "The view was saved." });
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to save view." });
-    }
-});
-
-router.delete("/risk/user/views/:view_id", async (req, res) => {
-    const { view_id } = req.params;
-    const { orgid, username } = req.query;
-    if (!orgid || !username) return res.status(400).json({ success: false, message: "orgid and username query parameters are required." });
-    try {
-        const result = await queryWithTimeout("DELETE FROM risk_user_views WHERE view_id = $1 AND orgid = $2 AND username = $3 RETURNING view_id", [view_id, orgid, username], 10000);
-        return res.status(200).json({ success: true, deleted: result.rows.length > 0, message: result.rows.length ? "Saved view deleted." : "No matching saved view to delete." });
-    } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to delete saved view." });
+        return res.status(500).json({ success: false, message: "The view could not be saved." });
     }
 });
 
@@ -3456,7 +4515,7 @@ router.post("/risk/intelligence/ingest/trigger", async (req, res) => {
         for (const k of Object.keys(sourceLastRunAt)) sourceLastRunAt[k] = 0;
     }
     runIngestion();
-    return res.status(202).json({ success: true, message: "Ingestion cycle triggered successfully." });
+    return res.status(202).json({ success: true, message: "The ingestion cycle was triggered successfully." });
 });
 
 router.get("/risk/intelligence/ingest/status", async (req, res) => {
@@ -3478,7 +4537,7 @@ router.get("/risk/intelligence/ingest/status", async (req, res) => {
             };
         }
         return res.status(200).json({
-            success: true, message: "Ingestion status retrieved successfully.", currently_running: ingestionRunning,
+            success: true, message: "The ingestion status was retrieved successfully.", currently_running: ingestionRunning,
             interval_seconds: INGEST_TICK_MS / 1000, in_memory_events: riskStore.size, database_pool: stats,
             pool_pressure: { peak_waiting_requests: peakWaitingRequests, peak_active_connections: peakActiveConnections, last_check: lastPressureCheck },
             write_queue: { pending_batches: writeQueue.length, pending_items: writeQueue.reduce((sum, batch) => sum + batch.length, 0), processing: writeQueueProcessing, dropped_total: writeQueueDropped, db_write_interval_seconds: DB_WRITE_INTERVAL_MS / 1000, db_writes_enabled: DB_WRITE_ENABLED, store_dirty: riskStoreDirty, pending_db_ids: riskStorePendingDbIds.size, writes_accepted_total: writesAccepted, writes_skipped_by_hash: writesSkippedHash },
@@ -3491,7 +4550,7 @@ router.get("/risk/intelligence/ingest/status", async (req, res) => {
             recent_runs: recentRuns
         });
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to retrieve ingestion status." });
+        return res.status(500).json({ success: false, message: "The ingestion status could not be retrieved." });
     }
 });
 
@@ -3506,7 +4565,7 @@ const makeSourceEndpoint = (path, group, extraFn) => {
             const visible = filterRisksForOrg(data, orgid);
             return res.status(200).json({ success: true, count: visible.length, risks: visible });
         } catch (error) {
-            return res.status(500).json({ success: false, message: `Failed to retrieve ${group} data.` });
+            return res.status(500).json({ success: false, message: `The ${group} data could not be retrieved.` });
         }
     });
 };
@@ -3553,61 +4612,60 @@ router.post("/risk/intelligence/assess-location", async (req, res) => {
         const pop = estimatePopDensity(latitude, longitude);
         const infra = assessInfraProximity(latitude, longitude);
         return res.status(200).json({
-            success: true, message: "Location risk assessment completed.",
+            success: true, message: "The location risk assessment was completed.",
             location: { latitude, longitude, nearest_city: pop.nearest_city, population_density: pop.density, critical_infrastructure_nearby: infra },
             radius_km: rKm,
             assessment: { risk_score: parseFloat(score.toFixed(1)), risk_level: level, total_risks_nearby: all.length, risk_factors: factors.slice(0, 15), population_exposure: pop, ground_deformation_zones: srcMap.ground_deformation ? srcMap.ground_deformation.length : 0 },
             nearby_risks: all.slice(0, 100)
         });
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to assess location risk." });
+        return res.status(500).json({ success: false, message: "The location risk could not be assessed." });
     }
 });
 
 router.get("/risk/intelligence/sources", async (req, res) => {
     return res.status(200).json({
-        success: true, message: "Data sources retrieved successfully.", count: 28,
+        success: true, message: "The data sources were retrieved successfully.", count: 28,
         sources: [
-            { id: "usgs_earthquakes", name: "USGS Earthquake Hazards", category: "Seismic", url: "https://earthquake.usgs.gov/", update_frequency: "Real-time", coverage: "Global", data_types: ["Earthquakes", "Aftershocks", "Fault data", "Shake intensity", "Tsunami potential"] },
-            { id: "emsc", name: "European-Mediterranean Seismological Centre", category: "Seismic", url: "https://www.emsc-csem.org/", update_frequency: "Real-time", coverage: "Global", data_types: ["Earthquakes", "Felt reports"] },
-            { id: "ingv", name: "INGV Italy", category: "Seismic", url: "https://terremoti.ingv.it/", update_frequency: "Real-time", coverage: "Italy and Mediterranean", data_types: ["Earthquakes"] },
-            { id: "geonet_nz", name: "GeoNet New Zealand", category: "Seismic", url: "https://www.geonet.org.nz/", update_frequency: "Real-time", coverage: "New Zealand", data_types: ["Earthquakes", "Volcanic"] },
-            { id: "nifc", name: "NIFC Wildfires", category: "Wildfire", url: "https://www.nifc.gov/", update_frequency: "Daily", coverage: "United States", data_types: ["Fire perimeters", "Containment"] },
-            { id: "noaa_nws", name: "NOAA NWS", category: "Weather", url: "https://www.weather.gov/", update_frequency: "Real-time", coverage: "United States", data_types: ["Severe weather alerts"] },
-            { id: "noaa_spc", name: "NOAA SPC", category: "Weather", url: "https://www.spc.noaa.gov/", update_frequency: "Multiple daily", coverage: "United States", data_types: ["Severe weather outlooks"] },
-            { id: "noaa_swpc_alerts", name: "NOAA SWPC Alerts", category: "Space Weather", url: "https://www.swpc.noaa.gov/", update_frequency: "Real-time", coverage: "Global", data_types: ["Geomagnetic storms"] },
-            { id: "noaa_swpc_kp", name: "NOAA SWPC Kp Index", category: "Space Weather", url: "https://www.swpc.noaa.gov/", update_frequency: "Every 3 hours", coverage: "Global", data_types: ["Kp index"] },
-            { id: "noaa_swpc_xray", name: "NOAA SWPC X-Ray Flux", category: "Space Weather", url: "https://www.swpc.noaa.gov/", update_frequency: "Every 5 minutes", coverage: "Global", data_types: ["Solar X-ray class"] },
-            { id: "noaa_swpc_solar_wind", name: "NOAA SWPC Solar Wind Plasma", category: "Space Weather", url: "https://www.swpc.noaa.gov/", update_frequency: "Every minute", coverage: "Global", data_types: ["Solar wind speed"] },
-            { id: "noaa_swpc_mag_field", name: "NOAA SWPC IMF", category: "Space Weather", url: "https://www.swpc.noaa.gov/", update_frequency: "Every minute", coverage: "Global", data_types: ["IMF Bz"] },
-            { id: "noaa_swpc_kp_forecast", name: "NOAA SWPC Kp Forecast", category: "Space Weather", url: "https://www.swpc.noaa.gov/", update_frequency: "Multiple daily", coverage: "Global", data_types: ["Kp forecast"] },
-            { id: "usgs_water", name: "USGS Water Services", category: "Flood", url: "https://waterservices.usgs.gov/", update_frequency: "Real-time", coverage: "United States", data_types: ["Stream gage heights"] },
-            { id: "openmeteo_flood", name: "Open-Meteo GloFAS", category: "Flood", url: "https://open-meteo.com/", update_frequency: "Daily", coverage: "Global", data_types: ["River discharge forecast"] },
-            { id: "usgs_volcanoes", name: "USGS Volcano Hazards", category: "Volcanic", url: "https://volcanoes.usgs.gov/", update_frequency: "Daily", coverage: "Global", data_types: ["Volcano alerts"] },
-            { id: "gdacs", name: "GDACS", category: "Multi-hazard", url: "https://www.gdacs.org/", update_frequency: "Real-time", coverage: "Global", data_types: ["Earthquakes", "Cyclones", "Floods"] },
-            { id: "nasa_eonet", name: "NASA EONET", category: "Multi-hazard", url: "https://eonet.gsfc.nasa.gov/", update_frequency: "Daily", coverage: "Global", data_types: ["Wildfires", "Storms"] },
-            { id: "openmeteo_aq", name: "Open-Meteo Air Quality", category: "Air Quality", url: "https://open-meteo.com/", update_frequency: "Hourly", coverage: "Global", data_types: ["US AQI", "PM2.5"] },
-            { id: "openmeteo_marine", name: "Open-Meteo Marine", category: "Weather", url: "https://open-meteo.com/", update_frequency: "Hourly", coverage: "Global oceans", data_types: ["Wave height"] },
-            { id: "fema", name: "FEMA", category: "Multi-hazard", url: "https://www.fema.gov/", update_frequency: "As declared", coverage: "United States", data_types: ["Disaster declarations"] },
-            { id: "nws_tsunami", name: "NWS Tsunami", category: "Tsunami", url: "https://www.tsunami.gov/", update_frequency: "Real-time", coverage: "United States", data_types: ["Tsunami alerts"] },
-            { id: "esa_sentinel1_insar", name: "ESA Sentinel-1 InSAR", category: "Ground Deformation", url: "https://search.asf.alaska.edu/", update_frequency: "Every 12 days", coverage: "Global", data_types: ["Interferograms"] },
-            { id: "esa_sentinel1_deformation", name: "Sentinel-1 Deformation Zones", category: "Ground Deformation", url: "https://land.copernicus.eu/", update_frequency: "Continuous", coverage: "Monitored zones", data_types: ["Displacement time series"] },
-            { id: "golden_mesh_baseline", name: "Golden Mesh Baseline", category: "Ground Deformation", url: "Internal", update_frequency: "On demand", coverage: "Per asset", data_types: ["Baseline mesh", "Threshold detection"] },
-            { id: "wikidata_sparql", name: "Wikidata SPARQL", category: "Dynamic Reference Data", url: "https://query.wikidata.org/", update_frequency: "Every 24 hours", coverage: "Global", data_types: ["Urban centers", "Infrastructure"] },
-            { id: "copernicus_egms", name: "Copernicus EGMS", category: "Ground Deformation", url: "https://egms.land.copernicus.eu/", update_frequency: "Every 24 hours", coverage: "Europe", data_types: ["Mean LOS velocity"] }
+            { id: "usgs_earthquakes", name: "USGS Earthquake Hazards", category: "Seismic", url: SOURCE_URLS.EARTHQUAKE_USGS_GOV, update_frequency: "Real-Time", coverage: "Global", data_types: ["Earthquakes", "Aftershocks", "Fault Data", "Shake Intensity", "Tsunami Potential"] },
+            { id: "emsc", name: "European-Mediterranean Seismological Centre", category: "Seismic", url: SOURCE_URLS.EMSC_CSEM_ORG, update_frequency: "Real-Time", coverage: "Global", data_types: ["Earthquakes", "Felt Reports"] },
+            { id: "ingv", name: "INGV Italy", category: "Seismic", url: SOURCE_URLS.TERREMOTI_INGV_IT, update_frequency: "Real-Time", coverage: "Italy and Mediterranean", data_types: ["Earthquakes"] },
+            { id: "geonet_nz", name: "GeoNet New Zealand", category: "Seismic", url: SOURCE_URLS.GEONET_ORG_NZ, update_frequency: "Real-Time", coverage: "New Zealand", data_types: ["Earthquakes", "Volcanic"] },
+            { id: "nifc", name: "NIFC Wildfires", category: "Wildfire", url: SOURCE_URLS.NIFC_GOV, update_frequency: "Daily", coverage: "United States", data_types: ["Fire Perimeters", "Containment"] },
+            { id: "noaa_nws", name: "NOAA NWS", category: "Weather", url: SOURCE_URLS.WEATHER_GOV, update_frequency: "Real-Time", coverage: "United States", data_types: ["Severe Weather Alerts"] },
+            { id: "noaa_spc", name: "NOAA SPC", category: "Weather", url: SOURCE_URLS.SPC_NOAA_GOV, update_frequency: "Multiple Daily", coverage: "United States", data_types: ["Severe Weather Outlooks"] },
+            { id: "noaa_swpc_alerts", name: "NOAA SWPC Alerts", category: "Space Weather", url: SOURCE_URLS.SWPC_NOAA_GOV, update_frequency: "Real-Time", coverage: "Global", data_types: ["Geomagnetic Storms"] },
+            { id: "noaa_swpc_kp", name: "NOAA SWPC Kp Index", category: "Space Weather", url: SOURCE_URLS.SWPC_NOAA_GOV, update_frequency: "Every 3 Hours", coverage: "Global", data_types: ["Kp Index"] },
+            { id: "noaa_swpc_xray", name: "NOAA SWPC X-Ray Flux", category: "Space Weather", url: SOURCE_URLS.SWPC_NOAA_GOV, update_frequency: "Every 5 Minutes", coverage: "Global", data_types: ["Solar X-Ray Class"] },
+            { id: "noaa_swpc_solar_wind", name: "NOAA SWPC Solar Wind Plasma", category: "Space Weather", url: SOURCE_URLS.SWPC_NOAA_GOV, update_frequency: "Every Minute", coverage: "Global", data_types: ["Solar Wind Speed"] },
+            { id: "noaa_swpc_mag_field", name: "NOAA SWPC IMF", category: "Space Weather", url: SOURCE_URLS.SWPC_NOAA_GOV, update_frequency: "Every Minute", coverage: "Global", data_types: ["IMF Bz"] },
+            { id: "noaa_swpc_kp_forecast", name: "NOAA SWPC Kp Forecast", category: "Space Weather", url: SOURCE_URLS.SWPC_NOAA_GOV, update_frequency: "Multiple Daily", coverage: "Global", data_types: ["Kp Forecast"] },
+            { id: "usgs_water", name: "USGS Water Services", category: "Flood", url: SOURCE_URLS.WATERSERVICES_USGS_GOV, update_frequency: "Real-Time", coverage: "United States", data_types: ["Stream Gage Heights"] },
+            { id: "openmeteo_flood", name: "Open-Meteo GloFAS", category: "Flood", url: SOURCE_URLS.OPEN_METEO_COM, update_frequency: "Daily", coverage: "Global", data_types: ["River Discharge Forecast"] },
+            { id: "usgs_volcanoes", name: "USGS Volcano Hazards", category: "Volcanic", url: SOURCE_URLS.VOLCANOES_USGS_GOV, update_frequency: "Daily", coverage: "Global", data_types: ["Volcano Alerts"] },
+            { id: "gdacs", name: "GDACS", category: "Multi-hazard", url: SOURCE_URLS.GDACS_ORG, update_frequency: "Real-Time", coverage: "Global", data_types: ["Earthquakes", "Cyclones", "Floods"] },
+            { id: "nasa_eonet", name: "NASA EONET", category: "Multi-hazard", url: SOURCE_URLS.EONET_GSFC_NASA_GOV, update_frequency: "Daily", coverage: "Global", data_types: ["Wildfires", "Storms"] },
+            { id: "openmeteo_aq", name: "Open-Meteo Air Quality", category: "Air Quality", url: SOURCE_URLS.OPEN_METEO_COM, update_frequency: "Hourly", coverage: "Global", data_types: ["US AQI", "PM2.5"] },
+            { id: "openmeteo_marine", name: "Open-Meteo Marine", category: "Weather", url: SOURCE_URLS.OPEN_METEO_COM, update_frequency: "Hourly", coverage: "Global Oceans", data_types: ["Wave Height"] },
+            { id: "fema", name: "FEMA", category: "Multi-hazard", url: SOURCE_URLS.FEMA_GOV, update_frequency: "As Declared", coverage: "United States", data_types: ["Disaster Declarations"] },
+            { id: "nws_tsunami", name: "NWS Tsunami", category: "Tsunami", url: SOURCE_URLS.TSUNAMI_GOV, update_frequency: "Real-Time", coverage: "United States", data_types: ["Tsunami Alerts"] },
+            { id: "gdelt_crime", name: "GDELT Crime Events", category: "Crime", url: SOURCE_URLS.GDELTPROJECT_ORG, update_frequency: "Every 15 Minutes", coverage: "Global", data_types: ["Violent Crime", "Abductions", "Bombings", "Assassinations", "Arrests"] },
+            { id: "esa_sentinel1_insar", name: "ESA Sentinel-1 InSAR", category: "Ground Deformation", url: SOURCE_URLS.SEARCH_ASF_ALASKA_EDU_3, update_frequency: "Every 12 Days", coverage: "Global", data_types: ["Interferograms"] },
+            { id: "esa_sentinel1_deformation", name: "Sentinel-1 Deformation Zones", category: "Ground Deformation", url: SOURCE_URLS.LAND_COPERNICUS_EU, update_frequency: "Continuous", coverage: "Monitored Zones", data_types: ["Displacement Time Series"] },
+            { id: "wikidata_sparql", name: "Wikidata SPARQL", category: "Dynamic Reference Data", url: SOURCE_URLS.QUERY_WIKIDATA_ORG, update_frequency: "Every 24 Hours", coverage: "Global", data_types: ["Urban Centers", "Infrastructure"] },
+            { id: "copernicus_egms", name: "Copernicus EGMS", category: "Ground Deformation", url: SOURCE_URLS.EGMS_LAND_COPERNICUS_EU, update_frequency: "Every 24 Hours", coverage: "Europe", data_types: ["Mean LOS Velocity"] }
         ],
         streaming_endpoints: [
-            { path: "/risk/intelligence/stream", method: "GET", description: "SSE stream for all risk categories with orgid scoping.", params: ["categories", "min_lat", "max_lat", "min_lng", "max_lng", "orgid", "username"] },
-            { path: "/risk/intelligence/stream/postgis/nearby", method: "GET", description: "SSE stream for nearby results with orgid scoping.", params: ["lat", "lng", "radius_km", "severity", "category", "limit", "batch_size", "orgid"] },
-            { path: "/risk/intelligence/historical", method: "GET", description: "Historical risk events within a time window with optional bbox, category, severity, and orgid filters.", params: ["start_time", "end_time", "min_lat", "max_lat", "min_lng", "max_lng", "categories", "severity", "limit", "orgid"] },
-            { path: "/risk/user/views", method: "GET/PUT/DELETE", description: "CRUD for saved map views.", params: ["orgid", "username", "view_id"] }
+            { path: "/risk/intelligence/stream", method: "GET", description: "This endpoint streams all risk categories over SSE with orgid scoping.", params: ["categories", "min_lat", "max_lat", "min_lng", "max_lng", "orgid", "username"] },
+            { path: "/risk/intelligence/stream/postgis/nearby", method: "GET", description: "This endpoint streams nearby results over SSE with orgid scoping.", params: ["lat", "lng", "radius_km", "severity", "category", "limit", "batch_size", "orgid"] },
+            { path: "/risk/user/views", method: "GET/PUT", description: "Read and save saved map views.", params: ["orgid", "username", "view_id"] }
         ]
     });
 });
 
 router.get("/risk/intelligence/dynamic-data/status", async (req, res) => {
     return res.status(200).json({
-        success: true, message: "Dynamic reference data status retrieved successfully.",
+        success: true, message: "The dynamic reference data status was retrieved successfully.",
         urban_centers: { count: dynamicStores.urban.data.length, fetched_at: dynamicStores.urban.fetched_at, currently_fetching: dynamicStores.urban.fetching, sample: dynamicStores.urban.data.slice(0, 5).map(c => ({ name: c.name, pop: c.pop, lat: c.lat, lng: c.lng })) },
         infrastructure: { count: dynamicStores.infra.data.length, fetched_at: dynamicStores.infra.fetched_at, currently_fetching: dynamicStores.infra.fetching, by_type: dynamicStores.infra.data.reduce((a, i) => { a[i.type] = (a[i.type] || 0) + 1; return a; }, {}), sample: dynamicStores.infra.data.slice(0, 5).map(i => ({ name: i.name, type: i.type, lat: i.lat, lng: i.lng })) },
         deformation_zones: { count: dynamicStores.deform.data.length, fetched_at: dynamicStores.deform.fetched_at, currently_fetching: dynamicStores.deform.fetching, by_source: dynamicStores.deform.data.reduce((a, z) => { a[z.source || "unknown"] = (a[z.source || "unknown"] || 0) + 1; return a; }, {}), sample: dynamicStores.deform.data.slice(0, 5).map(z => ({ name: z.name, lat: z.lat, lng: z.lng, rate: z.known_rate_mm_yr, source: z.source })) },
@@ -3620,25 +4678,18 @@ router.get("/risk/intelligence/dynamic-data/status", async (req, res) => {
 router.post("/risk/intelligence/dynamic-data/refresh", async (req, res) => {
     if (dynamicStores.urban.fetching || dynamicStores.infra.fetching || dynamicStores.deform.fetching) return res.status(409).json({ success: false, message: "A dynamic data refresh is already in progress." });
     refreshAllDynamicData();
-    return res.status(202).json({ success: true, message: "Dynamic reference data refresh triggered successfully." });
-});
-
-router.get("/risk/intelligence/cache/clear", async (req, res) => {
-    if (req.query.api_key !== process.env.ADMIN_API_KEY) return res.status(401).json({ success: false, message: "Unauthorized." });
-    const sz = riskCache.size;
-    riskCache.clear();
-    return res.status(200).json({ success: true, message: "Cache cleared successfully.", entries_cleared: sz });
+    return res.status(202).json({ success: true, message: "The dynamic reference data refresh was triggered successfully." });
 });
 
 router.post("/risk/intelligence/cleanup/trigger", async (req, res) => {
     if (cleanupRunning) return res.status(409).json({ success: false, message: "A cleanup cycle is already running." });
     runCleanup();
-    return res.status(202).json({ success: true, message: "Cleanup cycle triggered successfully." });
+    return res.status(202).json({ success: true, message: "The cleanup cycle was triggered successfully." });
 });
 
 router.get("/risk/intelligence/cleanup/status", async (req, res) => {
     return res.status(200).json({
-        success: true, message: "Cleanup worker status retrieved successfully.",
+        success: true, message: "The cleanup worker status was retrieved successfully.",
         currently_running: cleanupRunning, interval_seconds: CLEANUP_INTERVAL_MS / 1000,
         last_dedup_at: lastDedupAt ? new Date(lastDedupAt).toISOString() : null,
         last_analyze_at: lastAnalyzeAt ? new Date(lastAnalyzeAt).toISOString() : null,
@@ -3655,7 +4706,7 @@ router.get("/risk/intelligence/health", async (req, res) => {
     } catch (error) {}
     const results = [{ name: "PostGIS Database", status: "OK", response_time_ms: 0, cached_events: cachedEvents, pool_stats: stats }];
     return res.status(200).json({
-        success: true, message: "Health check completed.", timestamp: new Date().toISOString(),
+        success: true, message: "The health check was completed.", timestamp: new Date().toISOString(),
         node_version: process.version, cache_entries: riskCache.size, in_memory_risk_events: riskStore.size,
         ingestion_running: ingestionRunning, ingestion_interval_seconds: INGEST_TICK_MS / 1000,
         cleanup_running: cleanupRunning, cleanup_interval_seconds: CLEANUP_INTERVAL_MS / 1000,
@@ -3667,9 +4718,19 @@ router.get("/risk/intelligence/health", async (req, res) => {
     });
 });
 
-startDynamicRefresh();
-startDbFlush();
-setTimeout(() => startIngestion(), 30000);
-setTimeout(() => startCleanup(), 90000);
+setInterval(relieveMemoryPressure, MEMORY_CHECK_INTERVAL_MS);
+setInterval(purgeExpiredRisks, EXPIRY_PURGE_INTERVAL_MS);
+setTimeout(() => startIngestion(), 1500);
 
 module.exports = router;
+module.exports.archiveSince = async (since, limit) => {
+    const result = await queryWithTimeout(
+        `SELECT id, source, source_id, risk_category, severity, severity_score, title, latitude, longitude, impact_radius_km, event_time, updated_at, url, ingested_at
+         FROM risk_events_cache
+         WHERE visibility = $1 AND ingested_at > $2
+         ORDER BY ingested_at ASC
+         LIMIT $3`,
+        [VISIBILITY_PUBLIC, since ? new Date(since) : new Date(0), Math.max(1, Math.min(5000, Number(limit) || 2000))]
+    );
+    return result.rows;
+};

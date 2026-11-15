@@ -1,20 +1,20 @@
 @keyframes spin-medium {
   0% {
-    transform: rotate(0deg);
+    transform: rotate(360deg);
   }
 
   100% {
-    transform: rotate(360deg);
+    transform: rotate(0deg);
   }
 }
 
 @keyframes spin {
   0% {
-    transform: rotate(0deg);
+    transform: rotate(360deg);
   }
 
   100% {
-    transform: rotate(360deg);
+    transform: rotate(0deg);
   }
 }
 
@@ -28,20 +28,21 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #0a0c10 0%, #141820 50%, #1e242e 100%);
+  background: linear-gradient(135deg, #0a0c10 0%, #0e1116 50%, #141821 100%);
 }
 
 @media (min-width: 1300px) {
   .loading-wrapper {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
     display: flex;
     justify-content: center;
     align-items: center;
+    width: 100%;
+    height: 100%;
+    min-height: 100%; 
+    max-height: 100%; 
     gap: 1.6vw;
     z-index: 50;
+    background: linear-gradient(135deg, #0a0c10 0%, #0e1116 50%, #141821 100%);
   }
 
   .loading-circle {
@@ -49,10 +50,9 @@
     height: 3vw;
     border-radius: 50%;
     background: conic-gradient(from 0deg,
-        rgba(255, 255, 255, 1) 0deg,
-        rgba(255, 255, 255, 0) 300deg);
-    mask: radial-gradient(farthest-side, transparent 80%, black 80%);
-    -webkit-mask: radial-gradient(farthest-side, transparent 80%, black 80%);
+        rgba(78, 205, 196, 1) 0deg,
+        rgba(78, 205, 196, 0) 300deg);
+    mask: radial-gradient(farthest-side, transparent 80%, black 60%);
     animation: spin 2s linear infinite;
   }
 
@@ -61,41 +61,43 @@
     height: 1.5vw;
     border-radius: 50%;
     background: conic-gradient(from 0deg,
-        rgba(255, 255, 255, 1) 0deg,
-        rgba(255, 255, 255, 0) 300deg);
-    mask: radial-gradient(farthest-side, transparent 80%, black 80%);
-    -webkit-mask: radial-gradient(farthest-side, transparent 80%, black 80%);
+        rgba(78, 205, 196, 1) 0deg,
+        rgba(78, 205, 196, 0) 300deg);
+    mask: radial-gradient(farthest-side, transparent 80%, black 60%);
     animation: spin 1.5s linear infinite;
   }
 
+
   .loading-title {
     font-size: 2vw;
-    color: #ffffff;
+    color: #ebf0f8;
     font-weight: 600;
-    text-shadow: 0 0 1.2px white;
+    text-shadow: 0 0 1.2px rgba(78, 205, 196, 0.6);
   }
 
   .loading-title-supplement {
     font-size: 0.8vw;
-    color: #ffffff;
+    color: #ebf0f8;
     font-weight: 600;
-    text-shadow: 0 0 0.6px white;
+    text-shadow: 0 0 0.6px rgba(78, 205, 196, 0.6);
     opacity: 0.8;
-    font-style: italic;
+    font-style: normal;
   }
 }
 
 @media (min-width: 700px) and (max-width: 1299px) {
   .loading-wrapper {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
     display: flex;
     justify-content: center;
     align-items: center;
+    width: 100%;
+    height: 100%;
+    min-height: 100%; 
+    max-height: 100%; 
     gap: 1.6vw;
     z-index: 50;
+
+    background: linear-gradient(135deg, #0a0c10 0%, #0e1116 50%, #141821 100%);
   }
 
   .loading-wrapper-supplement {
@@ -113,10 +115,9 @@
     height: 3vw;
     border-radius: 50%;
     background: conic-gradient(from 0deg,
-        rgba(255, 255, 255, 1) 0deg,
-        rgba(255, 255, 255, 0) 300deg);
-    mask: radial-gradient(farthest-side, transparent 80%, black 80%);
-    -webkit-mask: radial-gradient(farthest-side, transparent 80%, black 80%);
+        rgba(78, 205, 196, 1) 0deg,
+        rgba(78, 205, 196, 0) 300deg);
+    mask: radial-gradient(farthest-side, transparent 80%, black 60%);
     animation: spin 1.5s linear infinite;
   }
 
@@ -125,42 +126,43 @@
     height: 1.5vw;
     border-radius: 50%;
     background: conic-gradient(from 0deg,
-        rgba(255, 255, 255, 1) 0deg,
-        rgba(255, 255, 255, 0) 300deg);
-    mask: radial-gradient(farthest-side, transparent 80%, black 80%);
-    -webkit-mask: radial-gradient(farthest-side, transparent 80%, black 80%);
+        rgba(78, 205, 196, 1) 0deg,
+        rgba(78, 205, 196, 0) 300deg);
+    mask: radial-gradient(farthest-side, transparent 80%, black 60%);
     animation: spin 1.5s linear infinite;
   }
 
   .loading-title {
     font-size: 2vw;
-    color: #ffffff;
+    color: #ebf0f8;
     font-weight: 600;
-    text-shadow: 0 0 1.2px white;
-    font-style: italic;
+    text-shadow: 0 0 1.2px rgba(78, 205, 196, 0.6);
+    font-style: normal;
   }
 
   .loading-title-supplement {
     font-size: 0.8vw;
-    color: #ffffff;
+    color: #ebf0f8;
     font-weight: 600;
-    text-shadow: 0 0 0.6px white;
+    text-shadow: 0 0 0.6px rgba(78, 205, 196, 0.6);
     opacity: 0.8;
-    font-style: italic;
+    font-style: normal;
   }
 }
 
 @media (min-width: 500px) and (max-width: 699px) {
   .loading-wrapper {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
     display: flex;
     justify-content: center;
     align-items: center;
+    width: 100%;
+    height: 100%;
+    min-height: 100%; 
+    max-height: 100%; 
     gap: 2.6vw;
     z-index: 50;
+
+    background: linear-gradient(135deg, #0a0c10 0%, #0e1116 50%, #141821 100%);
   }
 
   .loading-circle {
@@ -168,10 +170,9 @@
     height: 6vw;
     border-radius: 50%;
     background: conic-gradient(from 0deg,
-        rgba(255, 255, 255, 1) 0deg,
-        rgba(255, 255, 255, 0) 300deg);
-    mask: radial-gradient(farthest-side, transparent 80%, black 80%);
-    -webkit-mask: radial-gradient(farthest-side, transparent 80%, black 80%);
+        rgba(78, 205, 196, 1) 0deg,
+        rgba(78, 205, 196, 0) 300deg);
+    mask: radial-gradient(farthest-side, transparent 80%, black 60%);
     animation: spin 1.5s linear infinite;
   }
 
@@ -180,41 +181,42 @@
     height: 3vw;
     border-radius: 50%;
     background: conic-gradient(from 0deg,
-        rgba(255, 255, 255, 1) 0deg,
-        rgba(255, 255, 255, 0) 300deg);
-    mask: radial-gradient(farthest-side, transparent 80%, black 80%);
-    -webkit-mask: radial-gradient(farthest-side, transparent 80%, black 80%);
+        rgba(78, 205, 196, 1) 0deg,
+        rgba(78, 205, 196, 0) 300deg);
+    mask: radial-gradient(farthest-side, transparent 80%, black 60%);
     animation: spin 1.5s linear infinite;
   }
 
   .loading-title {
     font-size: 4vw;
-    color: #ffffff;
+    color: #ebf0f8;
     font-weight: 600;
-    text-shadow: 0 0 1px white;
+    text-shadow: 0 0 1px rgba(78, 205, 196, 0.6);
   }
 
   .loading-title-supplement {
     font-size: 1.6vw;
-    color: #ffffff;
+    color: #ebf0f8;
     font-weight: 600;
-    text-shadow: 0 0 0.6px white;
+    text-shadow: 0 0 0.6px rgba(78, 205, 196, 0.6);
     opacity: 0.8;
-    font-style: italic;
+    font-style: normal;
   }
 }
 
 @media (max-width: 499px) {
   .loading-wrapper {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
     display: flex;
     justify-content: center;
     align-items: center;
+    width: 100%;
+    height: 100%;
+    min-height: 100%; 
+    max-height: 100%; 
     gap: 2.6vw;
     z-index: 50;
+
+    background: linear-gradient(135deg, #0a0c10 0%, #0e1116 50%, #141821 100%);
   }
 
   .loading-circle {
@@ -222,10 +224,9 @@
     height: 6vw;
     border-radius: 50%;
     background: conic-gradient(from 0deg,
-        rgba(255, 255, 255, 1) 0deg,
-        rgba(255, 255, 255, 0) 300deg);
-    mask: radial-gradient(farthest-side, transparent 80%, black 80%);
-    -webkit-mask: radial-gradient(farthest-side, transparent 80%, black 80%);
+        rgba(78, 205, 196, 1) 0deg,
+        rgba(78, 205, 196, 0) 300deg);
+    mask: radial-gradient(farthest-side, transparent 80%, black 60%);
     animation: spin 1.5s linear infinite;
   }
 
@@ -234,26 +235,26 @@
     height: 3vw;
     border-radius: 50%;
     background: conic-gradient(from 0deg,
-        rgba(255, 255, 255, 1) 0deg,
-        rgba(255, 255, 255, 0) 300deg);
-    mask: radial-gradient(farthest-side, transparent 80%, black 80%);
-    -webkit-mask: radial-gradient(farthest-side, transparent 80%, black 80%);
+        rgba(78, 205, 196, 1) 0deg,
+        rgba(78, 205, 196, 0) 300deg);
+    mask: radial-gradient(farthest-side, transparent 80%, black 60%);
     animation: spin 1.5s linear infinite;
   }
 
+
   .loading-title {
     font-size: 4vw;
-    color: #ffffff;
+    color: #ebf0f8;
     font-weight: 600;
-    text-shadow: 0 0 0.2px white;
+    text-shadow: 0 0 0.2px rgba(78, 205, 196, 0.6);
   }
 
   .loading-title-supplement {
     font-size: 1.6vw;
-    color: #ffffff;
+    color: #ebf0f8;
     font-weight: 600;
-    text-shadow: 0 0 0.6px white;
+    text-shadow: 0 0 0.6px rgba(78, 205, 196, 0.6);
     opacity: 0.8;
-    font-style: italic;
+    font-style: normal;
   }
 }

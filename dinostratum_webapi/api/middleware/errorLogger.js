@@ -5,16 +5,16 @@ const errorLogger = (req, res, next) => {
     const statusCode = res.statusCode;
 
     if (statusCode >= 400) {
-      const software = "dinolabs_web_api";
+      const software = "code_web_api";
       const route = req.originalUrl || req.url;
       const message = res.statusMessage || "Error";
       const timestamp = new Date().toISOString();
       const ip_address = req.headers["x-forwarded-for"] || req.ip || req.connection.remoteAddress;
 
       const insertErrorQuery = `
-        INSERT INTO error_logs (software, route, status_code, message, timestamp, ip_address)
-        VALUES ($1, $2, $3, $4, $5, $6)
-      `;
+                INSERT INTO error_logs (software, route, status_code, message, timestamp, ip_address)
+                VALUES ($1, $2, $3, $4, $5, $6)
+            `;
 
       try {
         await pool.query(insertErrorQuery, [
@@ -23,10 +23,10 @@ const errorLogger = (req, res, next) => {
           statusCode,
           message,
           timestamp,
-          ip_address
+          ip_address,
         ]);
       } catch (dbError) {
-        console.error("Failed to write to the error logging table.", dbError);
+        console.error("Failed to write to error_logs table.", dbError);
       }
     }
   });

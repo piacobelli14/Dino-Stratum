@@ -1,25 +1,24 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faTimes, faChevronUp, faChevronDown, faChevronLeft, faChevronRight,
+  faTimes,
   faNewspaper, faVideo, faImage, faGraduationCap, faUsers,
-  faSpinner, faExternalLinkAlt,
-  faMountain, faFire, faWater, faCloud, faVolcano, faSmog, faLayerGroup,
-  faHurricane, faSatellite, faTriangleExclamation,
-  faClock, faComment, faSyncAlt,
-  faExclamationTriangle, faLink, faPlay, faEye,
-  faBrain, faChartBar, faShieldAlt, faMapMarkerAlt,
-  faCheckCircle, faTimesCircle, faInfoCircle,
-  faCrosshairs, faBullseye, faTrash, faRefresh,
-  faExclamationCircle, faPersonShelter, faKitMedical,
-  faPeopleGroup, faCubes, faRuler, faObjectGroup,
-  faBuilding, faLocationCrosshairs, faFlag, faGear,
-  faGlobe, faDatabase, faSliders, faFilter,
-  faCircleCheck, faSave, faPaperPlane
+  faSpinner, faExternalLinkAlt, faMountain, faFire, faWater,
+  faCloud, faVolcano, faSmog, faLayerGroup, faHurricane,
+  faSatellite, faTriangleExclamation, faClock, faComment, faSyncAlt,
+  faExclamationTriangle, faLink, faPlay, faEye, faBrain,
+  faChartBar, faShieldAlt, faMapMarkerAlt, faCheckCircle, faTimesCircle,
+  faInfoCircle, faCrosshairs, faBullseye, faTrash, faRefresh,
+  faExclamationCircle, faPersonShelter, faKitMedical, faPeopleGroup, faCubes,
+  faRuler, faObjectGroup, faBuilding, faLocationCrosshairs, faFlag,
+  faGear, faGlobe, faDatabase, faSliders, faFilter,
+  faCircleCheck, faSave, faPaperPlane,
+  faSquareCaretLeft, faSquareCaretRight, faSquareCaretDown, faSquareCaretUp
 } from "@fortawesome/free-solid-svg-icons";
-import "../../styles/mainStyles/Intelligence/IntelBar.css";
+import Dropdown from "../../../helpers/Dropdown.jsx";
+import "../../../styles/mainStyles/Stratum/IntelligenceBriefCenter/IntelligenceBriefCenter.css";
 
-const SEVERITY_COLORS = { Critical: "#FF6B6B", High: "#FF9500", Medium: "#FFE66D", Low: "#4ECDC4" };
+const SEVERITY_COLORS = { Critical: "#FF6B6B", High: "#FF9500", Medium: "#ffd93d", Low: "#4ECDC4" };
 
 const RISK_ICONS = {
   seismic: faMountain, wildfire: faFire, flood: faWater, weather: faCloud,
@@ -28,17 +27,17 @@ const RISK_ICONS = {
 };
 
 const SOURCE_LABELS = {
-  gdelt: { name: "GDELT", description: "Global news event database" },
-  gnews: { name: "GNews", description: "Aggregated news API" },
-  google_cse: { name: "Google CSE", description: "Custom search engine" },
-  youtube: { name: "YouTube", description: "Video search and stats" },
-  google_images: { name: "Google Images", description: "Image search via CSE" },
-  wikimedia_images: { name: "Wikimedia", description: "Commons image library" },
-  article_images: { name: "Article Images", description: "Extracted from news" },
-  semantic_scholar: { name: "Semantic Scholar", description: "Academic paper search" },
-  reddit: { name: "Reddit", description: "Social media discourse" },
-  reliefweb: { name: "ReliefWeb", description: "Humanitarian reports" },
-  wikipedia: { name: "Wikipedia", description: "Encyclopedia context" }
+  gdelt: { name: "GDELT", description: "Global News Event Database" },
+  gnews: { name: "GNews", description: "Aggregated News API" },
+  google_cse: { name: "Google CSE", description: "Custom Search Engine" },
+  youtube: { name: "YouTube", description: "Video Search And Stats" },
+  google_images: { name: "Google Images", description: "Image Search Via CSE" },
+  wikimedia_images: { name: "Wikimedia", description: "Commons Image Library" },
+  article_images: { name: "Article Images", description: "Extracted From News" },
+  semantic_scholar: { name: "Semantic Scholar", description: "Academic Paper Search" },
+  reddit: { name: "Reddit", description: "Social Media Discourse" },
+  reliefweb: { name: "ReliefWeb", description: "Humanitarian Reports" },
+  wikipedia: { name: "Wikipedia", description: "Encyclopedia Context" }
 };
 
 const TAB_CONFIG = [
@@ -53,11 +52,11 @@ const TAB_CONFIG = [
 ];
 
 const FLAG_CATEGORIES = [
-  "Inaccurate summary",
-  "Wrong location",
-  "Off-topic sources",
-  "Hallucinated content",
-  "Outdated information",
+  "Inaccurate Summary",
+  "Wrong Location",
+  "Off-Topic Sources",
+  "Hallucinated Content",
+  "Outdated Information",
   "Other"
 ];
 
@@ -79,7 +78,7 @@ function getConfidenceClass(level) {
 
 function getRelevanceColor(score) {
   if (score >= 7) return { class: "ibRelevanceHigh", color: "#4ECDC4" };
-  if (score >= 4) return { class: "ibRelevanceMed", color: "#FFE66D" };
+  if (score >= 4) return { class: "ibRelevanceMed", color: "#ffd93d" };
   return { class: "ibRelevanceLow", color: "#FF6B6B" };
 }
 
@@ -93,10 +92,10 @@ function formatRelativeTime(ts) {
   try {
     const ms = Date.now() - new Date(ts).getTime();
     const m = Math.floor(ms / 60000), h = Math.floor(ms / 3600000), d = Math.floor(ms / 86400000);
-    if (m < 1) return "just now";
-    if (m < 60) return `${m}m ago`;
-    if (h < 24) return `${h}h ago`;
-    if (d < 30) return `${d}d ago`;
+    if (m < 1) return "Just Now";
+    if (m < 60) return `${m}m Ago`;
+    if (h < 24) return `${h}h Ago`;
+    if (d < 30) return `${d}d Ago`;
     return new Date(ts).toLocaleDateString();
   } catch { return ""; }
 }
@@ -137,19 +136,65 @@ async function postJson(url, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}.`);
+  if (!res.ok) throw new Error(`The request failed with HTTP ${res.status}.`);
   return res.json();
 }
 
 async function getJson(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}.`);
+  if (!res.ok) throw new Error(`The request failed with HTTP ${res.status}.`);
   return res.json();
 }
 
-export default function IntelBar({
+const renderLoading = () => (
+  <div className="ibContentPanel">
+    <div className="ibLoadingState">
+      <div className="loading-circle" />
+    </div>
+  </div>
+);
+
+const renderError = (msg) => (
+  <div className="ibContentPanel">
+    <div className="ibErrorState">
+      <FontAwesomeIcon icon={faExclamationTriangle} />
+      <span>{msg}</span>
+    </div>
+  </div>
+);
+
+const renderEmpty = (msg) => (
+  <div className="ibContentPanel">
+    <div className="ibEmptyState">
+      <span>{msg}</span>
+    </div>
+  </div>
+);
+
+const renderSourceBundleGroup = (label, items, keyFn) => {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="ibSourceBundleGroup">
+      <div className="ibSourceBundleGroupHeader">
+        <span className="ibSourceBundleGroupTitle">{label}</span>
+        <span className="ibSourceBundleGroupCount">{items.length}</span>
+      </div>
+      {items.slice(0, 8).map((item, idx) => (
+        <div key={idx} className="ibSourceBundleItem">
+          <div className="ibSourceBundleItemTitle">
+            {item.url ? <a href={item.url} target="_blank" rel="noopener noreferrer">{truncate(item.title || item.url, 90)}</a> : truncate(item.title || "Untitled", 90)}
+          </div>
+          <div className="ibSourceBundleItemMeta">
+            {keyFn(item)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const IntelligenceBriefCenter = ({
   selectedRisk,
-  selectedAsset,
   selectedFeature,
   featureMeasurements,
   featureDetails,
@@ -160,7 +205,6 @@ export default function IntelBar({
   orgid: propOrgid,
   onClose,
   onCloseRisk,
-  onCloseAsset,
   onCloseFeature,
   onNavigateToRisk,
   onDismissExpired,
@@ -170,13 +214,13 @@ export default function IntelBar({
   onZoomToFeature,
   expandedRiskSections,
   toggleRiskSection
-}) {
+}) => {
   const orgid = propOrgid || (typeof window !== "undefined" && localStorage.getItem("orgid")) || "default_org";
   const username = propUsername || (typeof window !== "undefined" && localStorage.getItem("username")) || "default_user";
 
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState("summary");
-  const [scope, setScope] = useState("viewport");
+  const scope = "viewport";
   const [activeContext, setActiveContext] = useState(null);
 
   const [summaryData, setSummaryData] = useState(null);
@@ -187,7 +231,6 @@ export default function IntelBar({
   const [socialData, setSocialData] = useState(null);
   const [relatedData, setRelatedData] = useState(null);
   const [sourceBundle, setSourceBundle] = useState(null);
-  const [assetContext, setAssetContext] = useState(null);
 
   const [loading, setLoading] = useState({});
   const [errors, setErrors] = useState({});
@@ -258,9 +301,6 @@ export default function IntelBar({
         const data = await getJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/user-settings?${params.toString()}`);
         if (data && data.success !== false) {
           setUserSettings(data.settings);
-          if (data.settings.default_scope) {
-            setScope(data.settings.default_scope);
-          }
         }
       } catch (error) {}
     })();
@@ -278,7 +318,6 @@ export default function IntelBar({
     setSocialData(null);
     setRelatedData(null);
     setSourceBundle(null);
-    setAssetContext(null);
     setLoading({});
     setErrors({});
     setImageViewerIdx(null);
@@ -443,7 +482,6 @@ export default function IntelBar({
         if (data.research?.academic_papers) setAcademicData({ count: data.research.academic_papers.count, items: data.research.academic_papers.items });
         if (data.social?.reddit) setSocialData({ count: data.social.reddit.count, items: data.social.reddit.items });
         if (data.related_risks) setRelatedData({ count: data.related_risks.count, items: data.related_risks.items });
-        if (data.asset_context) setAssetContext(data.asset_context);
         if (data.briefing_id) setCurrentBriefingId(data.briefing_id);
       } else {
         setErrorKey("summary", data?.message || "Failed to generate intelligence briefing.");
@@ -516,16 +554,6 @@ export default function IntelBar({
     }
   }, [showSources, currentBriefingId, sourceBundle, loading.sources, fetchSourceBundle]);
 
-  const handleScopeChange = useCallback((newScope) => {
-    if (newScope === scope) return;
-    setScope(newScope);
-    scopeRef.current = newScope;
-    if (selectedRiskRef.current) {
-      resetIntelData();
-      setTimeout(() => fetchAllIntel(), 50);
-    }
-  }, [scope, resetIntelData, fetchAllIntel]);
-
   const scrollGallery = useCallback((ref, dir) => {
     if (ref.current) {
       const amount = ref.current.clientWidth * 0.8;
@@ -596,7 +624,7 @@ export default function IntelBar({
       };
       const data = await postJson(`${import.meta.env.VITE_API_BASE_URL}/risk/intel/briefing/feedback`, body);
       if (data && data.success !== false) {
-        setFeedbackResult({ success: true, message: "Feedback recorded successfully." });
+        setFeedbackResult({ success: true, message: "The feedback was recorded successfully." });
         setTimeout(() => {
           setFeedbackModalOpen(false);
           setFeedbackReason("");
@@ -637,32 +665,6 @@ export default function IntelBar({
   }, [activeContext]);
 
   const confidenceLevel = summaryData?.confidence_level || summaryData?.source_confidence?.level || null;
-
-  const renderLoading = (text) => (
-    <div className="ibContentPanel">
-      <div className="ibLoadingState">
-        <FontAwesomeIcon icon={faSpinner} spin />
-        <span>{text}</span>
-      </div>
-    </div>
-  );
-
-  const renderError = (msg) => (
-    <div className="ibContentPanel">
-      <div className="ibErrorState">
-        <FontAwesomeIcon icon={faExclamationTriangle} />
-        <span>{msg}</span>
-      </div>
-    </div>
-  );
-
-  const renderEmpty = (msg) => (
-    <div className="ibContentPanel">
-      <div className="ibEmptyState">
-        <span>{msg}</span>
-      </div>
-    </div>
-  );
 
   const renderRiskDetailsTab = () => {
     const risk = selectedRisk;
@@ -747,7 +749,7 @@ export default function IntelBar({
                 <div className="ibDetailsGrid">
                   {[
                     risk.population_impact.density && ["Density", risk.population_impact.density.replace("_", " ").toUpperCase()],
-                    risk.population_impact.estimated_population !== undefined && ["Est. Pop.", formatNumber(risk.population_impact.estimated_population)],
+                    risk.population_impact.estimated_population !== undefined && ["Estimated Population", formatNumber(risk.population_impact.estimated_population)],
                     risk.population_impact.nearest_city && ["Nearest City", risk.population_impact.nearest_city],
                     risk.population_impact.distance_km && ["Distance", `${risk.population_impact.distance_km} km`]
                   ].filter(Boolean).map(([label, value], i) => (
@@ -777,34 +779,6 @@ export default function IntelBar({
                     </div>
                   ))}
                   {Object.entries(risk.metadata).filter(([, v]) => v && typeof v === "object" && !Array.isArray(v)).map(([k, obj]) =>
-                    Object.entries(obj).filter(([, v2]) => v2 !== null && v2 !== undefined && v2 !== "" && typeof v2 !== "object").map(([k2, v2], i) => (
-                      <div key={`${k}-${i}`} className="ibDetailsGridItem">
-                        <span className="ibDetailsGridLabel">{k2.replace(/_/g, " ")}</span>
-                        <span className="ibDetailsGridValue">{String(v2)}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-          {risk.golden_mesh_detection && Object.keys(risk.golden_mesh_detection).length > 0 && (
-            <div className="ibDetailsCard ibDetailsCardWide">
-              <div className="ibDetailsCardHeader">
-                <div className="ibDetailsCardIcon ibDetailsCardIconMesh">
-                  <FontAwesomeIcon icon={faShieldAlt} />
-                </div>
-                <span className="ibDetailsCardTitle">Golden Mesh Detection</span>
-              </div>
-              <div className="ibDetailsCardBody">
-                <div className="ibDetailsGrid">
-                  {Object.entries(risk.golden_mesh_detection).filter(([, v]) => v !== null && v !== undefined && v !== "" && typeof v !== "object").map(([k, v], i) => (
-                    <div key={i} className="ibDetailsGridItem">
-                      <span className="ibDetailsGridLabel">{k.replace(/_/g, " ")}</span>
-                      <span className="ibDetailsGridValue">{String(v)}</span>
-                    </div>
-                  ))}
-                  {Object.entries(risk.golden_mesh_detection).filter(([, v]) => v && typeof v === "object" && !Array.isArray(v)).map(([k, obj]) =>
                     Object.entries(obj).filter(([, v2]) => v2 !== null && v2 !== undefined && v2 !== "" && typeof v2 !== "object").map(([k2, v2], i) => (
                       <div key={`${k}-${i}`} className="ibDetailsGridItem">
                         <span className="ibDetailsGridLabel">{k2.replace(/_/g, " ")}</span>
@@ -870,7 +844,7 @@ export default function IntelBar({
         <div className="ibDetailsHScroll" ref={scrollRefs.details}>
           <div className="ibDetailsCard ibDetailsCardOverview">
             <div className="ibDetailsCardHeader">
-              <div className="ibDetailsCardIcon" style={{ backgroundColor: "#00FFFF" }}>
+              <div className="ibDetailsCardIcon" style={{ backgroundColor: "#4ecdc4" }}>
                 <FontAwesomeIcon icon={faObjectGroup} />
               </div>
               <span className="ibDetailsCardTitle">Feature</span>
@@ -912,7 +886,7 @@ export default function IntelBar({
           {isFetchingDetails && (
             <div className="ibDetailsCard">
               <div className="ibDetailsCardBody">
-                <div className="ibLoadingState"><FontAwesomeIcon icon={faSpinner} spin /><span>Fetching details…</span></div>
+                <div className="ibLoadingState"><div className="loading-circle" /></div>
               </div>
             </div>
           )}
@@ -967,29 +941,7 @@ export default function IntelBar({
   const renderDetailsTab = () => {
     if (activeContext === "risk") return renderRiskDetailsTab();
     if (activeContext === "feature") return renderFeatureDetailsTab();
-    return renderEmpty("No selection active.");
-  };
-
-  const renderSourceBundleGroup = (label, items, keyFn) => {
-    if (!items || items.length === 0) return null;
-    return (
-      <div className="ibSourceBundleGroup">
-        <div className="ibSourceBundleGroupHeader">
-          <span className="ibSourceBundleGroupTitle">{label}</span>
-          <span className="ibSourceBundleGroupCount">{items.length}</span>
-        </div>
-        {items.slice(0, 8).map((item, idx) => (
-          <div key={idx} className="ibSourceBundleItem">
-            <div className="ibSourceBundleItemTitle">
-              {item.url ? <a href={item.url} target="_blank" rel="noopener noreferrer">{truncate(item.title || item.url, 90)}</a> : truncate(item.title || "Untitled", 90)}
-            </div>
-            <div className="ibSourceBundleItemMeta">
-              {keyFn(item)}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
+    return renderEmpty("No Selection Active");
   };
 
   const renderSourceBundleCard = () => {
@@ -1004,7 +956,7 @@ export default function IntelBar({
             <span className="ibSummaryCardTitle">Source Bundle</span>
           </div>
           <div className="ibSummaryCardScrollable">
-            <div className="ibLoadingState"><FontAwesomeIcon icon={faSpinner} spin /><span>Loading sources…</span></div>
+            <div className="ibLoadingState"><div className="loading-circle" /></div>
           </div>
         </div>
       );
@@ -1019,7 +971,7 @@ export default function IntelBar({
             <span className="ibSummaryCardTitle">Source Bundle</span>
           </div>
           <div className="ibSummaryCardScrollable">
-            <span className="ibSummaryText">Source bundle not yet available. Generate a full briefing to capture sources.</span>
+            <span className="ibSummaryText">The source bundle is not available yet. Generate a full briefing to capture sources.</span>
           </div>
         </div>
       );
@@ -1032,14 +984,14 @@ export default function IntelBar({
           </div>
           <span className="ibSummaryCardTitle">Source Bundle</span>
           <div className="ibSummaryCardHeaderRight">
-            <button className="ibIconButton" onClick={() => setShowSources(false)} title="Hide sources">
+            <button className="ibIconButton" onClick={() => setShowSources(false)} title="Hide Sources">
               <FontAwesomeIcon icon={faTimes} />
             </button>
           </div>
         </div>
         <div className="ibSummaryCardScrollable">
           <div className="ibSourceBundleSubtitle">
-            Items that informed the AI summary. Each shows provider and per-source relevance.
+            These items informed the AI summary. Each shows its provider and per-source relevance.
           </div>
           {renderSourceBundleGroup("News Articles", sourceBundle.articles, item => (
             <>
@@ -1057,7 +1009,7 @@ export default function IntelBar({
             <>
               {item.channelTitle && <span>{truncate(item.channelTitle, 24)}</span>}
               {item.publishedAt && <span>· {formatRelativeTime(item.publishedAt)}</span>}
-              {item.viewCount > 0 && <span>· {formatNumber(item.viewCount)} views</span>}
+              {item.viewCount > 0 && <span>· {formatNumber(item.viewCount)} Views</span>}
               {typeof item.relevance_score === "number" && (
                 <span className={`ibSourceBundleScore ${getRelevanceColor(item.relevance_score).class}`}>
                   {item.relevance_score}/10
@@ -1068,7 +1020,7 @@ export default function IntelBar({
           {renderSourceBundleGroup("Academic", sourceBundle.academic, item => (
             <>
               {item.year && <span>{item.year}</span>}
-              {item.citationCount > 0 && <span>· {item.citationCount} cit.</span>}
+              {item.citationCount > 0 && <span>· {item.citationCount} Citations</span>}
               {item.provider && <span>· {item.provider}</span>}
             </>
           ))}
@@ -1092,7 +1044,7 @@ export default function IntelBar({
           ))}
           {renderSourceBundleGroup("Wikipedia", sourceBundle.wikipedia, item => (
             <>
-              <span>encyclopedia</span>
+              <span>Encyclopedia</span>
               {item.provider && <span>· {item.provider}</span>}
             </>
           ))}
@@ -1121,7 +1073,7 @@ export default function IntelBar({
         </div>
         <div className="ibSummaryCardScrollable">
           <div className="ibConfidenceHeadline">
-            <span className={`ibConfidenceLevel ${getConfidenceClass(level)}`} style={{ color: level === "HIGH" ? "#4ECDC4" : level === "MEDIUM" ? "#FFE66D" : "#FF6B6B" }}>{level}</span>
+            <span className={`ibConfidenceLevel ${getConfidenceClass(level)}`} style={{ color: level === "HIGH" ? "#4ECDC4" : level === "MEDIUM" ? "#ffd93d" : "#FF6B6B" }}>{typeof level === "string" ? level.charAt(0) + level.slice(1).toLowerCase() : level}</span>
             {conf?.score !== undefined && <span className="ibConfidenceScore">Score: {conf.score}</span>}
           </div>
           {rationale && (
@@ -1162,52 +1114,10 @@ export default function IntelBar({
     );
   };
 
-  const renderAssetContextCard = () => {
-    if (scope !== "assets") return null;
-    if (!assetContext || assetContext.count === 0) {
-      return (
-        <div className="ibSummaryCard ibSummaryCardAssets">
-          <div className="ibSummaryCardHeader">
-            <div className="ibSummaryCardIcon ibSummaryCardIconAssets">
-              <FontAwesomeIcon icon={faBuilding} />
-            </div>
-            <span className="ibSummaryCardTitle">Org Assets</span>
-          </div>
-          <div className="ibSummaryCardScrollable">
-            <span className="ibSummaryText">No registered assets within this risk's impact radius. Asset-scoped briefings cross-reference the risk against your org's asset registry to highlight operational exposure. Register assets in the Assets panel to see tailored impact analysis here.</span>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="ibSummaryCard ibSummaryCardAssets">
-        <div className="ibSummaryCardHeader">
-          <div className="ibSummaryCardIcon ibSummaryCardIconAssets">
-            <FontAwesomeIcon icon={faBuilding} />
-          </div>
-          <span className="ibSummaryCardTitle">Org Assets ({assetContext.count})</span>
-        </div>
-        <div className="ibSummaryCardScrollable">
-          <span className="ibSummaryText">Assets within the impact radius. Summary is biased toward these.</span>
-          {assetContext.items.slice(0, 10).map((asset, i) => (
-            <div key={i} className="ibAssetItem">
-              <span className="ibAssetItemName">{asset.asset_name}</span>
-              <div className="ibAssetItemMeta">
-                {asset.asset_type && <span>{asset.asset_type}</span>}
-                {asset.distance_km !== null && asset.distance_km !== undefined && <span>· {asset.distance_km} km</span>}
-                {asset.criticality && <span className="ibAssetCriticality">{asset.criticality}</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   const renderSummaryTab = () => {
-    if (loading.summary || loading.full) return renderLoading("Generating AI intelligence summary…");
+    if (loading.summary || loading.full) return renderLoading();
     if (errors.summary) return renderError(errors.summary);
-    if (!summaryData) return renderEmpty("No summary available.");
+    if (!summaryData) return renderEmpty("No Summary Available");
 
     return (
       <div className="ibContentPanel">
@@ -1215,18 +1125,18 @@ export default function IntelBar({
           <div className="ibSummaryGrid">
             <div className="ibSummaryCard ibSummaryCardMain">
               <div className="ibSummaryCardHeader">
-                <div className="ibSummaryCardIcon" style={{ backgroundColor: SEVERITY_COLORS[selectedRisk?.severity] || "#FFE66D" }}>
+                <div className="ibSummaryCardIcon" style={{ backgroundColor: SEVERITY_COLORS[selectedRisk?.severity] || "#ffd93d" }}>
                   <FontAwesomeIcon icon={faBrain} />
                 </div>
                 <span className="ibSummaryCardTitle">Intelligence Summary</span>
                 <div className="ibSummaryCardHeaderRight">
-                  <button className="ibIconButton" onClick={() => setSettingsModalOpen(true)} title="Source settings">
+                  <button className="ibIconButton" onClick={() => setSettingsModalOpen(true)} title="Source Settings">
                     <FontAwesomeIcon icon={faSliders} />
                   </button>
-                  <button className="ibIconButton" onClick={() => setShowSources(prev => !prev)} title="Show sources">
+                  <button className="ibIconButton" onClick={() => setShowSources(prev => !prev)} title="Show Sources">
                     <FontAwesomeIcon icon={faDatabase} />
                   </button>
-                  <button className="ibIconButton ibIconButtonWarn" onClick={() => setFeedbackModalOpen(true)} title="Flag this briefing">
+                  <button className="ibIconButton ibIconButtonWarn" onClick={() => setFeedbackModalOpen(true)} title="Flag This Briefing">
                     <FontAwesomeIcon icon={faFlag} />
                   </button>
                 </div>
@@ -1248,7 +1158,6 @@ export default function IntelBar({
             </div>
             {renderConfidenceCard()}
             {renderSourceBundleCard()}
-            {renderAssetContextCard()}
             <div className="ibSummaryCard ibSummaryCardStats">
               <div className="ibSummaryCardHeader">
                 <div className="ibSummaryCardIcon ibSummaryCardIconStats">
@@ -1341,7 +1250,7 @@ export default function IntelBar({
   };
 
   const renderArticlesTab = () => {
-    if (loading.articles) return renderLoading("Loading news articles…");
+    if (loading.articles) return renderLoading();
     if (errors.articles) return renderError(errors.articles);
     if (!articlesData?.items?.length) return renderEmpty("No articles found for this risk event.");
 
@@ -1379,7 +1288,7 @@ export default function IntelBar({
   };
 
   const renderVideosTab = () => {
-    if (loading.videos) return renderLoading("Loading videos…");
+    if (loading.videos) return renderLoading();
     if (errors.videos) return renderError(errors.videos);
     if (!videosData?.items?.length) return renderEmpty("No videos found for this risk event.");
 
@@ -1414,7 +1323,7 @@ export default function IntelBar({
   };
 
   const renderImagesTab = () => {
-    if (loading.images) return renderLoading("Loading images…");
+    if (loading.images) return renderLoading();
     if (errors.images) return renderError(errors.images);
     if (!imagesData?.items?.length) return renderEmpty("No images found for this risk event.");
 
@@ -1439,9 +1348,9 @@ export default function IntelBar({
           <div className="ibImageViewer" onClick={() => setImageViewerIdx(null)}>
             <div className="ibImageViewerContent" onClick={error => error.stopPropagation()}>
               <button className="ibImageViewerClose" onClick={() => setImageViewerIdx(null)}><FontAwesomeIcon icon={faTimes} /></button>
-              <button className="ibImageViewerPrev" onClick={() => setImageViewerIdx(Math.max(0, imageViewerIdx - 1))} disabled={imageViewerIdx === 0}><FontAwesomeIcon icon={faChevronLeft} /></button>
+              <button className="ibImageViewerPrev" onClick={() => setImageViewerIdx(Math.max(0, imageViewerIdx - 1))} disabled={imageViewerIdx === 0}><FontAwesomeIcon icon={faSquareCaretLeft} /></button>
               <img src={imagesData.items[imageViewerIdx].url} alt="" />
-              <button className="ibImageViewerNext" onClick={() => setImageViewerIdx(Math.min(imagesData.items.length - 1, imageViewerIdx + 1))} disabled={imageViewerIdx === imagesData.items.length - 1}><FontAwesomeIcon icon={faChevronRight} /></button>
+              <button className="ibImageViewerNext" onClick={() => setImageViewerIdx(Math.min(imagesData.items.length - 1, imageViewerIdx + 1))} disabled={imageViewerIdx === imagesData.items.length - 1}><FontAwesomeIcon icon={faSquareCaretRight} /></button>
               <div className="ibImageViewerCaption">
                 <span>{imagesData.items[imageViewerIdx].title}</span>
                 {imagesData.items[imageViewerIdx].context_url && (
@@ -1456,7 +1365,7 @@ export default function IntelBar({
   };
 
   const renderAcademicTab = () => {
-    if (loading.academic) return renderLoading("Loading academic papers…");
+    if (loading.academic) return renderLoading();
     if (errors.academic) return renderError(errors.academic);
     if (!academicData?.items?.length) return renderEmpty("No academic papers found for this risk event.");
 
@@ -1470,7 +1379,7 @@ export default function IntelBar({
               {p.abstract && <div className="ibCardDesc">{truncate(p.abstract, 150)}</div>}
               <div className="ibCardMetaTags">
                 {p.year && <span className="ibCardTag">{p.year}</span>}
-                {p.citationCount > 0 && <span className="ibCardTag ibCardTagHighlight">{formatNumber(p.citationCount)} cit.</span>}
+                {p.citationCount > 0 && <span className="ibCardTag ibCardTagHighlight">{formatNumber(p.citationCount)} Citations</span>}
                 {p.doi && <span className="ibCardTag">DOI</span>}
                 {p.url && <a href={p.url} target="_blank" rel="noopener noreferrer" className="ibCardTag ibCardTagLink" onClick={error => error.stopPropagation()}><FontAwesomeIcon icon={faExternalLinkAlt} /> View Paper</a>}
               </div>
@@ -1482,7 +1391,7 @@ export default function IntelBar({
   };
 
   const renderSocialTab = () => {
-    if (loading.social) return renderLoading("Loading social media…");
+    if (loading.social) return renderLoading();
     if (errors.social) return renderError(errors.social);
     if (!socialData?.items?.length) return renderEmpty("No social media posts found for this risk event.");
 
@@ -1517,7 +1426,7 @@ export default function IntelBar({
   };
 
   const renderRelatedTab = () => {
-    if (loading.related) return renderLoading("Loading related risks…");
+    if (loading.related) return renderLoading();
     if (errors.related) return renderError(errors.related);
     if (!relatedData?.items?.length) return renderEmpty("No related risks found in the vicinity.");
 
@@ -1527,11 +1436,11 @@ export default function IntelBar({
           {relatedData.items.map((r, i) => (
             <div key={i} className="ibCard ibCardRelated" onClick={() => onNavigateToRisk?.(r)}>
               <div className="ibRelatedHeader">
-                <div className="ibRelatedIconBadge" style={{ color: SEVERITY_COLORS[r.severity] || "#FFE66D" }}>
+                <div className="ibRelatedIconBadge" style={{ color: SEVERITY_COLORS[r.severity] || "#ffd93d" }}>
                   <FontAwesomeIcon icon={getRiskIcon(r.risk_category)} />
                 </div>
                 <div className="ibRelatedHeaderRight">
-                  <span className="ibRelatedSeverityBadge" style={{ color: SEVERITY_COLORS[r.severity] || "#FFE66D" }}>{r.severity}</span>
+                  <span className="ibRelatedSeverityBadge" style={{ color: SEVERITY_COLORS[r.severity] || "#ffd93d" }}>{r.severity}</span>
                   {r.event_time && <span className="ibCardTime">{formatRelativeTime(r.event_time)}</span>}
                 </div>
               </div>
@@ -1569,7 +1478,7 @@ export default function IntelBar({
     if (activeContext === "risk" && selectedRisk) {
       return (
         <span className="ibRiskMeta">
-          <span className="ibRiskSeverity" style={{ color: SEVERITY_COLORS[selectedRisk.severity] || "#FFE66D" }}>{selectedRisk.severity}</span>
+          <span className="ibRiskSeverity" style={{ color: SEVERITY_COLORS[selectedRisk.severity] || "#ffd93d" }}>{selectedRisk.severity}</span>
           <span className="ibRiskSep">•</span>
           <span>{selectedRisk.risk_category}</span>
           <span className="ibRiskSep">•</span>
@@ -1602,9 +1511,9 @@ export default function IntelBar({
   };
 
   const getHandleBadgeColor = () => {
-    if (activeContext === "risk" && selectedRisk) return SEVERITY_COLORS[selectedRisk.severity] || "#FFE66D";
-    if (activeContext === "feature") return "#00FFFF";
-    return "#607D8B";
+    if (activeContext === "risk" && selectedRisk) return SEVERITY_COLORS[selectedRisk.severity] || "#ffd93d";
+    if (activeContext === "feature") return "#4ecdc4";
+    return "#919baf";
   };
 
   if (!hasContent) return null;
@@ -1623,17 +1532,17 @@ export default function IntelBar({
         </div>
         <div className="ibHandleRight">
           {activeContext === "risk" && confidenceLevel && (
-            <span className={`ibHandleConfidence ${getConfidenceClass(confidenceLevel)}`} title="AI confidence level">
+            <span className={`ibHandleConfidence ${getConfidenceClass(confidenceLevel)}`} title="AI Confidence Level">
               <FontAwesomeIcon icon={faShieldAlt} />
               {confidenceLevel}
             </span>
           )}
           {activeContext === "risk" && (
-            <button className="ibIconButton" onClick={error => { error.stopPropagation(); refreshTab(); }} title="Refresh current tab">
+            <button className="ibIconButton" onClick={error => { error.stopPropagation(); refreshTab(); }} title="Refresh Current Tab">
               <FontAwesomeIcon icon={faSyncAlt} spin={!!loading[activeTab]} />
             </button>
           )}
-          <FontAwesomeIcon icon={expanded ? faChevronDown : faChevronUp} className="ibToggleIcon" />
+          <FontAwesomeIcon icon={expanded ? faSquareCaretDown : faSquareCaretUp} className="ibToggleIcon" />
           <button className="ibIconButton ibIconButtonDanger" onClick={handleCloseContext} title="Close">
             <FontAwesomeIcon icon={faTimes} />
           </button>
@@ -1673,13 +1582,6 @@ export default function IntelBar({
               </button>
             </div>
             <div className="ibModalBody">
-              <div>
-                <span className="ibModalLabel">Default Scope</span>
-                <select className="ibModalSelect" value={scope} onChange={error => handleScopeChange(error.target.value)}>
-                  <option value="viewport">Viewport (everything happening here)</option>
-                  <option value="assets">My Assets (bias toward our operations)</option>
-                </select>
-              </div>
               <div>
                 <span className="ibModalLabel">Source Providers</span>
                 <div className="ibModalSettingsList">
@@ -1730,14 +1632,16 @@ export default function IntelBar({
             </div>
             <div className="ibModalBody">
               <div>
-                <span className="ibModalLabel">Category</span>
-                <select className="ibModalSelect" value={feedbackCategory} onChange={error => setFeedbackCategory(error.target.value)}>
-                  {FLAG_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <Dropdown
+                  value={feedbackCategory}
+                  onChange={(option) => setFeedbackCategory(option)}
+                  options={FLAG_CATEGORIES}
+                  placeholder="Category"
+                />
               </div>
               <div>
                 <span className="ibModalLabel">Reason</span>
-                <input className="ibModalInput" placeholder="One-line summary" value={feedbackReason} onChange={error => setFeedbackReason(error.target.value)} />
+                <input className="ibModalInput" placeholder="One-Line Summary" value={feedbackReason} onChange={error => setFeedbackReason(error.target.value)} />
               </div>
               <div>
                 <span className="ibModalLabel">Details</span>
@@ -1764,4 +1668,6 @@ export default function IntelBar({
       )}
     </div>
   );
-}
+};
+
+export default IntelligenceBriefCenter;

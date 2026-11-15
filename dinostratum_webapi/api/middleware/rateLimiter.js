@@ -3,11 +3,9 @@ const rateLimit = require("express-rate-limit");
 const rateLimiter = (minutes = null, maxAttempts, handler = null) => {
   const options = {
     max: maxAttempts,
-    message: (req) => {
-      return `Rate limit exceeded for ${req.originalUrl}. Please try again in ${minutes} minutes.`;
-    },
+    message: (req) => `Rate limit exceeded: ${req.originalUrl}. Please try again in ${minutes} minutes.`,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
   };
 
   if (minutes !== null) {
@@ -24,7 +22,7 @@ const rateLimiter = (minutes = null, maxAttempts, handler = null) => {
 const authRateLimitExceededHandler = (req, res) => {
   res.status(429).json({
     error: true,
-    message: "Rate limit exceeded for authentication. Please try again later."
+    message: "Rate limit exceeded. Please try again later.",
   });
 };
 

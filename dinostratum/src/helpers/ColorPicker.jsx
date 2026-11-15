@@ -93,7 +93,7 @@ function hsvToHsb({ h, s, v, a }) {
     return `hsb(${h.toFixed(0)}, ${s.toFixed(0)}%, ${v.toFixed(0)}%, ${a.toFixed(2)})`;
 }
 
-function DinoLabsColorPicker({ color, onChange }) {
+function ColorPicker({ color, onChange }) {
     const [hsv, setHsv] = useState({ h: 0, s: 0, v: 0, a: 1 });
     const [selectedFormat, setSelectedFormat] = useState("hex");
     const [inputValue, setInputValue] = useState("");
@@ -293,9 +293,9 @@ function DinoLabsColorPicker({ color, onChange }) {
     const { r, g, b } = hsvToRgb(hsv.h, hsv.s, hsv.v);
 
     return (
-        <div className="dinolabsColorPickerBackground">
+        <div className="pickerColorPickerBackground">
             <div
-                className="dinolabsColorPickerSaturationSquare"
+                className="pickerColorPickerSaturationSquare"
                 ref={squareRef}
                 style={{
                     background: `linear-gradient(to right, white, hsl(${hsv.h}, 100%, 50%))`
@@ -303,14 +303,14 @@ function DinoLabsColorPicker({ color, onChange }) {
                 onMouseDown={startSquareDrag}
             >
                 <div
-                    className="dinolabsColorPickerSaturationSquareGradient"
+                    className="pickerColorPickerSaturationSquareGradient"
                     style={{
                         background: "linear-gradient(to top, black, transparent)",
                         pointerEvents: "none"
                     }}
                 />
                 <div
-                    className="dinolabsSaturationSquareCursor"
+                    className="pickerSaturationSquareCursor"
                     style={{
                         left: `${hsv.s}%`,
                         top: `${100 - hsv.v}%`,
@@ -319,10 +319,10 @@ function DinoLabsColorPicker({ color, onChange }) {
                 />
             </div>
 
-            <div className="dinolabsColorSliderWrapper">
-                <div className="dinolabsColorSliderWrapperStack">
+            <div className="pickerColorSliderWrapper">
+                <div className="pickerColorSliderWrapperStack">
                     <div
-                        className="dinolabsHueSlider"
+                        className="pickerHueSlider"
                         ref={hueRef}
                         style={{
                             background: "linear-gradient(to right, red, yellow, lime, cyan, blue, magenta, red)"
@@ -330,7 +330,7 @@ function DinoLabsColorPicker({ color, onChange }) {
                         onMouseDown={startHueDrag}
                     >
                         <div
-                            className="dinolabsHueSliderCursor"
+                            className="pickerHueSliderCursor"
                             style={{
                                 left: `${(hsv.h / 360) * 100}%`
                             }}
@@ -338,7 +338,7 @@ function DinoLabsColorPicker({ color, onChange }) {
                     </div>
 
                     <div
-                        className="dinolabsHueSlider"
+                        className="pickerHueSlider"
                         ref={alphaRef}
                         style={{
                             background: `linear-gradient(to right, rgba(${r}, ${g}, ${b}, 0), rgba(${r}, ${g}, ${b}, 1))`
@@ -346,17 +346,17 @@ function DinoLabsColorPicker({ color, onChange }) {
                         onMouseDown={startAlphaDrag}
                     >
                         <div
-                            className="dinolabsHueSliderCursor"
+                            className="pickerHueSliderCursor"
                             style={{
                                 left: `${hsv.a * 100}%`
                             }}
                         />
                     </div>
 
-                    <div className="dinolabsColorFormattingFlex">
-                        <div className="dinolabsColorFormatEntryWrapper">
+                    <div className="pickerColorFormattingFlex">
+                        <div className="pickerColorFormatEntryWrapper">
                             <select
-                                className="dinolabsColorFormatSelection"
+                                className="pickerColorFormatSelection"
                                 id="formatSelect"
                                 value={selectedFormat}
                                 onChange={(e) => setSelectedFormat(e.target.value)}
@@ -369,13 +369,13 @@ function DinoLabsColorPicker({ color, onChange }) {
 
                             {selectedFormat !== "hex" ? (
                                 <input
-                                    className="dinolabsColorInputBig"
+                                    className="pickerColorInputBig"
                                     value={inputValue}
                                     onChange={(e) => handleInputChange(e.target.value)}
                                 />
                             ) : (
                                 <input
-                                    className="dinolabsColorInput"
+                                    className="pickerColorInput"
                                     value={inputValue}
                                     onChange={(e) => handleInputChange(e.target.value)}
                                 />
@@ -383,7 +383,7 @@ function DinoLabsColorPicker({ color, onChange }) {
 
                             {selectedFormat === "hex" && (
                                 <input
-                                    className="dinolabsAlphaInput"
+                                    className="pickerAlphaInput"
                                     type="text"
                                     value={alphaInputValue}
                                     onChange={(e) => handleAlphaInputChange(e.target.value)}
@@ -399,4 +399,4 @@ function DinoLabsColorPicker({ color, onChange }) {
     );
 }
 
-export default DinoLabsColorPicker;
+export default ColorPicker;
