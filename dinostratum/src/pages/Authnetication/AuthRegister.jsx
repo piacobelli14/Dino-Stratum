@@ -4,12 +4,10 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowLeft, faArrowRight, faPerson, faEyeSlash, faEye, faListUl, faMailBulk } from "@fortawesome/free-solid-svg-icons";
 import "../../styles/mainStyles/Authentication/AuthRegister.css"
 import Nav from "../../helpers/Nav";
-import useIsTouchDevice from "../../TouchDevice.jsx";
 import { color } from "echarts";
 
 const Register = () => {
     const navigate = useNavigate(); 
-    const isTouchDevice = useIsTouchDevice();
     const [isPersonal, setIsPersonal] = useState(true); 
     const [isSlug, setIsSlug] = useState(false); 
     const [isPassword, setIsPassword] = useState(false); 
@@ -287,19 +285,17 @@ const Register = () => {
         >
             <Nav activePage="sat"/>
             <div className="registerCellHeaderContainer">
-                {!isTouchDevice && (
-                    <video
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                        preload="auto"
-                        id="animatedBackgroundEarth"
-                        className="loginVideoBackground"
-                    >
-                        <source src="/LandscapeBackground.mp4" type="video/mp4" />
-                    </video>
-                )}
+                <video
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="auto"
+                    id="animatedBackgroundEarth"
+                    className="loginVideoBackground"
+                >
+                    <source src="/LandscapeBackground.mp4" type="video/mp4" />
+                </video>
 
                 <div className="registerHeroBackgroundWrapper">
                     <div className="registerHeroBackground">
@@ -311,8 +307,8 @@ const Register = () => {
                     <div className="registerGridPattern"/>
                 
                     {isSuccess ? (
-                        <div className={!isTouchDevice ? "registerBlock" : "registerBlockTouch"}>
-                             <img className={!isTouchDevice ? "registerLogo" : "registerLogoTouch"}
+                        <div className="registerBlock">
+                             <img className="registerLogo"
                                 src="./DinoStratumLogo_Text.png" 
                                 alt="" 
                                 style={{scale: "1.6"}}
@@ -352,8 +348,8 @@ const Register = () => {
                     ) : (
                         <>
                             {isPersonal && (
-                               <div className={!isTouchDevice ? "registerBlock" : "registerBlockTouch"}  style={{"paddingTop": "60px"}}>
-                                    <img className={!isTouchDevice ? "registerLogo" : "registerLogoTouch"}
+                               <div className="registerBlock"  style={{"paddingTop": "60px"}}>
+                                    <img className="registerLogo"
                                         src="./DinoStratumLogo_Text.png" 
                                         alt="" 
                                         style={{scale: "1.6"}}
@@ -399,7 +395,7 @@ const Register = () => {
 
                             {isSlug && (
                                 <div className="registerBlock">
-                                    <img className={!isTouchDevice ? "loginLogo" : "loginLogoTouch"}
+                                    <img className="loginLogo"
                                         src="./DinoStratumLogo_Text.png" 
                                         alt="" 
                                         style={{scale: "1.4"}}
@@ -437,7 +433,7 @@ const Register = () => {
 
                             {isPassword && (
                                 <div className="registerBlock">
-                                    <img className={!isTouchDevice ? "loginLogo" : "loginLogoTouch"}
+                                    <img className="loginLogo"
                                         src="./DinoStratumLogo_Text.png" 
                                         alt="" 
                                         style={{scale: "1.4"}}

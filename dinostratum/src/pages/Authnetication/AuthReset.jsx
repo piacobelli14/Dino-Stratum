@@ -4,12 +4,10 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowLeft, faArrowRight, faEye, faEyeSlash, faPerson, faIdCard } from "@fortawesome/free-solid-svg-icons";
 import "../../styles/mainStyles/Authentication/AuthReset.css"
 import Nav from "../../helpers/Nav";
-import useIsTouchDevice from "../../TouchDevice.jsx";
 
 
 const Reset = () => {
     const navigate = useNavigate(); 
-    const isTouchDevice = useIsTouchDevice();
     const [isEmail, setIsEmail] = useState(true); 
     const [isCode, setIsCode] = useState(false);
     const [isReset, setIsReset] = useState(false); 
@@ -147,19 +145,17 @@ const Reset = () => {
         >
             <Nav activePage="sat"/>
             <div className="resetCellHeaderContainer"> 
-                {!isTouchDevice && (
-                    <video
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                        preload="auto"
-                        id="animatedBackgroundEarth"
-                        className="loginVideoBackground"
-                    >
-                        <source src="/LandscapeBackground.mp4" type="video/mp4" />
-                    </video>
-                )}
+                <video
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="auto"
+                    id="animatedBackgroundEarth"
+                    className="loginVideoBackground"
+                >
+                    <source src="/LandscapeBackground.mp4" type="video/mp4" />
+                </video>
 
                 <div className="resetHeroBackgroundWrapper">
                     <div className="resetHeroBackground">
@@ -170,7 +166,7 @@ const Reset = () => {
 
                     <div className="resetGridPattern"/>
 
-                    <div className={!isTouchDevice ? "resetBlock" : "resetBlockTouch"}> 
+                    <div className="resetBlock"> 
                         <img
                             className="loginLogo"
                             src="./DinoStratumLogo_Text.png"

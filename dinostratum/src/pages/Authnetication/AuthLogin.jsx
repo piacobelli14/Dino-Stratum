@@ -14,12 +14,10 @@ import {
 import "../../styles/mainStyles/Authentication/AuthLogin.css";
 import "../../styles/mainStyles/Authentication/AuthVerifyEmail.css";
 import Nav from "../../helpers/Nav";
-import useIsTouchDevice from "../../TouchDevice.jsx";
 import useAuth from "../../UseAuth.jsx";
 
 const Login = () => {
     const navigate = useNavigate();
-    const isTouchDevice = useIsTouchDevice();
     const { setToken } = useAuth();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -112,7 +110,6 @@ const Login = () => {
 
             <Nav activePage="sat" />
             <div className="loginCellHeaderContainer">
-                {!isTouchDevice && (
                 <video
                     autoPlay
                     muted
@@ -124,7 +121,6 @@ const Login = () => {
                 >
                     <source src="/LandscapeBackground.mp4" type="video/mp4" />
                 </video>
-                )}
 
                 <div className="loginHeroBackgroundWrapper">
                     <div className="loginHeroBackground">
@@ -135,9 +131,9 @@ const Login = () => {
 
                     <div className="loginGridPattern"/>
 
-                    <div className={!isTouchDevice ? "loginBlock" : "loginBlockTouch"} style={{"backgroundColor": "rgba(255, 255, 255, 0.0)"}}>
+                    <div className="loginBlock" style={{"backgroundColor": "rgba(255, 255, 255, 0.0)"}}>
                         <img
-                            className={!isTouchDevice ? "loginLogo" : "loginLogoTouch"}
+                            className="loginLogo"
                             src="./DinoStratumLogo_Text.png"
                             alt=""
                             style={{scale: "1.4"}}
