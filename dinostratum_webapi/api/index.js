@@ -8,6 +8,7 @@ const errorLogger = require("./middleware/errorLogger");
 const stratumAreas = require("./routes/stratum/areas");
 const stratumIntel = require("./routes/stratum/intel");
 const stratumRisk = require("./routes/stratum/risk");
+const stratumLanding = require("./routes/stratum/landing");
 
 const harvester = require("./harvester");
 
@@ -46,6 +47,7 @@ app.use(bodyParser.json({ limit: "10mb" }));
 app.use("/", stratumAreas);
 app.use("/", stratumIntel);
 app.use("/", stratumRisk); 
+app.use("/", stratumLanding);
 
 app.use("/", harvester.router);
 

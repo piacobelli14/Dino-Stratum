@@ -1,0 +1,361 @@
+.landingPage {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #08090c;
+  color: #ebf0f8;
+  font-family: Inter, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.landingPage *,
+.landingPage *::before,
+.landingPage *::after {
+  box-sizing: border-box;
+}
+
+.landingScene {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.landingViewer {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: #08090c;
+  overflow: hidden;
+}
+
+.landingCopy {
+  position: absolute;
+  top: 0;
+  bottom: calc(72px + 1rem);
+  left: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.4rem;
+  padding: 0 0 0 clamp(1.5rem, 4vw, 4rem);
+  background: linear-gradient(90deg, #08090c 0%, rgba(8, 9, 12, 0.82) 62%, rgba(8, 9, 12, 0) 100%);
+  pointer-events: none;
+}
+
+.landingCopy button {
+  pointer-events: auto;
+}
+
+.landingHeadline {
+  margin: 0;
+  color: #ebf0f8;
+  font-size: clamp(2rem, 3.6vw, 3.4rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+}
+
+.landingHeadlineAccent {
+  display: block;
+  color: #4ecdc4;
+}
+
+.landingLead {
+  max-width: 30rem;
+  margin: 0;
+  color: #cdd4e4;
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.landingActions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.landingPage button.landingButton {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  height: 42px;
+  padding: 0 1.1rem;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.landingPage button.landingButton.landingButtonSolid {
+  background: #4ecdc4;
+  border-color: #4ecdc4;
+  color: #08090c;
+}
+
+.landingPage button.landingButton.landingButtonSolid:hover {
+  background: #6fe0d8;
+  border-color: #6fe0d8;
+}
+
+.landingPage button.landingButton.landingButtonGhost {
+  background: #08090c;
+  color: #cdd4e4;
+}
+
+.landingPage button.landingButton.landingButtonGhost:hover,
+.landingPage button.landingButton.landingButtonGhost.landingButtonOn {
+  border-color: #4ecdc4;
+  color: #4ecdc4;
+}
+
+.landingStats {
+  display: flex;
+  align-items: flex-start;
+  gap: clamp(1rem, 2.2vw, 2.2rem);
+  margin-top: 0.4rem;
+}
+
+.landingStat {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.landingStatValue {
+  color: #ebf0f8;
+  font-size: clamp(1.2rem, 1.9vw, 1.9rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.landingStatLabel {
+  color: #919baf;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.landingUpdated {
+  color: #4ecdc4;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.landingDock {
+  position: relative;
+  z-index: 26;
+  display: flex;
+  flex-shrink: 0;
+  height: 72px;
+  margin: 0 1rem 1rem;
+  background: #0b0c0f;
+  border: 2px solid #3d4354;
+  border-radius: 8px;
+  overflow-x: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.landingDock::-webkit-scrollbar {
+  display: none;
+}
+
+.landingPage button.landingDockTab {
+  display: flex;
+  flex: 1 0 190px;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 0 clamp(0.9rem, 1.6vw, 1.6rem);
+  background: transparent;
+  border: 0;
+  border-right: 2px solid #23262f;
+  border-radius: 0;
+  box-shadow: inset 0 3px 0 transparent;
+  outline: none;
+  color: #919baf;
+  font-family: inherit;
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.landingPage button.landingDockTab:last-child {
+  border-right: 0;
+}
+
+.landingPage button.landingDockTab:hover {
+  background: rgba(78, 205, 196, 0.06);
+  color: #ebf0f8;
+}
+
+.landingPage button.landingDockTab.landingDockTabActive {
+  background: rgba(78, 205, 196, 0.12);
+  box-shadow: inset 0 3px 0 #4ecdc4;
+  color: #4ecdc4;
+}
+
+.landingDockLabel {
+  flex: 1;
+  min-width: 0;
+  color: #cdd4e4;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.landingDockTabActive .landingDockLabel {
+  color: #ebf0f8;
+}
+
+.landingDockCount {
+  flex-shrink: 0;
+  color: #ebf0f8;
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.landingDockTabActive .landingDockCount {
+  color: #4ecdc4;
+}
+
+.landingMapWrapper {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.landingViewerOverlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  pointer-events: none;
+}
+
+.landingErrorBox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 460px;
+  padding: 10px 14px;
+  background: rgba(255, 107, 107, 0.08);
+  border: 2px solid rgba(255, 107, 107, 0.35);
+  border-left: 4px solid #ff6b6b;
+  border-radius: 8px;
+  color: #ff6b6b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.landingErrorBox svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.landingTooltip {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 240px;
+  padding: 8px 10px;
+  background: #0b0c0f;
+  border: 2px solid #3d4354;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.landingTooltipTitle {
+  color: #ebf0f8;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.landingTooltipLine {
+  color: #aab4c8;
+  font-size: 0.62rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 999px) {
+  .landingCopy {
+    right: 0;
+    bottom: auto;
+    justify-content: flex-start;
+    gap: 0.8rem;
+    padding: 1rem;
+    background: linear-gradient(180deg, #08090c 0%, rgba(8, 9, 12, 0.82) 70%, rgba(8, 9, 12, 0) 100%);
+  }
+
+  .landingHeadline {
+    font-size: 1.5rem;
+  }
+
+  .landingHeadlineAccent {
+    display: inline;
+  }
+
+  .landingLead,
+  .landingStats,
+  .landingUpdated {
+    display: none;
+  }
+
+  .landingPage button.landingButton {
+    height: 36px;
+    padding: 0 0.8rem;
+    font-size: 0.68rem;
+  }
+}

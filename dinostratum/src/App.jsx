@@ -1,9 +1,10 @@
-import { BrowserRouter as Router, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./ProtectedRoute";
 
 import { useEffect, useState } from "react";
 import "./styles/App.css";
 
+import Landing from "./pages/Landing.jsx";
 import Login from "./pages/Authnetication/AuthLogin.jsx";
 import Register from "./pages/Authnetication/AuthRegister.jsx";
 import Reset from "./pages/Authnetication/AuthReset.jsx";
@@ -33,6 +34,7 @@ function App() {
     <Router>
       <div className={`App ${osClass}`}>
         <Routes>
+          <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/reset" element={<Reset />} />
@@ -54,8 +56,6 @@ function App() {
               <RiskCommandCenter />
             </ProtectedRoute>
           } />
-
-          <Route index element={<Navigate to="/login" replace />} />
         </Routes>
       </div>
     </Router>
