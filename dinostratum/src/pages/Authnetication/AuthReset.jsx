@@ -169,7 +169,7 @@ const Reset = () => {
                     <div className="resetBlock"> 
                         <img
                             className="loginLogo"
-                            src="./DinoStratumLogo_Text.png"
+                            src="./DinoStratumLogo.png"
                             alt=""
                             style={{scale: "1.4"}}
                         />

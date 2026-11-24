@@ -134,7 +134,7 @@ const Login = () => {
                     <div className="loginBlock" style={{"backgroundColor": "rgba(255, 255, 255, 0.0)"}}>
                         <img
                             className="loginLogo"
-                            src="./DinoStratumLogo_Text.png"
+                            src="./DinoStratumLogo.png"
                             alt=""
                             style={{scale: "1.4"}}
                         />

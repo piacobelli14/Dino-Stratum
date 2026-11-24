@@ -309,7 +309,7 @@ const Register = () => {
                     {isSuccess ? (
                         <div className="registerBlock">
                              <img className="registerLogo"
-                                src="./DinoStratumLogo_Text.png" 
+                                src="./DinoStratumLogo.png" 
                                 alt="" 
                                 style={{scale: "1.6"}}
                             />
@@ -350,7 +350,7 @@ const Register = () => {
                             {isPersonal && (
                                <div className="registerBlock"  style={{"paddingTop": "60px"}}>
                                     <img className="registerLogo"
-                                        src="./DinoStratumLogo_Text.png" 
+                                        src="./DinoStratumLogo.png" 
                                         alt="" 
                                         style={{scale: "1.6"}}
                                     />
@@ -396,7 +396,7 @@ const Register = () => {
                             {isSlug && (
                                 <div className="registerBlock">
                                     <img className="loginLogo"
-                                        src="./DinoStratumLogo_Text.png" 
+                                        src="./DinoStratumLogo.png" 
                                         alt="" 
                                         style={{scale: "1.4"}}
                                     />
@@ -434,7 +434,7 @@ const Register = () => {
                             {isPassword && (
                                 <div className="registerBlock">
                                     <img className="loginLogo"
-                                        src="./DinoStratumLogo_Text.png" 
+                                        src="./DinoStratumLogo.png" 
                                         alt="" 
                                         style={{scale: "1.4"}}
                                     />
