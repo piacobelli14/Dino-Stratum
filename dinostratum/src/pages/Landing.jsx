@@ -12,6 +12,7 @@ import useAuth from "../UseAuth.jsx";
 import "../styles/mainStyles/Sat/Trackers/WeatherTracker/WeatherTracker.css";
 import "../styles/mainStyles/Landing.css";
 import "../styles/helperStyles/LoadingSpinner.css";
+import "../styles/helperStyles/Tooltip.css";
 
 const SOURCES = {
   apiBase: import.meta.env.VITE_API_BASE_URL,
