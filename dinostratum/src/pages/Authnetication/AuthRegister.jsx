@@ -311,7 +311,7 @@ const Register = () => {
                              <img className="registerLogo"
                                 src="./DinoStratumLogo.png" 
                                 alt="" 
-                                style={{scale: "1.6"}}
+                                style={{scale: "1"}}
                             />
                             <div className="unverifiedEmailCell" >
                                 <FontAwesomeIcon
@@ -352,7 +352,7 @@ const Register = () => {
                                     <img className="registerLogo"
                                         src="./DinoStratumLogo.png" 
                                         alt="" 
-                                        style={{scale: "1.6"}}
+                                        style={{scale: "1"}}
                                     />
                                     
                                     <div className="registerInputFlex">
@@ -398,7 +398,7 @@ const Register = () => {
                                     <img className="loginLogo"
                                         src="./DinoStratumLogo.png" 
                                         alt="" 
-                                        style={{scale: "1.4"}}
+                                        style={{scale: "1"}}
                                     />
                                     <div className="registerInputFlex">
                                         <input
@@ -436,7 +436,7 @@ const Register = () => {
                                     <img className="loginLogo"
                                         src="./DinoStratumLogo.png" 
                                         alt="" 
-                                        style={{scale: "1.4"}}
+                                        style={{scale: "1"}}
                                     />
 
                                     <div className="passwordInputFlex"> 

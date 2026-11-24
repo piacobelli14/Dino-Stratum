@@ -136,7 +136,7 @@ const Login = () => {
                             className="loginLogo"
                             src="./DinoStratumLogo.png"
                             alt=""
-                            style={{scale: "1.4"}}
+                            style={{scale: "1"}}
                         />
 
                         <div className="loginInputWrapper">
